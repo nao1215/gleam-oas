@@ -34,13 +34,13 @@ jobs:
         run: gleam run -m gleescript
 
       - name: Verify binary works
-        run: ./oas_gleam --help
+        run: ./oaspec --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: oas_gleam
-          path: oas_gleam
+          name: oaspec
+          path: oaspec
 
   publish:
     name: Publish to Hex
@@ -78,10 +78,10 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v8
         with:
-          name: oas_gleam
+          name: oaspec
 
       - name: Make binary executable
-        run: chmod +x oas_gleam
+        run: chmod +x oaspec
 
       - name: Extract tag name
         id: tag
@@ -133,14 +133,14 @@ jobs:
 
             ## Install
 
-            Download the `oas_gleam` escript binary below and place it on your PATH.
+            Download the `oaspec` escript binary below and place it on your PATH.
             Requires Erlang/OTP runtime.
 
             ```sh
-            chmod +x oas_gleam
-            ./oas_gleam generate --config=oas-gleam.yaml
+            chmod +x oaspec
+            ./oaspec generate --config=oaspec.yaml
             ```
-          files: oas_gleam
+          files: oaspec
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.TAG_NAME, '-alpha') || contains(steps.tag.outputs.TAG_NAME, '-beta') || contains(steps.tag.outputs.TAG_NAME, '-rc') }}
           generate_release_notes: false

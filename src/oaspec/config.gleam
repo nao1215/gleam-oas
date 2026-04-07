@@ -3,7 +3,7 @@ import gleam/result
 import simplifile
 import yay
 
-/// Configuration for oas-gleam code generation.
+/// Configuration for oaspec code generation.
 pub type Config {
   Config(
     input: String,

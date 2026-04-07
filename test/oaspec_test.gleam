@@ -4,13 +4,13 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit
 import gleeunit/should
-import oas_gleam/codegen/context
-import oas_gleam/codegen/validate
-import oas_gleam/config
-import oas_gleam/openapi/parser
-import oas_gleam/openapi/resolver
-import oas_gleam/openapi/schema
-import oas_gleam/util/naming
+import oaspec/codegen/context
+import oaspec/codegen/validate
+import oaspec/config
+import oaspec/openapi/parser
+import oaspec/openapi/resolver
+import oaspec/openapi/schema
+import oaspec/util/naming
 
 pub fn main() {
   gleeunit.main()
@@ -51,7 +51,7 @@ pub fn capitalize_test() {
 // --- Config Tests ---
 
 pub fn load_config_test() {
-  let assert Ok(cfg) = config.load("test/fixtures/oas-gleam.yaml")
+  let assert Ok(cfg) = config.load("test/fixtures/oaspec.yaml")
   cfg.input |> should.equal("test/fixtures/petstore.yaml")
   cfg.output_server |> should.equal("./test_output/server")
   cfg.output_client |> should.equal("./test_output/client")

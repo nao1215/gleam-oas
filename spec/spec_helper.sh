@@ -15,7 +15,7 @@ export PROJECT_ROOT
 TEST_OUTPUT_DIR="${PROJECT_ROOT}/test_output"
 export TEST_OUTPUT_DIR
 
-# Helper: run oas-gleam generate command
+# Helper: run oaspec generate command
 generate() {
   cd "$PROJECT_ROOT" && gleam run -- generate "$@" 2>&1
 }
@@ -28,13 +28,13 @@ clean_test_output() {
 # Helper: generate petstore once (idempotent)
 generate_petstore_once() {
   if [ ! -f "$TEST_OUTPUT_DIR/server/types.gleam" ]; then
-    cd "$PROJECT_ROOT" && gleam run -- generate --config=test/fixtures/oas-gleam.yaml 2>/dev/null
+    cd "$PROJECT_ROOT" && gleam run -- generate --config=test/fixtures/oaspec.yaml 2>/dev/null
   fi
 }
 
 # Helper: generate complex supported spec once (idempotent)
 generate_complex_supported_once() {
   if [ ! -f "$TEST_OUTPUT_DIR/complex_server/types.gleam" ]; then
-    cd "$PROJECT_ROOT" && gleam run -- generate --config=test/fixtures/complex-supported-oas-gleam.yaml 2>/dev/null
+    cd "$PROJECT_ROOT" && gleam run -- generate --config=test/fixtures/complex-supported-oaspec.yaml 2>/dev/null
   fi
 }

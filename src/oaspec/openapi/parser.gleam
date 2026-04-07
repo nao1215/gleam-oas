@@ -3,12 +3,12 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import oas_gleam/openapi/schema.{
+import oaspec/openapi/schema.{
   type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
   AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
   NumberSchema, ObjectSchema, OneOfSchema, Reference, StringSchema,
 }
-import oas_gleam/openapi/spec.{
+import oaspec/openapi/spec.{
   type Components, type HttpMethod, type Info, type MediaType, type OpenApiSpec,
   type Operation, type Parameter, type ParameterIn, type PathItem,
   type RequestBody, type Response, type Server, Components, Delete, Get, Info,

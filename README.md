@@ -1,10 +1,10 @@
-# oas-gleam
+# oaspec
 
-[![CI](https://github.com/nao1215/gleam-oas/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/gleam-oas/actions/workflows/ci.yml)
-[![Integration Tests](https://github.com/nao1215/gleam-oas/actions/workflows/integration.yml/badge.svg)](https://github.com/nao1215/gleam-oas/actions/workflows/integration.yml)
+[![CI](https://github.com/nao1215/oaspec/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/oaspec/actions/workflows/ci.yml)
+[![Integration Tests](https://github.com/nao1215/oaspec/actions/workflows/integration.yml/badge.svg)](https://github.com/nao1215/oaspec/actions/workflows/integration.yml)
 
 > [!IMPORTANT]
-> Not fully supporting the entire OpenAPI 3.x specification, oas-gleam can only perform limited code generation at this stage. Support will be expanded incrementally.
+> Not fully supporting the entire OpenAPI 3.x specification, oaspec can only perform limited code generation at this stage. Support will be expanded incrementally.
 
 Generate strongly typed Gleam code from OpenAPI 3.x specifications.
 
@@ -19,13 +19,13 @@ Generate strongly typed Gleam code from OpenAPI 3.x specifications.
 
 ### From GitHub Release (recommended)
 
-Download the `oas_gleam` escript binary from the [Releases](https://github.com/nao1215/gleam-oas/releases) page. Requires Erlang/OTP 27+ runtime.
+Download the `oaspec` escript binary from the [Releases](https://github.com/nao1215/oaspec/releases) page. Requires Erlang/OTP 27+ runtime.
 
 ```sh
 # Download (replace URL with the latest release)
-curl -fSL -o oas_gleam https://github.com/nao1215/gleam-oas/releases/latest/download/oas_gleam
-chmod +x oas_gleam
-sudo mv oas_gleam /usr/local/bin/
+curl -fSL -o oaspec https://github.com/nao1215/oaspec/releases/latest/download/oaspec
+chmod +x oaspec
+sudo mv oaspec /usr/local/bin/
 ```
 
 ### From source
@@ -33,11 +33,11 @@ sudo mv oas_gleam /usr/local/bin/
 Requires Gleam 1.15+, Erlang/OTP 27+, and rebar3.
 
 ```sh
-git clone https://github.com/nao1215/oas-gleam.git
-cd oas-gleam
+git clone https://github.com/nao1215/oaspec.git
+cd oaspec
 gleam deps download
-gleam run -m gleescript    # produces ./oas_gleam escript binary
-sudo mv oas_gleam /usr/local/bin/
+gleam run -m gleescript    # produces ./oaspec escript binary
+sudo mv oaspec /usr/local/bin/
 ```
 
 ## Usage
@@ -45,10 +45,10 @@ sudo mv oas_gleam /usr/local/bin/
 ### 1. Create a config file
 
 ```sh
-oas_gleam init
+oaspec init
 ```
 
-This creates `oas-gleam.yaml` with a commented template. Edit it for your project:
+This creates `oaspec.yaml` with a commented template. Edit it for your project:
 
 ```yaml
 input: openapi.yaml
@@ -73,18 +73,18 @@ The directory basename must match `package` so that Gleam imports (`import my_ap
 ### 2. Run the generator
 
 ```sh
-oas_gleam generate --config=oas-gleam.yaml
+oaspec generate --config=oaspec.yaml
 ```
 
 Options:
 
 ```
---config=<path>   Path to config file (default: ./oas-gleam.yaml)
+--config=<path>   Path to config file (default: ./oaspec.yaml)
 --mode=<mode>     server, client, or both (default: both)
 --output=<path>   Override output base directory
 ```
 
-When developing oas-gleam itself, you can also run via `gleam run -- generate --config=oas-gleam.yaml`.
+When developing oaspec itself, you can also run via `gleam run -- generate --config=oaspec.yaml`.
 
 ### 3. Generated output
 
@@ -111,7 +111,7 @@ gen/my_api_client/          # client
 
 ## Generated code examples
 
-Given a Petstore OpenAPI spec, oas-gleam generates:
+Given a Petstore OpenAPI spec, oaspec generates:
 
 ### Types
 

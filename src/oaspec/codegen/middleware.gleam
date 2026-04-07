@@ -1,7 +1,7 @@
-import oas_gleam/codegen/context.{
+import oaspec/codegen/context.{
   type Context, type GeneratedFile, GeneratedFile,
 }
-import oas_gleam/util/string_extra as se
+import oaspec/util/string_extra as se
 
 /// Generate middleware module.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {

@@ -1,6 +1,6 @@
 import argv
 import glint
-import oas_gleam/cli
+import oaspec/cli
 
 pub fn main() {
   cli.app()

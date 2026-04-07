@@ -1,16 +1,16 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import oas_gleam/codegen/context.{
+import oaspec/codegen/context.{
   type Context, type GeneratedFile, GeneratedFile,
 }
-import oas_gleam/openapi/resolver
-import oas_gleam/openapi/schema.{
+import oaspec/openapi/resolver
+import oaspec/openapi/schema.{
   type SchemaRef, ArraySchema, BooleanSchema, Inline, IntegerSchema,
   NumberSchema, ObjectSchema, Reference, StringSchema,
 }
-import oas_gleam/util/naming
-import oas_gleam/util/string_extra as se
+import oaspec/util/naming
+import oaspec/util/string_extra as se
 
 /// Generate decoder and encoder modules.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {

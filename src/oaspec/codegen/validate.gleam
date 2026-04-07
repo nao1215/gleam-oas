@@ -1,13 +1,13 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import oas_gleam/codegen/context.{type Context}
-import oas_gleam/codegen/types as type_gen
-import oas_gleam/openapi/schema.{
+import oaspec/codegen/context.{type Context}
+import oaspec/codegen/types as type_gen
+import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AnyOfSchema, BooleanSchema, Inline,
   IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
 }
-import oas_gleam/openapi/spec
+import oaspec/openapi/spec
 
 /// A validation error representing an unsupported OpenAPI feature.
 pub type ValidationError {

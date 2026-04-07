@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Rename package from `gleam_oas` to `oas_gleam` to avoid Hex `gleam_` prefix restriction
-- Rename CLI binary from `gleam_oas` to `oas_gleam`
-- Rename config file from `gleam-oas.yaml` to `oas-gleam.yaml`
+- Rename package from `gleam_oas` to `oaspec` to avoid Hex `gleam_` prefix restriction
+- Rename CLI binary from `gleam_oas` to `oaspec`
+- Rename config file from `oaspec.yaml` to `oaspec.yaml`
 
 ## [0.1.1] - 2026-04-08
 
@@ -28,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 #### CLI
-- `oas_gleam generate` command with `--config`, `--mode`, `--output` flags
-- `oas_gleam init` command to scaffold `oas-gleam.yaml` config template
+- `oaspec generate` command with `--config`, `--mode`, `--output` flags
+- `oaspec init` command to scaffold `oaspec.yaml` config template
 - Config file support with `input`, `package`, `mode`, and `output.dir`/`output.server`/`output.client`
 - escript binary distribution via gleescript
 - GitHub Actions release workflow: tag push builds escript and attaches to GitHub Release

@@ -2,18 +2,18 @@ import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import oas_gleam/codegen/context.{
+import oaspec/codegen/context.{
   type Context, type GeneratedFile, GeneratedFile,
 }
-import oas_gleam/openapi/resolver
-import oas_gleam/openapi/schema.{
+import oaspec/openapi/resolver
+import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
   Reference, StringSchema,
 }
-import oas_gleam/openapi/spec
-import oas_gleam/util/naming
-import oas_gleam/util/string_extra as se
+import oaspec/openapi/spec
+import oaspec/util/naming
+import oaspec/util/string_extra as se
 
 /// Generate type definitions from OpenAPI schemas.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {

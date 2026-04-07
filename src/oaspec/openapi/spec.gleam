@@ -1,6 +1,6 @@
 import gleam/dict.{type Dict}
 import gleam/option.{type Option}
-import oas_gleam/openapi/schema.{type SchemaRef}
+import oaspec/openapi/schema.{type SchemaRef}
 
 /// Top-level OpenAPI 3.x specification.
 pub type OpenApiSpec {

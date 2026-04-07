@@ -1,15 +1,15 @@
 import gleam/list
 import gleam/option.{Some}
 import gleam/string
-import oas_gleam/codegen/context.{
+import oaspec/codegen/context.{
   type Context, type GeneratedFile, GeneratedFile,
 }
-import oas_gleam/codegen/types as type_gen
-import oas_gleam/openapi/resolver
-import oas_gleam/openapi/schema.{Inline, IntegerSchema, Reference, StringSchema}
-import oas_gleam/openapi/spec
-import oas_gleam/util/naming
-import oas_gleam/util/string_extra as se
+import oaspec/codegen/types as type_gen
+import oaspec/openapi/resolver
+import oaspec/openapi/schema.{Inline, IntegerSchema, Reference, StringSchema}
+import oaspec/openapi/spec
+import oaspec/util/naming
+import oaspec/util/string_extra as se
 
 /// Generate client SDK files.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
