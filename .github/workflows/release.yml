@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build escript
+    name: Build and verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install rebar3
         run: |
-          wget https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
+          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
           chmod +x /usr/local/bin/rebar3
 
       - run: gleam deps download
@@ -41,6 +41,29 @@ jobs:
         with:
           name: gleam_oas
           path: gleam_oas
+
+  publish:
+    name: Publish to Hex
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.15"
+
+      - name: Install rebar3
+        run: |
+          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - run: gleam deps download
+      - run: gleam build
+      - run: gleam publish -y
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
 
   release:
     name: Create GitHub Release
@@ -72,7 +95,6 @@ jobs:
 
           CHANGELOG_FILE="changelog_content.md"
 
-          # Extract content between the current version and the next version header
           awk -v ver="$TAG_WITHOUT_V" '
             BEGIN { found = 0; }
             $0 ~ "^#{2,3} \\[?" ver "\\]?" { found = 1; next; }
@@ -80,7 +102,6 @@ jobs:
             found { print; }
           ' CHANGELOG.md > "$CHANGELOG_FILE"
 
-          # If no content found with version without 'v', try with 'v'
           if [ ! -s "$CHANGELOG_FILE" ]; then
             awk -v ver="$TAG" '
               BEGIN { found = 0; }
@@ -90,7 +111,6 @@ jobs:
             ' CHANGELOG.md > "$CHANGELOG_FILE"
           fi
 
-          # If still no content, use a default message
           if [ ! -s "$CHANGELOG_FILE" ]; then
             echo "No changelog entry found for version $TAG" > "$CHANGELOG_FILE"
             echo "" >> "$CHANGELOG_FILE"
