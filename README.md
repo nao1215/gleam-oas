@@ -9,10 +9,11 @@
 Generate strongly typed Gleam code from OpenAPI 3.x specifications.
 
 - Custom types for every component schema (no generic maps)
-- JSON decoders and encoders
+- JSON decoders and encoders (including allOf, oneOf/anyOf with discriminator)
 - Server handler stubs with TODO placeholders
-- Client SDK with query parameter serialization
+- Typed client SDK with parameter serialization and response decoding
 - Composable middleware system (logging, retry)
+- Security scheme support (apiKey, Bearer token)
 - OpenAPI descriptions propagated as doc comments
 
 ## Install
@@ -68,7 +69,7 @@ Generated code is placed at `<dir>/<package>` and `<dir>/<package>_client`. To u
 | `output.server` | no | `<dir>/<package>` | Server code output (overrides dir-based default) |
 | `output.client` | no | `<dir>/<package>_client` | Client code output (overrides dir-based default) |
 
-The directory basename must match `package` so that Gleam imports (`import my_api/types`) resolve correctly. The CLI `--output` flag works the same as `output.dir` in the config file.
+The directory basename **must** match `package` so that Gleam imports (`import my_api/types`) resolve correctly. The CLI `--output` flag works the same as `output.dir` in the config file. A mismatch is an early error.
 
 ### 2. Run the generator
 
@@ -104,7 +105,7 @@ gen/my_api_client/          # client
   decode.gleam              # Same decoders
   encode.gleam              # Same encoders
   middleware.gleam           # Same middleware (with retry)
-  client.gleam              # HTTP client functions
+  client.gleam              # Typed HTTP client functions
   request_types.gleam
   response_types.gleam
 ```
@@ -148,12 +149,9 @@ pub fn list_pets(req: request_types.ListPetsRequest) -> response_types.ListPetsR
 ### Client SDK
 
 ```gleam
-pub fn get_pet(config: ClientConfig, pet_id: Int) -> Result(ClientResponse, ClientError) {
-  let path = "/pets/{petId}"
-  let path = string.replace(path, "{petId}", int.to_string(pet_id))
-  let assert Ok(req) = request.to(config.base_url <> path)
-  let req = request.set_method(req, http.Get)
-  config.send(req)
+pub fn create_pet(config: ClientConfig, body: types.CreatePetRequest)
+  -> Result(response_types.CreatePetResponse, ClientError) {
+  // ... typed body encoding, typed response decoding
 }
 ```
 
@@ -177,8 +175,10 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 
 - OpenAPI 3.x (YAML and JSON input)
 - Paths and operations (GET, POST, PUT, DELETE, PATCH)
-- Path, query, header, and cookie parameters (path-level merged into operations, serialized in client)
-- Request bodies with `$ref` schema resolution (typed, not raw String)
+- Path, query, header, and cookie parameters (path-level merged by `(name, in)` key)
+- Parameter serialization: `Bool`, `Float`, `Int`, `String`, `$ref` enum types
+- Cookie parameters combined into single header (`"a=1; b=2"`)
+- Request bodies with `$ref` schema resolution (typed, auto-encoded)
 - Inline allOf in request body (property merging from `$ref` + inline objects)
 - Responses with status codes, including `$ref` responses from `components.responses`
 - `$ref` parameters, requestBodies, and responses resolved from `components`
@@ -186,31 +186,40 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - String enums with unknown-value rejection (decode returns Error, not silent fallback)
 - Inline enums in properties (auto-named types generated)
 - Inline objects in response/requestBody (anonymous types auto-generated)
-- oneOf/anyOf with `$ref` variants (sum types generated)
+- oneOf/anyOf with `$ref` variants (sum types, decoders, encoders generated)
+- oneOf discriminator-based decoding (dispatches by discriminator field value)
+- anyOf try-each decoding (tries each variant decoder in order)
+- allOf (property merging, decoders, encoders)
 - Nullable fields, arrays (including array of `$ref`)
-- allOf (property merging from inline and `$ref` schemas, including required fields)
 - Encode/decode roundtrip safety: `decode(encode(value)) == Ok(value)`
 - Circular `$ref` detection (returns error instead of infinite recursion)
-- Fail-fast parser: missing required fields and unknown parameter locations return Error
+- Fail-fast parser: missing required fields (`responses`, `items` for arrays, `openapi`, `info`), unknown parameter locations (`in: body`), and malformed content all return Error immediately
+- Client typed body: accepts typed body parameters, auto-encodes via generated encoders
+- Client typed response: returns typed response variants, auto-decodes via generated decoders
+- Security schemes: apiKey (header/query), HTTP Bearer token applied to client functions
+- Duplicate operationId detection (validation error)
+- Function name collision detection after snake_case conversion
+- Type name collision detection after PascalCase conversion
+- Config validation: output directory basename must match package name
 
 ### Explicitly unsupported (generator exits with error)
 
 These patterns are detected before code generation. The generator prints a clear error message and exits non-zero instead of generating broken code.
 
 - **`style: deepObject`** query parameters
-- **`multipart/form-data`** request bodies
-- **`additionalProperties: true`** (untyped map)
+- **`multipart/form-data`** request bodies (only `application/json` supported)
+- **`additionalProperties: true`** (untyped map — Gleam has no untyped map type)
+- **Typed `additionalProperties`** (e.g., `additionalProperties: { type: string }`)
 - **Inline oneOf/anyOf with primitive types** (`String | Int | Bool`)
+- **Duplicate operationId** across paths
+- **Function/type name collisions** after case conversion
 
 ### Not yet supported
 
-- **Client response decoding**: Client returns raw `ClientResponse`, not typed response variants
-- **Client request body encoding**: Client accepts `body: String`, not typed body parameter
-- **oneOf / anyOf decoders/encoders**: Types generated for `$ref` variants, but no decoder/encoder
-- **Discriminator in decoders**: Parsed but not used in generated decoder logic
 - **Validation constraints** (minLength, maxLength, pattern, minimum, maximum): Parsed but not enforced
 - **Callbacks**: Parsed but ignored
-- **Security schemes**: Parsed but not applied to generated client
+- **OAuth2 / OpenID Connect security schemes**: Only apiKey and HTTP Bearer supported
+- **allOf with non-object sub-schemas**: Only object sub-schemas are merged
 
 ### Schema-to-type mapping
 
@@ -224,6 +233,8 @@ These patterns are detected before code generation. The generator prints a clear
 | `object` | Custom type |
 | `enum` | Custom type with variants |
 | nullable | `Option(T)` |
+| `allOf` | Merged custom type |
+| `oneOf`/`anyOf` (`$ref` variants) | Sum type with variant constructors |
 
 ## Development
 
@@ -240,8 +251,8 @@ just integration      # generated code compile + roundtrip tests
 
 | Command | Tool | What it tests |
 |---------|------|---------------|
-| `just test` | gleeunit | Unit tests (parser, naming, config) |
-| `just shellspec` | ShellSpec | CLI behaviour, file generation, content verification |
+| `just test` | gleeunit | Unit tests (parser fail-fast, validator recursion, naming, config validation, collision detection) |
+| `just shellspec` | ShellSpec | CLI behaviour, file generation, content verification, unsupported feature detection |
 | `just integration` | gleeunit | Generated code compiles, types/decoders/encoders/handlers/middleware work |
 
 ## License
