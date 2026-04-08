@@ -212,6 +212,9 @@ These patterns are detected before code generation. The generator prints a clear
 - **Typed `additionalProperties`** (e.g., `additionalProperties: { type: string }`)
 - **Inline oneOf/anyOf schemas** (all variants must be `$ref` to named schemas)
 - **Nested inline object/allOf in properties** (extract to `components.schemas` and use `$ref`)
+- **Array parameters** (query/header/cookie with `type: array`)
+- **Complex schema parameters** (object/allOf/oneOf/anyOf in query/header/cookie)
+- **Inline complex array items** (object/allOf/oneOf/anyOf in array items — use `$ref`)
 - **Duplicate operationId** across paths
 - **Function/type name collisions** after case conversion
 
