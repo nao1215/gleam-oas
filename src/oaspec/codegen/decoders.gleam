@@ -4,7 +4,7 @@ import gleam/option.{type Option, None, Some}
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaRef, ArraySchema, BooleanSchema, Inline, IntegerSchema,
+  type SchemaRef, AllOfSchema, ArraySchema, BooleanSchema, Inline, IntegerSchema,
   NumberSchema, ObjectSchema, Reference, StringSchema,
 }
 import oaspec/util/naming
@@ -262,6 +262,44 @@ fn generate_decoder(
       sb
     }
 
+    Inline(AllOfSchema(description:, schemas:)) -> {
+      // Merge properties from all sub-schemas (same as type generator)
+      let merged_props =
+        list.fold(schemas, dict.new(), fn(acc, s_ref) {
+          case s_ref {
+            Inline(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+            Reference(_) ->
+              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
+                Ok(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+                _ -> acc
+              }
+            _ -> acc
+          }
+        })
+      let merged_required =
+        list.flat_map(schemas, fn(s_ref) {
+          case s_ref {
+            Inline(ObjectSchema(required:, ..)) -> required
+            Reference(_) ->
+              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
+                Ok(ObjectSchema(required:, ..)) -> required
+                _ -> []
+              }
+            _ -> []
+          }
+        })
+      let merged_schema =
+        Inline(ObjectSchema(
+          description:,
+          properties: merged_props,
+          required: merged_required,
+          additional_properties: None,
+          additional_properties_untyped: False,
+          nullable: False,
+        ))
+      generate_decoder(sb, name, merged_schema, ctx)
+    }
+
     _ -> sb
   }
 }
@@ -477,6 +515,44 @@ fn generate_encoder(
         |> se.blank_line()
 
       sb
+    }
+
+    Inline(AllOfSchema(description:, schemas:)) -> {
+      // Merge properties from all sub-schemas (same as type generator)
+      let merged_props =
+        list.fold(schemas, dict.new(), fn(acc, s_ref) {
+          case s_ref {
+            Inline(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+            Reference(_) ->
+              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
+                Ok(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+                _ -> acc
+              }
+            _ -> acc
+          }
+        })
+      let merged_required =
+        list.flat_map(schemas, fn(s_ref) {
+          case s_ref {
+            Inline(ObjectSchema(required:, ..)) -> required
+            Reference(_) ->
+              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
+                Ok(ObjectSchema(required:, ..)) -> required
+                _ -> []
+              }
+            _ -> []
+          }
+        })
+      let merged_schema =
+        Inline(ObjectSchema(
+          description:,
+          properties: merged_props,
+          required: merged_required,
+          additional_properties: None,
+          additional_properties_untyped: False,
+          nullable: False,
+        ))
+      generate_encoder(sb, name, merged_schema, ctx)
     }
 
     _ -> sb
