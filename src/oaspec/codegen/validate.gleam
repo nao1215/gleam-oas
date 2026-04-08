@@ -50,31 +50,13 @@ fn validate_parameters(
   op_id: String,
   params: List(spec.Parameter),
 ) -> List(ValidationError) {
-  list.flat_map(params, fn(param) {
-    let path = op_id <> ".parameters." <> param.name
-    let style_errors = case param.style {
-      Some("deepObject") -> [
-        UnsupportedFeature(
-          path: path,
-          detail: "style: deepObject is not supported. Gleam cannot express deep object query serialization.",
-        ),
-      ]
-      _ -> []
-    }
-    // Reject complex schema parameters (array params are supported)
-    let schema_errors = case param.schema {
-      Some(Inline(ObjectSchema(..)))
-      | Some(Inline(AllOfSchema(..)))
-      | Some(Inline(OneOfSchema(..)))
-      | Some(Inline(AnyOfSchema(..))) -> [
-        UnsupportedFeature(
-          path: path,
-          detail: "Complex schema parameters (object/allOf/oneOf/anyOf) are not supported.",
-        ),
-      ]
-      _ -> []
-    }
-    list.append(style_errors, schema_errors)
+  list.flat_map(params, fn(_param) {
+    let _path = op_id <> ".parameters."
+    // deepObject style and complex schema parameters (object/allOf/oneOf/anyOf)
+    // are now supported. deepObject params generate flattened key serialization
+    // (e.g. filter[status]=active&filter[type]=dog), and complex schema params
+    // are JSON-serialized in the query string.
+    []
   })
 }
 

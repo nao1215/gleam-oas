@@ -11,6 +11,7 @@ import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
+import oaspec/openapi/spec
 import oaspec/util/content_type
 import oaspec/util/naming
 
@@ -452,12 +453,25 @@ fn make_ctx(spec_path: String) -> context.Context {
   context.new(spec, cfg)
 }
 
-pub fn validate_broken_spec_detects_deep_object_test() {
+pub fn validate_accepts_deep_object_test() {
   let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
   let errors = validate.validate(ctx)
   let error_strings = list.map(errors, validate.error_to_string)
+  // deepObject style is now supported, so it should NOT appear as a validation error
   list.any(error_strings, fn(s) { string.contains(s, "deepObject") })
-  |> should.be_true()
+  |> should.be_false()
+}
+
+pub fn validate_accepts_complex_schema_parameter_test() {
+  let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  // Complex schema parameters (object/allOf/oneOf/anyOf) are now supported,
+  // so they should NOT appear as validation errors
+  list.any(error_strings, fn(s) {
+    string.contains(s, "Complex schema parameters")
+  })
+  |> should.be_false()
 }
 
 pub fn validate_accepts_multipart_form_data_test() {
@@ -1102,4 +1116,68 @@ pub fn content_type_roundtrip_test() {
   content_type.from_string("image/png")
   |> content_type.to_string()
   |> should.equal("image/png")
+}
+
+pub fn parse_accepts_oauth2_scheme_test() {
+  let yaml =
+    "
+openapi: '3.0.0'
+info: { title: OAuth2 API, version: '1.0' }
+paths:
+  /resource:
+    get:
+      operationId: getResource
+      security:
+        - oauth2Auth: []
+      responses:
+        '200': { description: ok }
+components:
+  securitySchemes:
+    oauth2Auth:
+      type: oauth2
+      description: OAuth2 authorization code
+      flows:
+        authorizationCode:
+          authorizationUrl: https://example.com/auth
+          tokenUrl: https://example.com/token
+          scopes: {}
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  let assert Some(components) = parsed.components
+  let assert Ok(scheme) = dict.get(components.security_schemes, "oauth2Auth")
+  case scheme {
+    spec.OAuth2Scheme(description: Some("OAuth2 authorization code")) ->
+      should.be_true(True)
+    _ -> should.fail()
+  }
+}
+
+pub fn parse_accepts_apikey_cookie_test() {
+  let yaml =
+    "
+openapi: '3.0.0'
+info: { title: Cookie API, version: '1.0' }
+paths:
+  /resource:
+    get:
+      operationId: getResource
+      security:
+        - cookieAuth: []
+      responses:
+        '200': { description: ok }
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      name: session_id
+      in: cookie
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  let assert Some(components) = parsed.components
+  let assert Ok(scheme) = dict.get(components.security_schemes, "cookieAuth")
+  case scheme {
+    spec.ApiKeyScheme(name: "session_id", in_: "cookie") ->
+      should.be_true(True)
+    _ -> should.fail()
+  }
 }
