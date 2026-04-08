@@ -1038,22 +1038,24 @@ fn generate_multipart_body(
 ) -> se.StringBuilder {
   let boundary = "----oaspec-boundary"
   let content_entries = dict.to_list(rb.content)
-  let properties = case content_entries {
+  let #(properties, required_fields) = case content_entries {
     [#(_, media_type), ..] ->
       case media_type.schema {
-        Some(Inline(schema.ObjectSchema(properties:, ..))) ->
-          dict.to_list(properties)
+        Some(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
+          dict.to_list(properties),
+          required,
+        )
         Some(Reference(ref:) as schema_ref) ->
           case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-            Ok(schema.ObjectSchema(properties:, ..)) -> {
+            Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
               let _ = ref
-              dict.to_list(properties)
+              #(dict.to_list(properties), required)
             }
-            _ -> []
+            _ -> #([], [])
           }
-        _ -> []
+        _ -> #([], [])
       }
-    _ -> []
+    _ -> #([], [])
   }
 
   let sb =
@@ -1065,46 +1067,71 @@ fn generate_multipart_body(
     list.fold(properties, sb, fn(sb, prop) {
       let #(field_name, field_schema) = prop
       let gleam_field = naming.to_snake_case(field_name)
+      let is_required = list.contains(required_fields, field_name)
       let is_binary = case field_schema {
         Inline(schema.StringSchema(format: Some("binary"), ..)) -> True
         _ -> False
       }
-      let value_expr = case is_binary {
-        True -> "body." <> gleam_field
+      // Convert value to string for multipart encoding
+      let to_string_fn = case is_binary {
+        True -> ""
         False ->
           case field_schema {
-            Inline(schema.IntegerSchema(..)) ->
-              "int.to_string(body." <> gleam_field <> ")"
-            Inline(schema.NumberSchema(..)) ->
-              "float.to_string(body." <> gleam_field <> ")"
-            Inline(schema.BooleanSchema(..)) ->
-              "bool.to_string(body." <> gleam_field <> ")"
-            _ -> "body." <> gleam_field
+            Inline(schema.IntegerSchema(..)) -> "int.to_string"
+            Inline(schema.NumberSchema(..)) -> "float.to_string"
+            Inline(schema.BooleanSchema(..)) -> "bool.to_string"
+            _ -> ""
           }
       }
-      case is_binary {
-        True ->
+      let part_header_binary =
+        "\"--\" <> boundary <> \"\\r\\nContent-Disposition: form-data; name=\\\""
+        <> field_name
+        <> "\\\"; filename=\\\""
+        <> field_name
+        <> "\\\"\\r\\nContent-Type: application/octet-stream\\r\\n\\r\\n\""
+      let part_header_text =
+        "\"--\" <> boundary <> \"\\r\\nContent-Disposition: form-data; name=\\\""
+        <> field_name
+        <> "\\\"\\r\\n\\r\\n\""
+      let part_header = case is_binary {
+        True -> part_header_binary
+        False -> part_header_text
+      }
+      case is_required {
+        True -> {
+          let value_expr = case to_string_fn {
+            "" -> "body." <> gleam_field
+            fn_name -> fn_name <> "(body." <> gleam_field <> ")"
+          }
           sb
           |> se.indent(
             1,
-            "let parts = [\"--\" <> boundary <> \"\\r\\nContent-Disposition: form-data; name=\\\""
-              <> field_name
-              <> "\\\"; filename=\\\""
-              <> field_name
-              <> "\\\"\\r\\nContent-Type: application/octet-stream\\r\\n\\r\\n\" <> "
+            "let parts = ["
+              <> part_header
+              <> " <> "
               <> value_expr
               <> " <> \"\\r\\n\", ..parts]",
           )
-        False ->
+        }
+        False -> {
+          // Optional field: wrap in case body.<field> { Some(v) -> ... None -> parts }
+          let value_expr = case to_string_fn {
+            "" -> "v"
+            fn_name -> fn_name <> "(v)"
+          }
           sb
+          |> se.indent(1, "let parts = case body." <> gleam_field <> " {")
           |> se.indent(
-            1,
-            "let parts = [\"--\" <> boundary <> \"\\r\\nContent-Disposition: form-data; name=\\\""
-              <> field_name
-              <> "\\\"\\r\\n\\r\\n\" <> "
+            2,
+            "Some(v) -> ["
+              <> part_header
+              <> " <> "
               <> value_expr
               <> " <> \"\\r\\n\", ..parts]",
           )
+          |> se.indent(2, "None -> parts")
+          |> se.indent(1, "}")
+        }
       }
     })
 
