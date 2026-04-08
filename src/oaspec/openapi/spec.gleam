@@ -30,7 +30,19 @@ pub type Components {
     parameters: Dict(String, Parameter),
     request_bodies: Dict(String, RequestBody),
     responses: Dict(String, Response),
+    security_schemes: Dict(String, SecurityScheme),
   )
+}
+
+/// Security scheme definition.
+pub type SecurityScheme {
+  ApiKeyScheme(name: String, in_: String)
+  HttpScheme(scheme: String, bearer_format: Option(String))
+}
+
+/// Security requirement on an operation.
+pub type SecurityRequirement {
+  SecurityRequirement(scheme_name: String, scopes: List(String))
 }
 
 /// A path item containing operations for each HTTP method.
@@ -58,6 +70,7 @@ pub type Operation {
     request_body: Option(RequestBody),
     responses: Dict(String, Response),
     deprecated: Bool,
+    security: List(SecurityRequirement),
   )
 }
 

@@ -41,6 +41,12 @@ fn generate_client(ctx: Context) -> String {
     se.file_header(context.version)
     |> se.imports(imports)
 
+  // Collect security schemes
+  let security_schemes = case ctx.spec.components {
+    Some(components) -> dict.to_list(components.security_schemes)
+    _ -> []
+  }
+
   // Client configuration type
   let sb =
     sb
@@ -52,6 +58,17 @@ fn generate_client(ctx: Context) -> String {
       2,
       "send: fn(request.Request(String)) -> Result(ClientResponse, ClientError),",
     )
+
+  // Add security credential fields
+  let sb =
+    list.fold(security_schemes, sb, fn(sb, entry) {
+      let #(scheme_name, _scheme) = entry
+      let field_name = naming.to_snake_case(scheme_name)
+      sb |> se.indent(2, field_name <> ": Option(String),")
+    })
+
+  let sb =
+    sb
     |> se.indent(1, ")")
     |> se.line("}")
     |> se.blank_line()
@@ -90,7 +107,19 @@ fn generate_client(ctx: Context) -> String {
       "send: fn(request.Request(String)) -> Result(ClientResponse, ClientError),",
     )
     |> se.line(") -> ClientConfig {")
-    |> se.indent(1, "ClientConfig(base_url:, send:)")
+    |> se.indent(1, "ClientConfig(base_url:, send:,")
+
+  // Initialize security fields to None
+  let sb =
+    list.fold(security_schemes, sb, fn(sb, entry) {
+      let #(scheme_name, _scheme) = entry
+      let field_name = naming.to_snake_case(scheme_name)
+      sb |> se.indent(2, field_name <> ": None,")
+    })
+
+  let sb =
+    sb
+    |> se.indent(1, ")")
     |> se.line("}")
     |> se.blank_line()
 
@@ -361,6 +390,54 @@ fn generate_client_function(
       |> se.indent(1, "}")
     }
   }
+
+  // Apply security schemes
+  let sb =
+    list.fold(operation.security, sb, fn(sb, sec_req) {
+      let field_name = naming.to_snake_case(sec_req.scheme_name)
+      // Look up the scheme definition
+      case ctx.spec.components {
+        Some(components) ->
+          case dict.get(components.security_schemes, sec_req.scheme_name) {
+            Ok(spec.ApiKeyScheme(name: header_name, in_: "header")) ->
+              sb
+              |> se.indent(1, "let req = case config." <> field_name <> " {")
+              |> se.indent(
+                2,
+                "Some(key) -> request.set_header(req, \""
+                  <> string.lowercase(header_name)
+                  <> "\", key)",
+              )
+              |> se.indent(2, "None -> req")
+              |> se.indent(1, "}")
+            Ok(spec.ApiKeyScheme(name: query_name, in_: "query")) ->
+              sb
+              |> se.indent(1, "let req = case config." <> field_name <> " {")
+              |> se.indent(2, "Some(key) -> {")
+              |> se.indent(
+                3,
+                "let assert Ok(base) = request.to(config.base_url <> path <> \"&"
+                  <> query_name
+                  <> "=\" <> key)",
+              )
+              |> se.indent(3, "request.set_method(base, req.method)")
+              |> se.indent(2, "}")
+              |> se.indent(2, "None -> req")
+              |> se.indent(1, "}")
+            Ok(spec.HttpScheme(scheme: "bearer", ..)) ->
+              sb
+              |> se.indent(1, "let req = case config." <> field_name <> " {")
+              |> se.indent(
+                2,
+                "Some(token) -> request.set_header(req, \"authorization\", \"Bearer \" <> token)",
+              )
+              |> se.indent(2, "None -> req")
+              |> se.indent(1, "}")
+            _ -> sb
+          }
+        _ -> sb
+      }
+    })
 
   // Send request and decode response into typed variant
   let sb =

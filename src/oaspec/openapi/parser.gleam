@@ -11,9 +11,9 @@ import oaspec/openapi/schema.{
 import oaspec/openapi/spec.{
   type Components, type HttpMethod, type Info, type MediaType, type OpenApiSpec,
   type Operation, type Parameter, type ParameterIn, type PathItem,
-  type RequestBody, type Response, type Server, Components, Delete, Get, Info,
-  MediaType, OpenApiSpec, Operation, Parameter, Patch, PathItem, Post, Put,
-  RequestBody, Response, Server,
+  type RequestBody, type Response, type SecurityRequirement, type Server,
+  Components, Delete, Get, Info, MediaType, OpenApiSpec, Operation, Parameter,
+  Patch, PathItem, Post, Put, RequestBody, Response, SecurityRequirement, Server,
 }
 import simplifile
 import yay
@@ -309,6 +309,8 @@ fn parse_operation(
     components,
   ))
 
+  let security = parse_security_requirements(node)
+
   Ok(Operation(
     operation_id:,
     summary:,
@@ -318,6 +320,7 @@ fn parse_operation(
     request_body:,
     responses:,
     deprecated:,
+    security:,
   ))
 }
 
@@ -657,8 +660,15 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
   use parameters <- result.try(parse_parameters_map(components_node))
   use request_bodies <- result.try(parse_request_bodies_map(components_node))
   use responses <- result.try(parse_responses_map(components_node))
+  let security_schemes = parse_security_schemes_map(components_node)
 
-  Ok(Components(schemas:, parameters:, request_bodies:, responses:))
+  Ok(Components(
+    schemas:,
+    parameters:,
+    request_bodies:,
+    responses:,
+    security_schemes:,
+  ))
 }
 
 /// Parse the schemas map from components.
@@ -947,6 +957,94 @@ pub fn parse_error_to_string(error: ParseError) -> String {
     MissingField(path:, field:) -> "Missing field '" <> field <> "' at " <> path
     InvalidValue(path:, detail:) ->
       "Invalid value at " <> path <> ": " <> detail
+  }
+}
+
+/// Parse security schemes from components.
+fn parse_security_schemes_map(
+  components_node: yay.Node,
+) -> Dict(String, spec.SecurityScheme) {
+  case yay.select_sugar(from: components_node, selector: "securitySchemes") {
+    Ok(yay.NodeMap(entries)) -> {
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(name) ->
+            case parse_security_scheme(value_node) {
+              Ok(scheme) -> dict.insert(acc, name, scheme)
+              Error(_) -> acc
+            }
+          _ -> acc
+        }
+      })
+    }
+    _ -> dict.new()
+  }
+}
+
+/// Parse a single security scheme.
+fn parse_security_scheme(
+  node: yay.Node,
+) -> Result(spec.SecurityScheme, ParseError) {
+  use type_str <- result.try(
+    yay.extract_string(node, "type")
+    |> result.map_error(fn(_) {
+      MissingField(path: "securityScheme", field: "type")
+    }),
+  )
+
+  case type_str {
+    "apiKey" -> {
+      use name <- result.try(
+        yay.extract_string(node, "name")
+        |> result.map_error(fn(_) {
+          MissingField(path: "securityScheme.apiKey", field: "name")
+        }),
+      )
+      use in_str <- result.try(
+        yay.extract_string(node, "in")
+        |> result.map_error(fn(_) {
+          MissingField(path: "securityScheme.apiKey", field: "in")
+        }),
+      )
+      Ok(spec.ApiKeyScheme(name:, in_: in_str))
+    }
+    "http" -> {
+      use scheme <- result.try(
+        yay.extract_string(node, "scheme")
+        |> result.map_error(fn(_) {
+          MissingField(path: "securityScheme.http", field: "scheme")
+        }),
+      )
+      let bearer_format =
+        yay.extract_optional_string(node, "bearerFormat")
+        |> result.unwrap(None)
+      Ok(spec.HttpScheme(scheme:, bearer_format:))
+    }
+    _ ->
+      Error(InvalidValue(
+        path: "securityScheme.type",
+        detail: "Unsupported security scheme type: " <> type_str,
+      ))
+  }
+}
+
+/// Parse security requirements from an operation.
+fn parse_security_requirements(node: yay.Node) -> List(SecurityRequirement) {
+  case yay.select_sugar(from: node, selector: "security") {
+    Ok(yay.NodeSeq(items)) ->
+      list.filter_map(items, fn(item) {
+        case item {
+          yay.NodeMap(entries) ->
+            case entries {
+              [#(yay.NodeStr(scheme_name), _scopes_node)] ->
+                Ok(SecurityRequirement(scheme_name:, scopes: []))
+              _ -> Error(Nil)
+            }
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
   }
 }
 
