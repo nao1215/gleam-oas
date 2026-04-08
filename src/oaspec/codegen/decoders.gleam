@@ -335,22 +335,43 @@ fn generate_decoder(
           }
         })
 
-      // Decode additional_properties as Dict if typed or untyped additionalProperties exists
-      // This decodes all string-keyed values; known property keys are included.
+      // Decode additional_properties as Dict, then drop known property keys
+      // so only unknown/extra keys remain in additional_properties.
+      let known_keys_expr = case list.is_empty(props) {
+        True -> "[]"
+        False ->
+          "["
+          <> se.join_with(
+            list.map(props, fn(entry) {
+              let #(prop_name, _) = entry
+              "\"" <> prop_name <> "\""
+            }),
+            ", ",
+          )
+          <> "]"
+      }
       let sb = case additional_properties, additional_properties_untyped {
         Some(ap_ref), _ -> {
           let inner_decoder = schema_ref_to_decoder(ap_ref, name, "additional_properties", ctx)
           sb
           |> se.indent(
             1,
-            "use additional_properties <- decode.then(decode.dict(decode.string, " <> inner_decoder <> "))",
+            "use all_props <- decode.then(decode.dict(decode.string, " <> inner_decoder <> "))",
+          )
+          |> se.indent(
+            1,
+            "let additional_properties = dict.drop(all_props, " <> known_keys_expr <> ")",
           )
         }
         None, True -> {
           sb
           |> se.indent(
             1,
-            "use additional_properties <- decode.then(decode.dict(decode.string, dynamic.dynamic))",
+            "use all_props <- decode.then(decode.dict(decode.string, dynamic.dynamic))",
+          )
+          |> se.indent(
+            1,
+            "let additional_properties = dict.drop(all_props, " <> known_keys_expr <> ")",
           )
         }
         None, False -> sb
