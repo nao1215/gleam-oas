@@ -110,7 +110,7 @@ package: api
 # output:
 #   dir: ./gen                    # Base output directory (default: ./gen)
 #   server: ./gen/api             # Override server output path
-#   client: ./gen/api_client      # Override client output path
+#   client: ./gen_client/api      # Override client output path
 "
 
   case simplifile.is_file(path) {

@@ -58,7 +58,7 @@ output:
   dir: ./gen          # base directory (default: ./gen)
 ```
 
-Generated code is placed at `<dir>/<package>` and `<dir>/<package>_client`. To use the generated code in your Gleam project, copy or symlink the output into `src/`.
+Generated code is placed at `<dir>/<package>` (server) and `<dir>_client/<package>` (client). Both directory basenames must match `package` so that Gleam imports resolve correctly. To use the generated code in your Gleam project, copy or symlink the output into `src/`.
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
@@ -67,9 +67,9 @@ Generated code is placed at `<dir>/<package>` and `<dir>/<package>_client`. To u
 | `mode` | no | `both` | Generation mode: `server`, `client`, or `both` |
 | `output.dir` | no | `./gen` | Base output directory |
 | `output.server` | no | `<dir>/<package>` | Server code output (overrides dir-based default) |
-| `output.client` | no | `<dir>/<package>_client` | Client code output (overrides dir-based default) |
+| `output.client` | no | `<dir>_client/<package>` | Client code output (overrides dir-based default) |
 
-The directory basename **must** match `package` so that Gleam imports (`import my_api/types`) resolve correctly. The CLI `--output` flag works the same as `output.dir` in the config file. A mismatch is an early error.
+The directory basename **must** match `package` so that Gleam imports (`import my_api/types`) resolve correctly. The CLI `--output` flag works the same as `output.dir` in the config file. A basename mismatch is an early error.
 
 ### 2. Run the generator
 
@@ -100,7 +100,7 @@ gen/my_api/                 # server (package = "my_api")
   handlers.gleam            # Handler stubs (TODO placeholders)
   router.gleam              # Route dispatcher skeleton
 
-gen/my_api_client/          # client
+gen_client/my_api/          # client
   types.gleam               # Same domain types
   decode.gleam              # Same decoders
   encode.gleam              # Same encoders
