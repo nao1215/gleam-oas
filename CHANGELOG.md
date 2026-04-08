@@ -9,40 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-#### Architecture (Phase 0)
-- Schema hoisting pre-processing pass: inline complex schemas (objects, allOf, oneOf, anyOf, complex array items) are auto-extracted to `components.schemas` with `$ref` references
-- Name collision auto-resolution: property names, enum variants, and function/type names get `_2`, `_3` suffixes instead of hard errors
 - `ContentType` type abstraction for extensible content type handling
-
-#### High-impact features (Phase 1)
-- Array parameters in query/header/cookie: generates `List(T)` types with comma-separated serialization
+- Schema hoisting pre-processing pass: inline complex schemas auto-extracted to `components.schemas` with `$ref` references
 - Percent-encoding for all path/query/cookie parameter values via `uri.percent_encode`
 - `text/plain` response content type: body returned as `String` directly without JSON decoding
-
-#### Core features (Phase 2)
-- Typed `additionalProperties`: generates `Dict(String, T)` fields with dict decoder/encoder
-- Untyped `additionalProperties: true`: generates `Dict(String, Dynamic)` (decode-only)
-- `multipart/form-data` request bodies with boundary-based multipart encoding
-
-#### Extensions (Phase 3)
-- `style: deepObject` query parameters with flattened key serialization (`filter[status]=active`)
-- Complex schema parameters (object/allOf/oneOf/anyOf) serialized as JSON strings in query params
-- OAuth2 security schemes parsed and applied as Bearer token headers
-- `apiKey` in cookie position: generates cookie headers
-
-#### Low-priority items (Phase 4)
+- Typed `additionalProperties`: generates `Dict(String, T)` fields with dict decoder/encoder (known keys excluded from dict)
+- Untyped `additionalProperties: true`: generates `Dict(String, Dynamic)` (decode-only, known keys excluded)
+- `multipart/form-data` request bodies with boundary-based multipart encoding (optional fields handled)
+- `apiKey` in cookie position: generates cookie headers (appends, does not overwrite)
 - HTTP Basic and Digest authentication support
 - Validation constraint guard functions (minLength, maxLength, minimum, maximum, minItems, maxItems)
-- Callbacks safely ignored by the generator
-- allOf with non-object sub-schemas: primitives silently skipped
+- Validation for unsupported HTTP security schemes (e.g. hoba, negotiate) and OAuth2
+
+### Fixed
+
+- Guard generation: missing `gleam/list` import, incomplete min+max checks, float validation stub
+- Typed `additionalProperties` decoder no longer forces value decoder on known fields with incompatible types
+- `multipart/form-data` client handles optional fields with case/Some/None instead of raw concatenation
+- `allOf` merge now preserves `additionalProperties` from sub-schemas
+- Cookie `apiKey` auth appends to existing cookie header instead of overwriting
+- `text/plain` response types always use `String` regardless of schema type
 
 ### Changed
 
 - Extract duplicated `status_code_suffix` and `status_code_to_int_pattern` into shared `oaspec/util/http` module
 - Replace hand-rolled `list_last` and `list_length` helpers with `gleam/list` stdlib equivalents
 - Simplify CLI flag parsing with `result.unwrap` instead of verbose case expressions
-- Property name, enum variant, and function/type name collisions now auto-resolved instead of hard errors
-- Validation for unsupported features significantly reduced (most patterns now supported)
 
 ## [0.3.0] - 2026-04-08
 

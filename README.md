@@ -196,11 +196,11 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Client typed body (auto-encoded) and typed response (auto-decoded)
 - `default` response handling in client
 - Top-level security inheritance (operation-level overrides, `security: []` opts out)
-- Security schemes: `apiKey` in header/query/cookie, HTTP bearer (first OR alternative applied; AND within one alternative supported)
+- Security schemes: `apiKey` in header/query/cookie, HTTP bearer/basic/digest (first OR alternative applied; AND within one alternative supported)
 - `text/plain` response content type: body returned as `String` directly
 - Typed `additionalProperties`: `Dict(String, T)` with dict decoder/encoder (known keys excluded)
 - Untyped `additionalProperties: true`: `Dict(String, Dynamic)` (decode-only, known keys excluded)
-- `multipart/form-data` request bodies with boundary-based encoding
+- `multipart/form-data` request bodies with boundary-based encoding (optional fields handled)
 - Validation constraint guards (minLength, maxLength, minimum, maximum, minItems, maxItems)
 - Duplicate operationId detection
 - Function/type name collision detection after case conversion
@@ -214,7 +214,6 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 These are detected before code generation. The generator prints an error and exits non-zero.
 
 - `style: deepObject` query parameters
-- `multipart/form-data` request bodies (only `application/json`)
 - Inline oneOf/anyOf schemas (variants must be `$ref`)
 - Nested inline object/allOf in properties (use `$ref`)
 - Array parameters (query/header/cookie with `type: array`)
@@ -231,8 +230,8 @@ These are detected before code generation. The generator prints an error and exi
 
 - Validation constraints enforcement at runtime (guards are generated but not auto-called)
 - Callbacks: ignored by the generator
-- OAuth2 / OpenID Connect: rejected at parse time
-- HTTP Basic / Digest: rejected at parse time (only bearer supported)
+- OAuth2 / OpenID Connect: rejected at validation time
+- Unsupported HTTP security schemes (e.g. hoba, negotiate): rejected at validation time
 - allOf with non-object sub-schemas
 - `additionalProperties` with inline complex schemas
 
