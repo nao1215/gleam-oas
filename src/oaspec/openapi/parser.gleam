@@ -1080,7 +1080,6 @@ fn parse_security_requirements(
       list.try_map(items, fn(item) {
         parse_security_requirement_object(item, context)
       })
-      |> result.map(list.flatten)
     _ -> Ok([])
   }
 }
@@ -1097,8 +1096,7 @@ fn parse_optional_security_requirements(
       use reqs <- result.try(
         list.try_map(items, fn(item) {
           parse_security_requirement_object(item, context)
-        })
-        |> result.map(list.flatten),
+        }),
       )
       Ok(Some(reqs))
     }
@@ -1107,46 +1105,50 @@ fn parse_optional_security_requirements(
 }
 
 /// Parse a single security requirement object.
-/// Each object may contain multiple scheme entries: { "ApiKey": [], "OAuth": ["read"] }
+/// Returns one SecurityRequirement whose schemes list contains all AND-ed
+/// scheme refs. The outer list (caller) represents OR alternatives.
 fn parse_security_requirement_object(
   node: yay.Node,
   context: String,
-) -> Result(List(SecurityRequirement), ParseError) {
+) -> Result(SecurityRequirement, ParseError) {
   case node {
-    yay.NodeMap(entries) ->
-      list.try_map(entries, fn(entry) {
-        let #(key_node, scopes_node) = entry
-        case key_node {
-          yay.NodeStr(scheme_name) -> {
-            use scopes <- result.try(case scopes_node {
-              yay.NodeSeq(scope_items) ->
-                list.try_map(scope_items, fn(s) {
-                  case s {
-                    yay.NodeStr(v) -> Ok(v)
-                    _ ->
-                      Error(InvalidValue(
-                        path: context <> ".security." <> scheme_name,
-                        detail: "Scope must be a string",
-                      ))
-                  }
-                })
-              // Empty scopes [] is serialized as absent in some YAML parsers
-              yay.NodeNil -> Ok([])
-              _ ->
-                Error(InvalidValue(
-                  path: context <> ".security." <> scheme_name,
-                  detail: "Scopes must be an array of strings",
-                ))
-            })
-            Ok(SecurityRequirement(scheme_name:, scopes:))
+    yay.NodeMap(entries) -> {
+      use scheme_refs <- result.try(
+        list.try_map(entries, fn(entry) {
+          let #(key_node, scopes_node) = entry
+          case key_node {
+            yay.NodeStr(scheme_name) -> {
+              use scopes <- result.try(case scopes_node {
+                yay.NodeSeq(scope_items) ->
+                  list.try_map(scope_items, fn(s) {
+                    case s {
+                      yay.NodeStr(v) -> Ok(v)
+                      _ ->
+                        Error(InvalidValue(
+                          path: context <> ".security." <> scheme_name,
+                          detail: "Scope must be a string",
+                        ))
+                    }
+                  })
+                yay.NodeNil -> Ok([])
+                _ ->
+                  Error(InvalidValue(
+                    path: context <> ".security." <> scheme_name,
+                    detail: "Scopes must be an array of strings",
+                  ))
+              })
+              Ok(spec.SecuritySchemeRef(scheme_name:, scopes:))
+            }
+            _ ->
+              Error(InvalidValue(
+                path: context <> ".security",
+                detail: "Security requirement key must be a string",
+              ))
           }
-          _ ->
-            Error(InvalidValue(
-              path: context <> ".security",
-              detail: "Security requirement key must be a string",
-            ))
-        }
-      })
+        }),
+      )
+      Ok(SecurityRequirement(schemes: scheme_refs))
+    }
     _ ->
       Error(InvalidValue(
         path: context <> ".security",

@@ -540,15 +540,22 @@ fn generate_client_function(
     }
   }
 
-  // Apply security schemes
+  // Apply security schemes.
+  // OpenAPI security is OR of alternatives; each alternative is AND of
+  // schemes. We apply ALL scheme refs from the FIRST alternative only,
+  // since the generated client cannot dynamically choose at runtime.
   let effective_security = option.unwrap(operation.security, [])
+  let first_alternative_schemes = case effective_security {
+    [first, ..] -> first.schemes
+    [] -> []
+  }
   let sb =
-    list.fold(effective_security, sb, fn(sb, sec_req) {
-      let field_name = naming.to_snake_case(sec_req.scheme_name)
+    list.fold(first_alternative_schemes, sb, fn(sb, sec_ref) {
+      let field_name = naming.to_snake_case(sec_ref.scheme_name)
       // Look up the scheme definition
       case ctx.spec.components {
         Some(components) ->
-          case dict.get(components.security_schemes, sec_req.scheme_name) {
+          case dict.get(components.security_schemes, sec_ref.scheme_name) {
             Ok(spec.ApiKeyScheme(name: header_name, in_: "header")) ->
               sb
               |> se.indent(1, "let req = case config." <> field_name <> " {")

@@ -41,9 +41,16 @@ pub type SecurityScheme {
   HttpScheme(scheme: String, bearer_format: Option(String))
 }
 
-/// Security requirement on an operation.
+/// A single scheme reference within a security requirement (AND element).
+pub type SecuritySchemeRef {
+  SecuritySchemeRef(scheme_name: String, scopes: List(String))
+}
+
+/// A security requirement: all schemes in the list must be satisfied (AND).
+/// The outer list in operation/top-level security is OR — any one
+/// SecurityRequirement suffices.
 pub type SecurityRequirement {
-  SecurityRequirement(scheme_name: String, scopes: List(String))
+  SecurityRequirement(schemes: List(SecuritySchemeRef))
 }
 
 /// A path item containing operations for each HTTP method.
