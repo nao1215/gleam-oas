@@ -47,6 +47,21 @@ fn generate_decoders(ctx: Context) -> String {
       type_gen.schema_has_optional_fields(schema_ref, ctx)
     })
 
+  // Check if dict module is needed (any schema with typed or untyped additionalProperties)
+  let needs_dict =
+    list.any(schemas, fn(entry) {
+      let #(_, schema_ref) = entry
+      type_gen.schema_has_additional_properties(schema_ref, ctx)
+    })
+
+  // Check if dynamic module is needed (any schema with additionalProperties —
+  // both typed and untyped use dynamic.dynamic for safe initial dict decode)
+  let needs_dynamic =
+    list.any(schemas, fn(entry) {
+      let #(_, schema_ref) = entry
+      type_gen.schema_has_additional_properties(schema_ref, ctx)
+    })
+
   // Check if types module is needed (any non-primitive schema)
   let needs_types =
     list.any(schemas, fn(entry) {
@@ -61,7 +76,17 @@ fn generate_decoders(ctx: Context) -> String {
       }
     })
 
-  let base_imports = ["gleam/dynamic/decode", "gleam/json"]
+  let base_imports = case needs_dict, needs_dynamic {
+    True, True -> [
+      "gleam/dict",
+      "gleam/dynamic",
+      "gleam/dynamic/decode",
+      "gleam/json",
+    ]
+    True, False -> ["gleam/dict", "gleam/dynamic/decode", "gleam/json"]
+    False, True -> ["gleam/dynamic", "gleam/dynamic/decode", "gleam/json"]
+    False, False -> ["gleam/dynamic/decode", "gleam/json"]
+  }
   let base_imports = case needs_types {
     True -> list.append(base_imports, [ctx.config.package <> "/types"])
     False -> base_imports
@@ -243,7 +268,14 @@ fn generate_decoder(
   let decoder_fn_name = naming.to_snake_case(name) <> "_decoder"
 
   case schema_ref {
-    Inline(ObjectSchema(description:, properties:, required:, nullable:, ..)) -> {
+    Inline(ObjectSchema(
+      description:,
+      properties:,
+      required:,
+      nullable:,
+      additional_properties:,
+      additional_properties_untyped:,
+    )) -> {
       let sb = maybe_doc_comment(sb, description)
       let sb =
         sb
@@ -316,12 +348,102 @@ fn generate_decoder(
           }
         })
 
+      // Decode additional_properties as Dict, then drop known property keys
+      // so only unknown/extra keys remain in additional_properties.
+      let known_keys_expr = case list.is_empty(props) {
+        True -> "[]"
+        False ->
+          "["
+          <> se.join_with(
+            list.map(props, fn(entry) {
+              let #(prop_name, _) = entry
+              "\"" <> prop_name <> "\""
+            }),
+            ", ",
+          )
+          <> "]"
+      }
+      // For additionalProperties, decode the raw dict with dynamic values first
+      // to avoid forcing the value decoder on known properties (which may have
+      // incompatible types). Then drop known keys and decode remaining values.
+      let sb = case additional_properties, additional_properties_untyped {
+        Some(ap_ref), _ -> {
+          let inner_decoder =
+            schema_ref_to_decoder(ap_ref, name, "additional_properties", ctx)
+          sb
+          |> se.indent(
+            1,
+            "use all_props <- decode.then(decode.dict(decode.string, dynamic.dynamic))",
+          )
+          |> se.indent(
+            1,
+            "let extra_props = dict.drop(all_props, " <> known_keys_expr <> ")",
+          )
+          |> se.indent(
+            1,
+            "let additional_properties_result = dict.fold(extra_props, Ok(dict.new()), fn(acc, k, v) {",
+          )
+          |> se.indent(2, "case acc {")
+          |> se.indent(3, "Ok(decoded_acc) ->")
+          |> se.indent(4, "case decode.run(v, " <> inner_decoder <> ") {")
+          |> se.indent(
+            5,
+            "Ok(decoded) -> Ok(dict.insert(decoded_acc, k, decoded))",
+          )
+          |> se.indent(5, "Error(_) -> Error(Nil)")
+          |> se.indent(4, "}")
+          |> se.indent(3, "Error(_) -> Error(Nil)")
+          |> se.indent(2, "}")
+          |> se.indent(1, "})")
+          |> se.indent(
+            1,
+            "use additional_properties <- decode.then(case additional_properties_result {",
+          )
+          |> se.indent(2, "Ok(decoded) -> decode.success(decoded)")
+          |> se.indent(
+            2,
+            "Error(_) -> decode.failure(dict.new(), \"additionalProperties\")",
+          )
+          |> se.indent(1, "})")
+        }
+        None, True -> {
+          sb
+          |> se.indent(
+            1,
+            "use all_props <- decode.then(decode.dict(decode.string, dynamic.dynamic))",
+          )
+          |> se.indent(
+            1,
+            "let additional_properties = dict.drop(all_props, "
+              <> known_keys_expr
+              <> ")",
+          )
+        }
+        None, False -> sb
+      }
+
       let param_names =
         list.map(props, fn(entry) {
           let #(prop_name, _) = entry
           let field_name = naming.to_snake_case(prop_name)
           field_name <> ": " <> field_name
         })
+
+      // Add additional_properties to param names if present
+      let param_names = case
+        additional_properties,
+        additional_properties_untyped
+      {
+        Some(_), _ ->
+          list.append(param_names, [
+            "additional_properties: additional_properties",
+          ])
+        None, True ->
+          list.append(param_names, [
+            "additional_properties: additional_properties",
+          ])
+        None, False -> param_names
+      }
 
       let sb =
         sb
@@ -449,38 +571,14 @@ fn generate_decoder(
     }
 
     Inline(AllOfSchema(description:, schemas:)) -> {
-      // Merge properties from all sub-schemas (same as type generator)
-      let merged_props =
-        list.fold(schemas, dict.new(), fn(acc, s_ref) {
-          case s_ref {
-            Inline(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
-            Reference(_) ->
-              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
-                Ok(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
-                _ -> acc
-              }
-            _ -> acc
-          }
-        })
-      let merged_required =
-        list.flat_map(schemas, fn(s_ref) {
-          case s_ref {
-            Inline(ObjectSchema(required:, ..)) -> required
-            Reference(_) ->
-              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
-                Ok(ObjectSchema(required:, ..)) -> required
-                _ -> []
-              }
-            _ -> []
-          }
-        })
+      let merged = type_gen.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         Inline(ObjectSchema(
           description:,
-          properties: merged_props,
-          required: merged_required,
-          additional_properties: None,
-          additional_properties_untyped: False,
+          properties: merged.properties,
+          required: merged.required,
+          additional_properties: merged.additional_properties,
+          additional_properties_untyped: merged.additional_properties_untyped,
           nullable: False,
         ))
       generate_decoder(sb, name, merged_schema, ctx)
@@ -886,7 +984,20 @@ fn generate_encoders(ctx: Context) -> String {
       }
     })
 
-  let base_imports = ["gleam/json"]
+  // Check if dict/list modules are needed (only for typed additionalProperties encoding)
+  let needs_typed_dict =
+    list.any(schemas, fn(entry) {
+      let #(_, schema_ref) = entry
+      case schema_ref {
+        Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
+        _ -> False
+      }
+    })
+
+  let base_imports = case needs_typed_dict {
+    True -> ["gleam/dict", "gleam/json", "gleam/list"]
+    False -> ["gleam/json"]
+  }
   let imports = case needs_types {
     True -> list.append(base_imports, [ctx.config.package <> "/types"])
     False -> base_imports
@@ -1010,7 +1121,13 @@ fn generate_encoder(
   let json_fn_name = fn_name <> "_json"
 
   case schema_ref {
-    Inline(ObjectSchema(properties:, required:, ..)) -> {
+    Inline(ObjectSchema(
+      properties:,
+      required:,
+      additional_properties:,
+      additional_properties_untyped:,
+      ..,
+    )) -> {
       // _json version: returns json.Json
       let sb =
         sb
@@ -1021,7 +1138,18 @@ fn generate_encoder(
           <> type_name
           <> ") -> json.Json {",
         )
-        |> se.indent(1, "json.object([")
+
+      // When additional_properties exist, we merge fixed props with dict entries
+      let has_ap =
+        option.is_some(additional_properties) || additional_properties_untyped
+      let sb = case has_ap {
+        True ->
+          sb
+          |> se.indent(1, "let base_props = [")
+        False ->
+          sb
+          |> se.indent(1, "json.object([")
+      }
 
       let props = dict.to_list(properties)
       let sb =
@@ -1071,9 +1199,39 @@ fn generate_encoder(
           }
         })
 
+      let sb = case additional_properties, additional_properties_untyped {
+        Some(ap_ref), _ -> {
+          let inner_encoder_fn =
+            schema_ref_to_json_encoder_fn(
+              ap_ref,
+              name,
+              "additional_properties",
+              ctx,
+            )
+          sb
+          |> se.indent(1, "]")
+          |> se.indent(
+            1,
+            "let extra_props = dict.to_list(value.additional_properties) |> list.map(fn(entry) { let #(k, v) = entry; #(k, "
+              <> inner_encoder_fn
+              <> "(v)) })",
+          )
+          |> se.indent(1, "json.object(list.append(base_props, extra_props))")
+        }
+        None, True -> {
+          // Untyped additional_properties (Dynamic) are decode-only;
+          // skip them during encoding as they cannot be reliably re-encoded.
+          sb
+          |> se.indent(1, "]")
+          |> se.indent(1, "json.object(base_props)")
+        }
+        None, False ->
+          sb
+          |> se.indent(1, "])")
+      }
+
       let sb =
         sb
-        |> se.indent(1, "])")
         |> se.line("}")
         |> se.blank_line()
 
@@ -1165,38 +1323,14 @@ fn generate_encoder(
     }
 
     Inline(AllOfSchema(description:, schemas:)) -> {
-      // Merge properties from all sub-schemas (same as type generator)
-      let merged_props =
-        list.fold(schemas, dict.new(), fn(acc, s_ref) {
-          case s_ref {
-            Inline(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
-            Reference(_) ->
-              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
-                Ok(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
-                _ -> acc
-              }
-            _ -> acc
-          }
-        })
-      let merged_required =
-        list.flat_map(schemas, fn(s_ref) {
-          case s_ref {
-            Inline(ObjectSchema(required:, ..)) -> required
-            Reference(_) ->
-              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
-                Ok(ObjectSchema(required:, ..)) -> required
-                _ -> []
-              }
-            _ -> []
-          }
-        })
+      let merged = type_gen.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         Inline(ObjectSchema(
           description:,
-          properties: merged_props,
-          required: merged_required,
-          additional_properties: None,
-          additional_properties_untyped: False,
+          properties: merged.properties,
+          required: merged.required,
+          additional_properties: merged.additional_properties,
+          additional_properties_untyped: merged.additional_properties_untyped,
           nullable: False,
         ))
       generate_encoder(sb, name, merged_schema, ctx)

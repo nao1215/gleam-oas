@@ -1036,11 +1036,12 @@ fn parse_security_scheme(
         }),
       )
       case in_str {
-        "header" | "query" -> Ok(spec.ApiKeyScheme(name:, in_: in_str))
+        "header" | "query" | "cookie" ->
+          Ok(spec.ApiKeyScheme(name:, in_: in_str))
         _ ->
           Error(InvalidValue(
             path: "securityScheme.apiKey.in",
-            detail: "Only 'header' and 'query' are supported for apiKey. Got: '"
+            detail: "Only 'header', 'query' and 'cookie' are supported for apiKey. Got: '"
               <> in_str
               <> "'",
           ))
@@ -1053,21 +1054,16 @@ fn parse_security_scheme(
           MissingField(path: "securityScheme.http", field: "scheme")
         }),
       )
-      case scheme {
-        "bearer" -> {
-          let bearer_format =
-            yay.extract_optional_string(node, "bearerFormat")
-            |> result.unwrap(None)
-          Ok(spec.HttpScheme(scheme:, bearer_format:))
-        }
-        _ ->
-          Error(InvalidValue(
-            path: "securityScheme.http.scheme",
-            detail: "Only 'bearer' is supported for http security scheme. Got: '"
-              <> scheme
-              <> "'",
-          ))
-      }
+      let bearer_format =
+        yay.extract_optional_string(node, "bearerFormat")
+        |> result.unwrap(None)
+      Ok(spec.HttpScheme(scheme:, bearer_format:))
+    }
+    "oauth2" -> {
+      let description =
+        yay.extract_optional_string(node, "description")
+        |> result.unwrap(None)
+      Ok(spec.OAuth2Scheme(description:))
     }
     _ ->
       Error(InvalidValue(

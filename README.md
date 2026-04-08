@@ -13,7 +13,7 @@ Generate Gleam code from OpenAPI 3.x specifications.
 - Server handler stubs
 - Client SDK with parameter serialization and response decoding
 - Middleware (logging, retry)
-- Security scheme support (apiKey header/query, Bearer token)
+- Security scheme support (`apiKey` header/query/cookie, HTTP bearer/basic/digest)
 - OpenAPI descriptions as doc comments
 
 ## Install
@@ -174,8 +174,9 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Paths and operations (GET, POST, PUT, DELETE, PATCH)
 - Path, query, header, cookie parameters (path-level merged by `(name, in)`)
 - Parameter serialization for Bool, Float, Int, String, `$ref` enum types
+- Percent-encoding for path/query/cookie parameter values via `uri.percent_encode`
 - Cookie parameters combined into single header
-- Request bodies with `$ref` resolution (typed, auto-encoded)
+- `application/json` request bodies with `$ref` resolution (typed, auto-encoded)
 - allOf in request body (property merging from `$ref` + inline objects)
 - Responses with status codes, `$ref` responses from `components.responses`
 - `$ref` resolution for parameters, requestBodies, responses, schemas
@@ -195,9 +196,16 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Client typed body (auto-encoded) and typed response (auto-decoded)
 - `default` response handling in client
 - Top-level security inheritance (operation-level overrides, `security: []` opts out)
-- Security schemes: `apiKey` in header/query, HTTP bearer (first OR alternative applied; AND within one alternative supported)
+- Security schemes: `apiKey` in header/query/cookie, HTTP bearer/basic/digest (first OR alternative applied; AND within one alternative supported)
+- `text/plain` response content type: body returned as `String` directly
+- Typed `additionalProperties`: `Dict(String, T)` with dict decoder/encoder (known keys excluded)
+- Untyped `additionalProperties: true`: `Dict(String, Dynamic)` (decode-only, known keys excluded)
+- `multipart/form-data` request bodies with boundary-based encoding for string/integer/number/boolean/binary/string-enum fields (optional fields handled)
+- Validation constraint guards (minLength, maxLength, minimum, maximum, minItems, maxItems)
 - Duplicate operationId detection
 - Function/type name collision detection after case conversion
+- Property name collision detection after snake_case conversion
+- Enum variant collision detection after PascalCase conversion
 - Config validation: output directory basename must match package name
 - Gleam keyword escaping in generated field names
 
@@ -206,31 +214,28 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 These are detected before code generation. The generator prints an error and exits non-zero.
 
 - `style: deepObject` query parameters
-- `multipart/form-data` request bodies (only `application/json`)
-- `additionalProperties: true` (untyped map)
-- Typed `additionalProperties`
 - Inline oneOf/anyOf schemas (variants must be `$ref`)
 - Nested inline object/allOf in properties (use `$ref`)
 - Array parameters (query/header/cookie with `type: array`)
-- Complex schema parameters (object/allOf/oneOf/anyOf in query/header/cookie)
+- Complex schema parameters (object/allOf/oneOf/anyOf in path/query/header/cookie)
 - Inline complex array items (object/allOf/oneOf/anyOf; use `$ref`)
 - Duplicate operationId
 - Function/type name collisions after case conversion
 - Property name collisions after snake_case conversion
 - Enum variant collisions after PascalCase conversion
-- Non-JSON response content types (only `application/json`)
+- Non-JSON/non-multipart request body content types (only `application/json` and `multipart/form-data`)
+- Non-JSON response content types (only `application/json` and `text/plain`)
 - Path parameters with `required: false`
 
 ### Not yet supported
 
-- Percent-encoding for path/query/cookie parameter values: values are inserted as-is; reserved characters may break URLs
-- Validation constraints (minLength, maxLength, pattern, minimum, maximum): parsed but not enforced
+- Validation constraints enforcement at runtime (guards are generated but not auto-called)
 - Callbacks: ignored by the generator
-- OAuth2 / OpenID Connect: rejected at parse time
-- `apiKey` in cookie: rejected at parse time
-- HTTP Basic / Digest: rejected at parse time (only bearer supported)
-- allOf with non-object sub-schemas
-- `text/plain` and other non-JSON response types
+- OAuth2: rejected at validation time
+- OpenID Connect: rejected at parse time
+- Unsupported HTTP security schemes (e.g. hoba, negotiate): rejected at validation time
+- `allOf` merge only supports object sub-schemas (non-object entries are ignored)
+- `additionalProperties` with inline complex schemas is not handled explicitly; use primitives or `$ref`
 
 ### Schema-to-type mapping
 
