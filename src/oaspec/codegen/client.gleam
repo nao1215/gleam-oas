@@ -460,8 +460,9 @@ fn generate_client_function(
   }
 
   // Apply security schemes
+  let effective_security = option.unwrap(operation.security, [])
   let sb =
-    list.fold(operation.security, sb, fn(sb, sec_req) {
+    list.fold(effective_security, sb, fn(sb, sec_req) {
       let field_name = naming.to_snake_case(sec_req.scheme_name)
       // Look up the scheme definition
       case ctx.spec.components {

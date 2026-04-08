@@ -806,7 +806,19 @@ pub fn collect_operations(
             })
           let merged_params =
             list.append(inherited_params, operation.parameters)
-          let operation = spec.Operation(..operation, parameters: merged_params)
+          // Inherit top-level security if operation doesn't define its own.
+          // operation.security = None → inherit, Some([]) → no security,
+          // Some([...]) → use operation-level.
+          let effective_security = case operation.security {
+            Some(sec) -> sec
+            None -> ctx.spec.security
+          }
+          let operation =
+            spec.Operation(
+              ..operation,
+              parameters: merged_params,
+              security: Some(effective_security),
+            )
 
           let op_id = case operation.operation_id {
             Some(id) -> id

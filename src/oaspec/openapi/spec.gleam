@@ -10,6 +10,7 @@ pub type OpenApiSpec {
     paths: Dict(String, PathItem),
     components: Option(Components),
     servers: List(Server),
+    security: List(SecurityRequirement),
   )
 }
 
@@ -70,7 +71,7 @@ pub type Operation {
     request_body: Option(RequestBody),
     responses: Dict(String, Response),
     deprecated: Bool,
-    security: List(SecurityRequirement),
+    security: Option(List(SecurityRequirement)),
   )
 }
 

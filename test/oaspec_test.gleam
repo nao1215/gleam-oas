@@ -149,7 +149,8 @@ pub fn parse_secure_api_operation_has_security_test() {
   let assert Ok(spec) = parser.parse_file("test/fixtures/secure_api.yaml")
   let assert Ok(path_item) = dict.get(spec.paths, "/pets")
   let assert Some(get_op) = path_item.get
-  list.length(get_op.security) |> should.equal(1)
+  let assert Some(sec) = get_op.security
+  list.length(sec) |> should.equal(1)
 }
 
 pub fn parse_rejects_basic_auth_test() {

@@ -70,8 +70,9 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec, ParseError) {
 
   use paths <- result.try(parse_paths(node, components))
   use servers <- result.try(parse_servers(node))
+  use security <- result.try(parse_security_requirements(node, ""))
 
-  Ok(OpenApiSpec(openapi:, info:, paths:, components:, servers:))
+  Ok(OpenApiSpec(openapi:, info:, paths:, components:, servers:, security:))
 }
 
 /// Parse optional components section.
@@ -309,7 +310,7 @@ fn parse_operation(
     components,
   ))
 
-  use security <- result.try(parse_security_requirements(node, context))
+  use security <- result.try(parse_optional_security_requirements(node, context))
 
   Ok(Operation(
     operation_id:,
@@ -1068,7 +1069,7 @@ fn parse_security_scheme(
   }
 }
 
-/// Parse security requirements from an operation.
+/// Parse top-level security requirements.
 /// Returns Ok([]) if absent, Error if present but malformed.
 fn parse_security_requirements(
   node: yay.Node,
@@ -1081,6 +1082,27 @@ fn parse_security_requirements(
       })
       |> result.map(list.flatten)
     _ -> Ok([])
+  }
+}
+
+/// Parse operation-level security requirements.
+/// Returns Ok(None) if absent (inherits top-level), Ok(Some([])) if explicitly
+/// empty (opts out), Ok(Some([...])) if specified.
+fn parse_optional_security_requirements(
+  node: yay.Node,
+  context: String,
+) -> Result(Option(List(SecurityRequirement)), ParseError) {
+  case yay.select_sugar(from: node, selector: "security") {
+    Ok(yay.NodeSeq(items)) -> {
+      use reqs <- result.try(
+        list.try_map(items, fn(item) {
+          parse_security_requirement_object(item, context)
+        })
+        |> result.map(list.flatten),
+      )
+      Ok(Some(reqs))
+    }
+    _ -> Ok(None)
   }
 }
 
