@@ -122,7 +122,7 @@ fn validate_request_body(
   }
 }
 
-/// Validate response schemas recursively.
+/// Validate response schemas and content types.
 fn validate_responses(
   op_id: String,
   responses: dict.Dict(String, spec.Response),
@@ -132,15 +132,24 @@ fn validate_responses(
     let #(status_code, response) = entry
     let content_entries = dict.to_list(response.content)
     list.flat_map(content_entries, fn(ce) {
-      let #(_media_type, media_type) = ce
-      case media_type.schema {
-        Some(schema_ref) ->
-          validate_schema_ref_recursive(
-            op_id <> ".responses." <> status_code,
-            schema_ref,
-          )
+      let #(media_type_name, media_type) = ce
+      let path = op_id <> ".responses." <> status_code
+      let content_type_errors = case media_type_name {
+        "application/json" -> []
+        _ -> [
+          UnsupportedFeature(
+            path: path,
+            detail: "Response content type '"
+              <> media_type_name
+              <> "' is not supported. Only 'application/json' is supported.",
+          ),
+        ]
+      }
+      let schema_errors = case media_type.schema {
+        Some(schema_ref) -> validate_schema_ref_recursive(path, schema_ref)
         None -> []
       }
+      list.append(content_type_errors, schema_errors)
     })
   })
 }
