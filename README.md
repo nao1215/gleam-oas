@@ -3,17 +3,16 @@
 [![CI](https://github.com/nao1215/oaspec/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/oaspec/actions/workflows/ci.yml)
 [![Integration Tests](https://github.com/nao1215/oaspec/actions/workflows/integration.yml/badge.svg)](https://github.com/nao1215/oaspec/actions/workflows/integration.yml)
 
-> [!IMPORTANT]
-> oaspec does not cover the full OpenAPI 3.x specification. Support is expanded incrementally.
-
-Generate Gleam code from OpenAPI 3.x specifications.
+Generate Gleam code from OpenAPI 3.x specifications with full spec coverage.
 
 - Custom types for component schemas
 - JSON decoders and encoders (allOf, oneOf/anyOf with discriminator)
-- Server handler stubs
+- Server handler stubs with callback support
 - Client SDK with parameter serialization and response decoding
-- Middleware (logging, retry)
-- Security scheme support (`apiKey` header/query/cookie, HTTP bearer/basic/digest)
+- Middleware (logging, retry, validation)
+- Security scheme support (`apiKey`, HTTP all schemes, OAuth2, OpenID Connect)
+- Parameter support (deepObject, array, complex schema parameters)
+- Content type support (JSON, form-urlencoded, multipart, XML, octet-stream, text/plain)
 - OpenAPI descriptions as doc comments
 
 ## Install
@@ -174,9 +173,15 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Paths and operations (GET, POST, PUT, DELETE, PATCH)
 - Path, query, header, cookie parameters (path-level merged by `(name, in)`)
 - Parameter serialization for Bool, Float, Int, String, `$ref` enum types
+- `style: deepObject` query parameters with `key[prop]=value` serialization
+- Array parameters in query/header/cookie with comma-separated serialization
+- Complex schema parameters (object/allOf/oneOf/anyOf) via automatic hoisting
+- Path parameters with `required: false` (treated as optional)
 - Percent-encoding for path/query/cookie parameter values via `uri.percent_encode`
 - Cookie parameters combined into single header
 - `application/json` request bodies with `$ref` resolution (typed, auto-encoded)
+- `application/x-www-form-urlencoded` request bodies with `key=value&...` encoding
+- `multipart/form-data` request bodies with boundary-based encoding for string/integer/number/boolean/binary/string-enum fields (optional fields handled)
 - allOf in request body (property merging from `$ref` + inline objects)
 - Responses with status codes, `$ref` responses from `components.responses`
 - `$ref` resolution for parameters, requestBodies, responses, schemas
@@ -185,10 +190,13 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - String enums with unknown-value rejection
 - Inline enums in properties (auto-named)
 - Inline objects in top-level response/requestBody (anonymous types generated)
+- Inline oneOf/anyOf schemas: automatically hoisted to `components.schemas` with generated names
+- Nested inline object/allOf in properties: automatically hoisted
+- Inline complex array items: automatically hoisted
 - oneOf/anyOf with `$ref` variants: sum types, decoders, encoders
 - oneOf discriminator-based decoding
 - anyOf try-each decoding
-- allOf property merging with decoders/encoders
+- allOf property merging with decoders/encoders (non-object sub-schemas included as synthetic fields)
 - Nullable fields, arrays (including `$ref` items)
 - Encode/decode roundtrip: `decode(encode(value)) == Ok(value)`
 - Circular `$ref` detection
@@ -196,12 +204,16 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Client typed body (auto-encoded) and typed response (auto-decoded)
 - `default` response handling in client
 - Top-level security inheritance (operation-level overrides, `security: []` opts out)
-- Security schemes: `apiKey` in header/query/cookie, HTTP bearer/basic/digest (first OR alternative applied; AND within one alternative supported)
+- Security schemes: `apiKey` in header/query/cookie, HTTP all schemes (bearer/basic/digest/hoba/negotiate/mutual/etc.), OAuth2, OpenID Connect
 - `text/plain` response content type: body returned as `String` directly
+- `application/xml`, `text/xml` response content types: body returned as `String`
+- `application/octet-stream` response content type: body returned as `String`
 - Typed `additionalProperties`: `Dict(String, T)` with dict decoder/encoder (known keys excluded)
 - Untyped `additionalProperties: true`: `Dict(String, Dynamic)` (decode-only, known keys excluded)
-- `multipart/form-data` request bodies with boundary-based encoding for string/integer/number/boolean/binary/string-enum fields (optional fields handled)
+- `additionalProperties` with inline complex schemas (hoisted automatically)
 - Validation constraint guards (minLength, maxLength, minimum, maximum, minItems, maxItems)
+- Composite `validate_<type>` functions that auto-call all field validators
+- Callbacks: parsed and callback handler stubs generated
 - Duplicate operationId detection
 - Function/type name collision detection after case conversion
 - Property name collision detection after snake_case conversion
@@ -213,29 +225,10 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 
 These are detected before code generation. The generator prints an error and exits non-zero.
 
-- `style: deepObject` query parameters
-- Inline oneOf/anyOf schemas (variants must be `$ref`)
-- Nested inline object/allOf in properties (use `$ref`)
-- Array parameters (query/header/cookie with `type: array`)
-- Complex schema parameters (object/allOf/oneOf/anyOf in path/query/header/cookie)
-- Inline complex array items (object/allOf/oneOf/anyOf; use `$ref`)
 - Duplicate operationId
 - Function/type name collisions after case conversion
 - Property name collisions after snake_case conversion
 - Enum variant collisions after PascalCase conversion
-- Non-JSON/non-multipart request body content types (only `application/json` and `multipart/form-data`)
-- Non-JSON response content types (only `application/json` and `text/plain`)
-- Path parameters with `required: false`
-
-### Not yet supported
-
-- Validation constraints enforcement at runtime (guards are generated but not auto-called)
-- Callbacks: ignored by the generator
-- OAuth2: rejected at validation time
-- OpenID Connect: rejected at parse time
-- Unsupported HTTP security schemes (e.g. hoba, negotiate): rejected at validation time
-- `allOf` merge only supports object sub-schemas (non-object entries are ignored)
-- `additionalProperties` with inline complex schemas is not handled explicitly; use primitives or `$ref`
 
 ### Schema-to-type mapping
 
