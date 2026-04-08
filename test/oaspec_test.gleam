@@ -297,7 +297,7 @@ paths:
   errors |> should.equal([])
 }
 
-pub fn validate_rejects_non_json_response_content_type_test() {
+pub fn validate_accepts_text_plain_response_test() {
   let yaml =
     "
 openapi: 3.0.3
@@ -318,9 +318,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let ctx = make_ctx_from_spec(spec)
   let errors = validate.validate(ctx)
-  let error_strings = list.map(errors, validate.error_to_string)
-  list.any(error_strings, fn(s) { string.contains(s, "text/plain") })
-  |> should.be_true()
+  errors |> should.equal([])
 }
 
 pub fn validate_accepts_property_name_collision_test() {
@@ -1020,7 +1018,7 @@ pub fn content_type_is_supported_test() {
   |> should.be_true()
 
   content_type.is_supported(content_type.TextPlain)
-  |> should.be_false()
+  |> should.be_true()
 
   content_type.is_supported(content_type.MultipartFormData)
   |> should.be_false()
