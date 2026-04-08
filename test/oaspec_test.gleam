@@ -248,6 +248,31 @@ paths:
   |> should.be_true()
 }
 
+pub fn parse_rejects_optional_path_parameter_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets/{petId}:
+    get:
+      operationId: getPet
+      parameters:
+        - name: petId
+          in: path
+          required: false
+          schema: { type: string }
+      responses:
+        '200': { description: ok }
+"
+  let result = parser.parse_string(yaml)
+  should.be_error(result)
+  let assert Error(parser.InvalidValue(path: _, detail: detail)) = result
+  string.contains(detail, "required: true") |> should.be_true()
+}
+
 fn make_ctx_from_spec(spec) -> context.Context {
   let cfg =
     config.Config(

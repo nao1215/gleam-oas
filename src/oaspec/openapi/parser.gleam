@@ -396,13 +396,21 @@ fn parse_parameter(
         yay.extract_optional_string(node, "description")
         |> result.unwrap(None)
 
-      let required =
+      let explicit_required =
         yay.extract_optional_bool(node, "required")
         |> result.unwrap(None)
-        |> option.unwrap(case in_ {
-          spec.InPath -> True
-          _ -> False
-        })
+
+      // OpenAPI 3.x: path parameters MUST have required: true
+      use required <- result.try(case in_, explicit_required {
+        spec.InPath, Some(False) ->
+          Error(InvalidValue(
+            path: "parameter." <> name,
+            detail: "Path parameters must have required: true",
+          ))
+        spec.InPath, _ -> Ok(True)
+        _, Some(v) -> Ok(v)
+        _, None -> Ok(False)
+      })
 
       let deprecated =
         yay.extract_optional_bool(node, "deprecated")
