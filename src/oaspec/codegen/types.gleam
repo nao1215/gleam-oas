@@ -30,7 +30,10 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
 fn generate_types(ctx: Context) -> String {
   // Generate component schema types
   let schemas = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.schemas)
+    Some(components) ->
+      list.sort(dict.to_list(components.schemas), fn(a, b) {
+        string.compare(a.0, b.0)
+      })
     None -> []
   }
 
@@ -824,7 +827,10 @@ fn status_code_to_variant(code: String, type_name: String) -> String {
 pub fn collect_operations(
   ctx: Context,
 ) -> List(#(String, spec.Operation, String, spec.HttpMethod)) {
-  let paths = dict.to_list(ctx.spec.paths)
+  let paths =
+    list.sort(dict.to_list(ctx.spec.paths), fn(a, b) {
+      string.compare(a.0, b.0)
+    })
   list.flat_map(paths, fn(entry) {
     let #(path, path_item) = entry
     let ops = [
