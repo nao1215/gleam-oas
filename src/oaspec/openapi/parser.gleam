@@ -408,10 +408,15 @@ fn parse_parameter(
         |> result.unwrap(None)
         |> option.unwrap(False)
 
-      let param_schema = case yay.select_sugar(from: node, selector: "schema") {
-        Ok(schema_node) -> parse_schema_ref(schema_node) |> option.from_result
-        _ -> None
-      }
+      use param_schema <- result.try(
+        case yay.select_sugar(from: node, selector: "schema") {
+          Ok(schema_node) -> {
+            use sr <- result.try(parse_schema_ref(schema_node))
+            Ok(Some(sr))
+          }
+          _ -> Ok(None)
+        },
+      )
 
       let style =
         yay.extract_optional_string(node, "style")
@@ -584,13 +589,15 @@ fn parse_content(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(media_type_name) -> {
-            let mt_schema = case
-              yay.select_sugar(from: value_node, selector: "schema")
-            {
-              Ok(schema_node) ->
-                parse_schema_ref(schema_node) |> option.from_result
-              _ -> None
-            }
+            use mt_schema <- result.try(
+              case yay.select_sugar(from: value_node, selector: "schema") {
+                Ok(schema_node) -> {
+                  use sr <- result.try(parse_schema_ref(schema_node))
+                  Ok(Some(sr))
+                }
+                _ -> Ok(None)
+              },
+            )
             Ok(dict.insert(acc, media_type_name, MediaType(schema: mt_schema)))
           }
           _ -> Ok(acc)
@@ -792,7 +799,15 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
       case yay.select_sugar(from: node, selector: "oneOf") {
         Ok(yay.NodeSeq(items)) -> {
           use schemas <- result.try(list.try_map(items, parse_schema_ref))
-          let discriminator = parse_discriminator(node) |> option.from_result
+          use discriminator <- result.try(
+            case yay.select_sugar(from: node, selector: "discriminator") {
+              Ok(_) -> {
+                use d <- result.try(parse_discriminator(node))
+                Ok(Some(d))
+              }
+              Error(_) -> Ok(None)
+            },
+          )
           Ok(OneOfSchema(description:, schemas:, discriminator:))
         }
         _ ->
@@ -879,19 +894,22 @@ fn parse_typed_schema(
 
     // Default: object
     _ -> {
-      let properties = parse_properties(node) |> result.unwrap(dict.new())
+      use properties <- result.try(parse_properties(node))
       let required = case yay.extract_string_list(node, "required") {
         Ok(r) -> r
         _ -> []
       }
-      let #(additional_properties, additional_properties_untyped) = case
-        yay.select_sugar(from: node, selector: "additionalProperties")
-      {
-        Ok(yay.NodeBool(True)) -> #(None, True)
-        Ok(yay.NodeBool(False)) -> #(None, False)
-        Ok(ap_node) -> #(parse_schema_ref(ap_node) |> option.from_result, False)
-        _ -> #(None, False)
-      }
+      use #(additional_properties, additional_properties_untyped) <- result.try(
+        case yay.select_sugar(from: node, selector: "additionalProperties") {
+          Ok(yay.NodeBool(True)) -> Ok(#(None, True))
+          Ok(yay.NodeBool(False)) -> Ok(#(None, False))
+          Ok(ap_node) -> {
+            use sr <- result.try(parse_schema_ref(ap_node))
+            Ok(#(Some(sr), False))
+          }
+          _ -> Ok(#(None, False))
+        },
+      )
       Ok(ObjectSchema(
         description:,
         properties:,
