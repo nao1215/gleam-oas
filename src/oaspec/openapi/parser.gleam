@@ -1026,7 +1026,16 @@ fn parse_security_scheme(
           MissingField(path: "securityScheme.apiKey", field: "in")
         }),
       )
-      Ok(spec.ApiKeyScheme(name:, in_: in_str))
+      case in_str {
+        "header" | "query" -> Ok(spec.ApiKeyScheme(name:, in_: in_str))
+        _ ->
+          Error(InvalidValue(
+            path: "securityScheme.apiKey.in",
+            detail: "Only 'header' and 'query' are supported for apiKey. Got: '"
+              <> in_str
+              <> "'",
+          ))
+      }
     }
     "http" -> {
       use scheme <- result.try(

@@ -196,7 +196,7 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Fail-fast parser: missing required fields (`responses`, `items` for arrays, `openapi`, `info`), unknown parameter locations (`in: body`), and malformed content all return Error immediately
 - Client typed body: accepts typed body parameters, auto-encodes via generated encoders
 - Client typed response: returns typed response variants, auto-decodes via generated decoders
-- Security schemes: apiKey (header/query), HTTP Bearer token applied to client functions
+- Security schemes: `apiKey` in `header` or `query`, HTTP `bearer` token — applied to generated client functions (other `apiKey.in` values rejected at parse time)
 - Duplicate operationId detection (validation error)
 - Function name collision detection after snake_case conversion
 - Type name collision detection after PascalCase conversion
@@ -218,7 +218,8 @@ These patterns are detected before code generation. The generator prints a clear
 
 - **Validation constraints** (minLength, maxLength, pattern, minimum, maximum): Parsed but not enforced
 - **Callbacks**: Parsed but ignored
-- **OAuth2 / OpenID Connect security schemes**: Only apiKey and HTTP Bearer supported
+- **OAuth2 / OpenID Connect security schemes**: Only `apiKey` (header/query) and HTTP Bearer supported
+- **`apiKey` in `cookie`**: Rejected at parse time
 - **allOf with non-object sub-schemas**: Only object sub-schemas are merged
 
 ### Schema-to-type mapping
