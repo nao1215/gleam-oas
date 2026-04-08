@@ -9,11 +9,12 @@ import oaspec/openapi/schema.{
   NumberSchema, ObjectSchema, OneOfSchema, Reference, StringSchema,
 }
 import oaspec/openapi/spec.{
-  type Components, type HttpMethod, type Info, type MediaType, type OpenApiSpec,
-  type Operation, type Parameter, type ParameterIn, type PathItem,
-  type RequestBody, type Response, type SecurityRequirement, type Server,
-  Components, Delete, Get, Info, MediaType, OpenApiSpec, Operation, Parameter,
-  Patch, PathItem, Post, Put, RequestBody, Response, SecurityRequirement, Server,
+  type Callback, type Components, type HttpMethod, type Info, type MediaType,
+  type OpenApiSpec, type Operation, type Parameter, type ParameterIn,
+  type PathItem, type RequestBody, type Response, type SecurityRequirement,
+  type Server, Callback, Components, Delete, Get, Info, MediaType, OpenApiSpec,
+  Operation, Parameter, Patch, PathItem, Post, Put, RequestBody, Response,
+  SecurityRequirement, Server,
 }
 import simplifile
 import yay
@@ -312,6 +313,8 @@ fn parse_operation(
 
   use security <- result.try(parse_optional_security_requirements(node, context))
 
+  let callbacks = parse_callbacks(node, context, components)
+
   Ok(Operation(
     operation_id:,
     summary:,
@@ -322,6 +325,7 @@ fn parse_operation(
     responses:,
     deprecated:,
     security:,
+    callbacks:,
   ))
 }
 
@@ -1172,6 +1176,61 @@ fn parse_security_requirement_object(
       Error(InvalidValue(
         path: context <> ".security",
         detail: "Security requirement must be an object",
+      ))
+  }
+}
+
+/// Parse callbacks from an operation node.
+/// Returns an empty dict if no callbacks are present.
+fn parse_callbacks(
+  node: yay.Node,
+  context: String,
+  components: Option(Components),
+) -> dict.Dict(String, Callback) {
+  case yay.select_sugar(from: node, selector: "callbacks") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(callback_name) ->
+            case parse_callback_object(value_node, context, components) {
+              Ok(callback) -> dict.insert(acc, callback_name, callback)
+              Error(_) -> acc
+            }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
+  }
+}
+
+/// Parse a single callback object (maps URL expression -> PathItem).
+fn parse_callback_object(
+  node: yay.Node,
+  context: String,
+  components: Option(Components),
+) -> Result(Callback, ParseError) {
+  case node {
+    yay.NodeMap(entries) ->
+      case entries {
+        [#(yay.NodeStr(url_expression), path_item_node), ..] -> {
+          use path_item <- result.try(parse_path_item(
+            path_item_node,
+            context <> ".callbacks",
+            components,
+          ))
+          Ok(Callback(url_expression:, path_item:))
+        }
+        _ ->
+          Error(MissingField(
+            path: context <> ".callbacks",
+            field: "url expression",
+          ))
+      }
+    _ ->
+      Error(MissingField(
+        path: context <> ".callbacks",
+        field: "url expression",
       ))
   }
 }

@@ -84,7 +84,13 @@ pub type Operation {
     responses: Dict(String, Response),
     deprecated: Bool,
     security: Option(List(SecurityRequirement)),
+    callbacks: Dict(String, Callback),
   )
+}
+
+/// A callback object: maps a URL expression to a PathItem.
+pub type Callback {
+  Callback(url_expression: String, path_item: PathItem)
 }
 
 /// Parameter location.

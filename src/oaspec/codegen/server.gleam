@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/list
 import gleam/option.{Some}
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
@@ -32,6 +33,13 @@ fn generate_handlers(ctx: Context) -> String {
     list.fold(operations, sb, fn(sb, op) {
       let #(op_id, operation, _path, _method) = op
       generate_handler(sb, op_id, operation, ctx)
+    })
+
+  // Generate callback handler stubs
+  let sb =
+    list.fold(operations, sb, fn(sb, op) {
+      let #(op_id, operation, _path, _method) = op
+      generate_callback_handlers(sb, op_id, operation)
     })
 
   se.to_string(sb)
@@ -90,6 +98,32 @@ fn generate_handler(
   |> se.indent(1, "todo")
   |> se.line("}")
   |> se.blank_line()
+}
+
+/// Generate callback handler stubs for an operation's callbacks.
+fn generate_callback_handlers(
+  sb: se.StringBuilder,
+  op_id: String,
+  operation: spec.Operation,
+) -> se.StringBuilder {
+  let callbacks = dict.to_list(operation.callbacks)
+  list.fold(callbacks, sb, fn(sb, entry) {
+    let #(callback_name, callback) = entry
+    let fn_name =
+      naming.operation_to_function_name(op_id)
+      <> "_callback_"
+      <> naming.to_snake_case(callback_name)
+    sb
+    |> se.doc_comment(
+      "Callback handler stub for " <> callback_name <> " on " <> op_id,
+    )
+    |> se.doc_comment("URL: " <> callback.url_expression)
+    |> se.line("pub fn " <> fn_name <> "() -> String {")
+    |> se.indent(1, "// TODO: Implement callback " <> callback_name)
+    |> se.indent(1, "todo")
+    |> se.line("}")
+    |> se.blank_line()
+  })
 }
 
 /// Generate a router module that dispatches requests.

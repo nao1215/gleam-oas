@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -838,11 +839,13 @@ pub type MergedAllOf {
 }
 
 /// Merge allOf sub-schemas: properties, required, and additionalProperties.
+/// Non-object sub-schemas (primitives, arrays) are included as a synthetic
+/// "value" property to preserve their constraints.
 pub fn merge_allof_schemas(
   schemas: List(SchemaRef),
   ctx: Context,
 ) -> MergedAllOf {
-  list.fold(
+  list.index_fold(
     schemas,
     MergedAllOf(
       properties: dict.new(),
@@ -850,7 +853,7 @@ pub fn merge_allof_schemas(
       additional_properties: None,
       additional_properties_untyped: False,
     ),
-    fn(acc, s_ref) {
+    fn(acc, s_ref, idx) {
       let resolved = case s_ref {
         Inline(obj) -> Ok(obj)
         Reference(_) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
@@ -877,6 +880,22 @@ pub fn merge_allof_schemas(
             required: list.append(acc.required, required),
             additional_properties: merged_ap,
             additional_properties_untyped: merged_ap_untyped,
+          )
+        }
+        // Non-object sub-schemas: add as a synthetic "value" field
+        Ok(schema_obj) -> {
+          let field_name = case idx {
+            0 -> "value"
+            n -> "value_" <> int.to_string(n)
+          }
+          MergedAllOf(
+            ..acc,
+            properties: dict.insert(
+              acc.properties,
+              field_name,
+              Inline(schema_obj),
+            ),
+            required: [field_name, ..acc.required],
           )
         }
         _ -> acc

@@ -57,6 +57,13 @@ fn generate_guards(ctx: Context) -> String {
       generate_guards_for_schema(sb, name, schema_ref, ctx)
     })
 
+  // Generate composite validate_<type> functions that call all field validators
+  let sb =
+    list.fold(schemas, sb, fn(sb, entry) {
+      let #(name, schema_ref) = entry
+      generate_composite_validator(sb, name, schema_ref, ctx)
+    })
+
   se.to_string(sb)
 }
 
@@ -536,5 +543,165 @@ fn field_label(prop_name: String) -> String {
   case prop_name {
     "" -> ""
     _ -> "." <> prop_name
+  }
+}
+
+/// Generate a composite validate function for a schema that calls all
+/// individual field validators. This enables auto-validation by calling
+/// a single function rather than individual field guards.
+fn generate_composite_validator(
+  sb: se.StringBuilder,
+  name: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> se.StringBuilder {
+  let guard_calls = collect_guard_calls(name, schema_ref, ctx)
+  case list.is_empty(guard_calls) {
+    True -> sb
+    False -> {
+      let fn_name = "validate_" <> naming.to_snake_case(name)
+      let type_name = naming.schema_to_type_name(name)
+      let sb =
+        sb
+        |> se.doc_comment(
+          "Validate all constraints for " <> type_name <> ".",
+        )
+        |> se.doc_comment("Auto-calls all field validators and collects errors.")
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(value: value_type) -> Result(value_type, List(String)) {",
+        )
+        |> se.indent(1, "let errors = []")
+      let sb =
+        list.fold(guard_calls, sb, fn(sb, call) {
+          let #(guard_fn, accessor) = call
+          sb
+          |> se.indent(1, "let errors = case " <> guard_fn <> "(" <> accessor <> ") {")
+          |> se.indent(2, "Ok(_) -> errors")
+          |> se.indent(2, "Error(msg) -> [msg, ..errors]")
+          |> se.indent(1, "}")
+        })
+      sb
+      |> se.indent(1, "case errors {")
+      |> se.indent(2, "[] -> Ok(value)")
+      |> se.indent(2, "_ -> Error(errors)")
+      |> se.indent(1, "}")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+  }
+}
+
+/// Collect all guard function calls for a schema's constrained fields.
+fn collect_guard_calls(
+  name: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> List(#(String, String)) {
+  let schema = case schema_ref {
+    Inline(s) -> Ok(s)
+    Reference(_) -> resolver.resolve_schema_ref(schema_ref, ctx.spec)
+  }
+  case schema {
+    Ok(ObjectSchema(properties:, ..)) ->
+      dict.to_list(properties)
+      |> list.flat_map(fn(entry) {
+        let #(prop_name, prop_ref) = entry
+        collect_field_guard_calls(name, prop_name, prop_ref, ctx)
+      })
+    Ok(AllOfSchema(schemas:, ..)) -> {
+      let merged_props =
+        list.fold(schemas, dict.new(), fn(acc, s_ref) {
+          case s_ref {
+            Inline(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+            Reference(_) ->
+              case resolver.resolve_schema_ref(s_ref, ctx.spec) {
+                Ok(ObjectSchema(properties:, ..)) -> dict.merge(acc, properties)
+                _ -> acc
+              }
+            _ -> acc
+          }
+        })
+      dict.to_list(merged_props)
+      |> list.flat_map(fn(entry) {
+        let #(prop_name, prop_ref) = entry
+        collect_field_guard_calls(name, prop_name, prop_ref, ctx)
+      })
+    }
+    Ok(StringSchema(min_length:, max_length:, ..)) ->
+      case min_length, max_length {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(name, "", "length"), "value"),
+        ]
+      }
+    Ok(IntegerSchema(minimum:, maximum:, ..)) ->
+      case minimum, maximum {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(name, "", "range"), "value"),
+        ]
+      }
+    Ok(NumberSchema(minimum:, maximum:, ..)) ->
+      case minimum, maximum {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(name, "", "range"), "value"),
+        ]
+      }
+    Ok(ArraySchema(min_items:, max_items:, ..)) ->
+      case min_items, max_items {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(name, "", "items"), "value"),
+        ]
+      }
+    _ -> []
+  }
+}
+
+/// Collect guard calls for a single field.
+fn collect_field_guard_calls(
+  schema_name: String,
+  prop_name: String,
+  prop_ref: SchemaRef,
+  ctx: Context,
+) -> List(#(String, String)) {
+  let resolved = case prop_ref {
+    Inline(schema) -> Ok(schema)
+    Reference(_) -> resolver.resolve_schema_ref(prop_ref, ctx.spec)
+  }
+  let accessor = "value." <> naming.to_snake_case(prop_name)
+  case resolved {
+    Ok(StringSchema(min_length:, max_length:, ..)) ->
+      case min_length, max_length {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(schema_name, prop_name, "length"), accessor),
+        ]
+      }
+    Ok(IntegerSchema(minimum:, maximum:, ..)) ->
+      case minimum, maximum {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(schema_name, prop_name, "range"), accessor),
+        ]
+      }
+    Ok(NumberSchema(minimum:, maximum:, ..)) ->
+      case minimum, maximum {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(schema_name, prop_name, "range"), accessor),
+        ]
+      }
+    Ok(ArraySchema(min_items:, max_items:, ..)) ->
+      case min_items, max_items {
+        None, None -> []
+        _, _ -> [
+          #(guard_function_name(schema_name, prop_name, "items"), accessor),
+        ]
+      }
+    _ -> []
   }
 }
