@@ -608,14 +608,24 @@ pub fn schema_to_gleam_type(schema: SchemaObject, _ctx: Context) -> String {
 
 /// Generate request types for all operations.
 fn generate_request_types(ctx: Context) -> String {
+  let operations = collect_operations(ctx)
+
+  // Only import Option if any operation has optional parameters
+  let needs_option =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      list.any(operation.parameters, fn(p) { !p.required })
+    })
+
+  let base_imports = [ctx.config.package <> "/types"]
+  let imports = case needs_option {
+    True -> ["gleam/option.{type Option}", ..base_imports]
+    False -> base_imports
+  }
+
   let sb =
     se.file_header(context.version)
-    |> se.imports([
-      "gleam/option.{type Option}",
-      ctx.config.package <> "/types",
-    ])
-
-  let operations = collect_operations(ctx)
+    |> se.imports(imports)
 
   let sb =
     list.fold(operations, sb, fn(sb, op) {
