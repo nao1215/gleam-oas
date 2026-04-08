@@ -1096,16 +1096,26 @@ fn parse_security_requirement_object(
         let #(key_node, scopes_node) = entry
         case key_node {
           yay.NodeStr(scheme_name) -> {
-            let scopes = case scopes_node {
+            use scopes <- result.try(case scopes_node {
               yay.NodeSeq(scope_items) ->
-                list.filter_map(scope_items, fn(s) {
+                list.try_map(scope_items, fn(s) {
                   case s {
                     yay.NodeStr(v) -> Ok(v)
-                    _ -> Error(Nil)
+                    _ ->
+                      Error(InvalidValue(
+                        path: context <> ".security." <> scheme_name,
+                        detail: "Scope must be a string",
+                      ))
                   }
                 })
-              _ -> []
-            }
+              // Empty scopes [] is serialized as absent in some YAML parsers
+              yay.NodeNil -> Ok([])
+              _ ->
+                Error(InvalidValue(
+                  path: context <> ".security." <> scheme_name,
+                  detail: "Scopes must be an array of strings",
+                ))
+            })
             Ok(SecurityRequirement(scheme_name:, scopes:))
           }
           _ ->
