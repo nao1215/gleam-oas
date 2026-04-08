@@ -619,14 +619,26 @@ fn generate_oneof_decoder(
   }
 }
 
-/// Get the discriminator value for a $ref. Checks mapping first, falls back to ref name.
+/// Get the discriminator value for a $ref.
+/// OpenAPI discriminator.mapping is keyed by payload values, with $ref paths
+/// as values: { "dog": "#/components/schemas/Dog" }.
+/// Given a ref_name like "Dog", find the mapping key that points to it.
+/// Falls back to ref_name if no explicit mapping exists.
 fn get_discriminator_value(
   disc: schema.Discriminator,
-  _ref: String,
+  ref: String,
   ref_name: String,
 ) -> String {
-  case dict.get(disc.mapping, ref_name) {
-    Ok(mapped) -> mapped
+  // Search mapping entries: key = discriminator value, value = $ref path or schema name
+  let found =
+    dict.to_list(disc.mapping)
+    |> list.find(fn(entry) {
+      let #(_disc_value, target) = entry
+      // The target may be a full $ref path or just the schema name
+      target == ref || resolver.ref_to_name(target) == ref_name
+    })
+  case found {
+    Ok(#(disc_value, _)) -> disc_value
     Error(_) -> ref_name
   }
 }
