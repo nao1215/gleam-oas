@@ -1198,6 +1198,11 @@ fn schema_ref_to_json_encoder_fn(
     Inline(IntegerSchema(..)) -> "json.int"
     Inline(NumberSchema(..)) -> "json.float"
     Inline(BooleanSchema(..)) -> "json.bool"
+    Inline(ArraySchema(items:, ..)) -> {
+      let inner =
+        schema_ref_to_json_encoder_fn(items, parent_name, prop_name, ctx)
+      "fn(items) { json.array(items, " <> inner <> ") }"
+    }
     Reference(ref:) -> {
       let name = resolver.ref_to_name(ref)
       "encode_" <> naming.to_snake_case(name) <> "_json"
