@@ -929,6 +929,14 @@ fn param_to_string_expr(
           <> param_name
           <> ")"
         }
+        Ok(schema.ArraySchema(items:, ..)) -> {
+          let item_to_str = array_item_to_string_fn(items, ctx)
+          "string.join(list.map("
+          <> param_name
+          <> ", "
+          <> item_to_str
+          <> "), \",\")"
+        }
         Ok(IntegerSchema(..)) -> "int.to_string(" <> param_name <> ")"
         Ok(NumberSchema(..)) -> "float.to_string(" <> param_name <> ")"
         Ok(schema.BooleanSchema(..)) -> "bool.to_string(" <> param_name <> ")"
@@ -964,6 +972,10 @@ fn to_str_for_optional_value(param: spec.Parameter, ctx: Context) -> String {
         Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
           let name = resolver.ref_to_name(ref)
           "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(v)"
+        }
+        Ok(schema.ArraySchema(items:, ..)) -> {
+          let item_to_str = array_item_to_string_fn(items, ctx)
+          "string.join(list.map(v, " <> item_to_str <> "), \",\")"
         }
         Ok(IntegerSchema(..)) -> "int.to_string(v)"
         Ok(NumberSchema(..)) -> "float.to_string(v)"

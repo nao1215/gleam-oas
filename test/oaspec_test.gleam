@@ -506,6 +506,54 @@ pub fn validate_rejects_complex_schema_parameter_test() {
   |> should.be_true()
 }
 
+pub fn validate_rejects_referenced_unsupported_parameter_schemas_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items/{filter}:
+    get:
+      operationId: getItems
+      parameters:
+        - name: filter
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Filter'
+        - name: tags
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/TagList'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Filter:
+      type: object
+      properties:
+        q: { type: string }
+    TagList:
+      type: array
+      items:
+        type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+
+  list.any(error_strings, fn(s) {
+    string.contains(s, "Complex schema parameters")
+  })
+  |> should.be_true()
+  list.any(error_strings, fn(s) { string.contains(s, "Array parameters") })
+  |> should.be_true()
+}
+
 pub fn validate_accepts_multipart_form_data_test() {
   let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
   let errors = validate.validate(ctx)
@@ -1481,6 +1529,52 @@ paths:
   // Optional "description" field must have case/Some/None handling,
   // not raw body.description string concatenation
   string.contains(content, "case body.description")
+  |> should.be_true()
+}
+
+pub fn path_ref_array_parameters_are_stringified_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items/{tags}:
+    get:
+      operationId: getItems
+      parameters:
+        - name: tags
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/TagList'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    TagList:
+      type: array
+      items:
+        type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  string.contains(content, "string.join(list.map(tags, fn(x) { x }), \",\")")
   |> should.be_true()
 }
 

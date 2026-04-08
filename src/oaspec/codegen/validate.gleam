@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/set
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
+import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   Inline, ObjectSchema, OneOfSchema, Reference,
@@ -40,7 +41,7 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
   let operations = type_gen.collect_operations(ctx)
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, _path, _method) = op
-    let param_errors = validate_parameters(op_id, operation.parameters)
+    let param_errors = validate_parameters(op_id, operation.parameters, ctx)
     let body_errors = validate_request_body(op_id, operation.request_body)
     let response_errors = validate_responses(op_id, operation.responses)
     list.flatten([param_errors, body_errors, response_errors])
@@ -51,9 +52,11 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
 fn validate_parameters(
   op_id: String,
   params: List(spec.Parameter),
+  ctx: Context,
 ) -> List(ValidationError) {
   list.flat_map(params, fn(param) {
     let path = op_id <> ".parameters." <> param.name
+    let resolved_schema = resolve_parameter_schema(param.schema, ctx)
     let deep_object_errors = case param.style {
       Some("deepObject") -> [
         UnsupportedFeature(
@@ -63,23 +66,21 @@ fn validate_parameters(
       ]
       _ -> []
     }
-    let complex_schema_errors = case param.in_, param.schema {
-      spec.InPath, _ -> []
-      _, Some(Inline(ObjectSchema(..)))
-      | _, Some(Inline(AllOfSchema(..)))
-      | _, Some(Inline(OneOfSchema(..)))
-      | _, Some(Inline(AnyOfSchema(..)))
-      -> [
+    let complex_schema_errors = case resolved_schema {
+      Some(ObjectSchema(..))
+      | Some(AllOfSchema(..))
+      | Some(OneOfSchema(..))
+      | Some(AnyOfSchema(..)) -> [
         UnsupportedFeature(
           path: path,
-          detail: "Complex schema parameters (object/allOf/oneOf/anyOf) in query/header/cookie are not supported.",
+          detail: "Complex schema parameters (object/allOf/oneOf/anyOf) are not supported.",
         ),
       ]
-      _, _ -> []
+      _ -> []
     }
-    let array_errors = case param.in_, param.schema {
+    let array_errors = case param.in_, resolved_schema {
       spec.InPath, _ -> []
-      _, Some(Inline(ArraySchema(..))) -> [
+      _, Some(ArraySchema(..)) -> [
         UnsupportedFeature(
           path: path,
           detail: "Array parameters in query/header/cookie are not supported.",
@@ -103,6 +104,21 @@ fn validate_parameters(
       required_errors,
     ])
   })
+}
+
+fn resolve_parameter_schema(
+  schema_ref: Option(SchemaRef),
+  ctx: Context,
+) -> Option(SchemaObject) {
+  case schema_ref {
+    Some(Inline(schema_obj)) -> Some(schema_obj)
+    Some(schema_ref) ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(schema_obj) -> Some(schema_obj)
+        Error(_) -> None
+      }
+    None -> None
+  }
 }
 
 /// Validate request body for unsupported patterns.
