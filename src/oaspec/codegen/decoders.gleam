@@ -164,6 +164,35 @@ fn generate_decoder(
         |> se.line("}")
         |> se.blank_line()
 
+      // List decoder for typed client array responses
+      let list_fn_name = fn_name <> "_list"
+      let list_decoder_fn_name = decoder_fn_name <> "_list"
+      let sb =
+        sb
+        |> se.line(
+          "pub fn "
+          <> list_decoder_fn_name
+          <> "() -> decode.Decoder(List(types."
+          <> type_name
+          <> ")) {",
+        )
+        |> se.indent(1, "decode.list(" <> decoder_fn_name <> "())")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> list_fn_name
+          <> "(json_string: String) -> Result(List(types."
+          <> type_name
+          <> "), json.DecodeError) {",
+        )
+        |> se.indent(
+          1,
+          "json.parse(json_string, " <> list_decoder_fn_name <> "())",
+        )
+        |> se.line("}")
+        |> se.blank_line()
+
       let _ = nullable
       sb
     }

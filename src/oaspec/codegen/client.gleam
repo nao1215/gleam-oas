@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/list
 import gleam/option.{Some}
 import gleam/string
@@ -20,20 +21,9 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
 
 /// Generate the client module with functions for each operation.
 fn generate_client(ctx: Context) -> String {
-  // Only import types if operations reference $ref schemas in parameters
   let operations = type_gen.collect_operations(ctx)
-  let needs_types =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(p) {
-        case p.schema {
-          Some(Reference(_)) -> True
-          _ -> False
-        }
-      })
-    })
 
-  let base_imports = [
+  let imports = [
     "gleam/bool",
     "gleam/float",
     "gleam/http/request",
@@ -41,15 +31,11 @@ fn generate_client(ctx: Context) -> String {
     "gleam/int",
     "gleam/option.{type Option, None, Some}",
     "gleam/string",
+    ctx.config.package <> "/types",
+    ctx.config.package <> "/encode",
+    ctx.config.package <> "/decode",
+    ctx.config.package <> "/response_types",
   ]
-  let imports = case needs_types {
-    True ->
-      list.append(base_imports, [
-        ctx.config.package <> "/types",
-        ctx.config.package <> "/encode",
-      ])
-    False -> base_imports
-  }
 
   let sb =
     se.file_header(context.version)
@@ -171,6 +157,7 @@ fn generate_client_function(
     })
 
   // Function signature
+  let response_type = naming.schema_to_type_name(op_id) <> "Response"
   let params =
     build_param_list(
       path_params,
@@ -178,6 +165,7 @@ fn generate_client_function(
       header_params,
       cookie_params,
       operation,
+      op_id,
       ctx,
     )
   let sb =
@@ -187,7 +175,9 @@ fn generate_client_function(
       <> fn_name
       <> "(config: ClientConfig"
       <> params
-      <> ") -> Result(ClientResponse, ClientError) {",
+      <> ") -> Result(response_types."
+      <> response_type
+      <> ", ClientError) {",
     )
 
   // Build URL with path params
@@ -265,23 +255,26 @@ fn generate_client_function(
     spec.Patch -> "http.Patch"
   }
 
-  let has_body = option.is_some(operation.request_body)
-
   let sb =
     sb
     |> se.indent(1, "let assert Ok(req) = request.to(config.base_url <> path)")
     |> se.indent(1, "let req = request.set_method(req, " <> http_method <> ")")
 
   // Only set content-type for requests with body
-  let sb = case has_body {
-    True ->
+  let sb = case operation.request_body {
+    Some(rb) -> {
+      let body_encode_expr = get_body_encode_expr(rb, op_id, ctx)
       sb
       |> se.indent(
         1,
         "let req = request.set_header(req, \"content-type\", \"application/json\")",
       )
-      |> se.indent(1, "let req = request.set_body(req, body)")
-    False -> sb
+      |> se.indent(
+        1,
+        "let req = request.set_body(req, " <> body_encode_expr <> ")",
+      )
+    }
+    _ -> sb
   }
 
   // Set header parameters
@@ -369,9 +362,81 @@ fn generate_client_function(
     }
   }
 
+  // Send request and decode response into typed variant
   let sb =
     sb
-    |> se.indent(1, "config.send(req)")
+    |> se.indent(1, "case config.send(req) {")
+    |> se.indent(2, "Error(e) -> Error(e)")
+    |> se.indent(2, "Ok(resp) -> {")
+
+  let responses = dict.to_list(operation.responses)
+  let sb =
+    sb
+    |> se.indent(3, "case resp.status {")
+
+  let sb =
+    list.fold(responses, sb, fn(sb, entry) {
+      let #(status_code, response) = entry
+      let variant_name =
+        "response_types."
+        <> naming.schema_to_type_name(op_id)
+        <> "Response"
+        <> status_code_suffix(status_code)
+      let content_entries = dict.to_list(response.content)
+      case content_entries {
+        [] ->
+          sb
+          |> se.indent(
+            4,
+            status_code_to_int_pattern(status_code)
+              <> " -> Ok("
+              <> variant_name
+              <> ")",
+          )
+        [#(_media_type, media_type), ..] ->
+          case media_type.schema {
+            Some(schema_ref) -> {
+              let decode_expr =
+                get_response_decode_expr(schema_ref, op_id, status_code, ctx)
+              sb
+              |> se.indent(
+                4,
+                status_code_to_int_pattern(status_code) <> " -> {",
+              )
+              |> se.indent(5, "case " <> decode_expr <> " {")
+              |> se.indent(
+                6,
+                "Ok(decoded) -> Ok(" <> variant_name <> "(decoded))",
+              )
+              |> se.indent(
+                6,
+                "Error(_) -> Error(DecodeError(detail: \"Failed to decode response body\"))",
+              )
+              |> se.indent(5, "}")
+              |> se.indent(4, "}")
+            }
+            _ ->
+              sb
+              |> se.indent(
+                4,
+                status_code_to_int_pattern(status_code)
+                  <> " -> Ok("
+                  <> variant_name
+                  <> ")",
+              )
+          }
+      }
+    })
+
+  let sb =
+    sb
+    |> se.indent(
+      4,
+      "_ -> Error(DecodeError(detail: \"Unexpected status: \" <> int.to_string(resp.status)))",
+    )
+    |> se.indent(3, "}")
+    |> se.indent(2, "}")
+    |> se.indent(1, "}")
 
   sb
   |> se.line("}")
@@ -385,6 +450,7 @@ fn build_param_list(
   header_params: List(spec.Parameter),
   cookie_params: List(spec.Parameter),
   operation: spec.Operation,
+  op_id: String,
   ctx: Context,
 ) -> String {
   let all_params =
@@ -399,8 +465,12 @@ fn build_param_list(
       ", " <> param_name <> ": " <> param_type
     })
 
+  let _ = ctx
   let body_param = case operation.request_body {
-    Some(_) -> [", body: String"]
+    Some(rb) -> {
+      let body_type = get_body_type(rb, op_id)
+      [", body: " <> body_type]
+    }
     _ -> []
   }
 
@@ -459,5 +529,103 @@ fn to_str_for_optional_value(param: spec.Parameter) -> String {
       "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(v)"
     }
     _ -> "v"
+  }
+}
+
+/// Get the Gleam type for a request body parameter.
+fn get_body_type(rb: spec.RequestBody, op_id: String) -> String {
+  let content_entries = dict.to_list(rb.content)
+  case content_entries {
+    [#(_, media_type), ..] ->
+      case media_type.schema {
+        Some(Reference(ref:)) ->
+          "types." <> naming.schema_to_type_name(resolver.ref_to_name(ref))
+        Some(Inline(_)) ->
+          "types." <> naming.schema_to_type_name(op_id) <> "RequestBody"
+        _ -> "String"
+      }
+    [] -> "String"
+  }
+}
+
+/// Get the encode expression for a request body.
+fn get_body_encode_expr(
+  rb: spec.RequestBody,
+  op_id: String,
+  _ctx: Context,
+) -> String {
+  let content_entries = dict.to_list(rb.content)
+  case content_entries {
+    [#(_, media_type), ..] ->
+      case media_type.schema {
+        Some(Reference(ref:)) -> {
+          let name = resolver.ref_to_name(ref)
+          "encode.encode_" <> naming.to_snake_case(name) <> "(body)"
+        }
+        Some(Inline(_)) -> {
+          let fn_name =
+            "encode_" <> naming.to_snake_case(op_id) <> "_request_body"
+          "encode." <> fn_name <> "(body)"
+        }
+        _ -> "body"
+      }
+    [] -> "body"
+  }
+}
+
+/// Get the decode expression for a response body.
+fn get_response_decode_expr(
+  schema_ref: schema.SchemaRef,
+  op_id: String,
+  status_code: String,
+  _ctx: Context,
+) -> String {
+  case schema_ref {
+    Reference(ref:) -> {
+      let name = resolver.ref_to_name(ref)
+      "decode.decode_" <> naming.to_snake_case(name) <> "(resp.body)"
+    }
+    Inline(schema.ArraySchema(items:, ..)) ->
+      case items {
+        Reference(ref:) -> {
+          let name = resolver.ref_to_name(ref)
+          "decode.decode_" <> naming.to_snake_case(name) <> "_list(resp.body)"
+        }
+        _ -> "Ok(resp.body)"
+      }
+    Inline(_) -> {
+      let fn_name =
+        "decode_"
+        <> naming.to_snake_case(op_id)
+        <> "_response_"
+        <> naming.to_snake_case(status_code_suffix(status_code))
+      "decode." <> fn_name <> "(resp.body)"
+    }
+  }
+}
+
+/// Get a status code suffix for type names.
+fn status_code_suffix(code: String) -> String {
+  case code {
+    "200" -> "Ok"
+    "201" -> "Created"
+    "204" -> "NoContent"
+    "400" -> "BadRequest"
+    "401" -> "Unauthorized"
+    "403" -> "Forbidden"
+    "404" -> "NotFound"
+    "409" -> "Conflict"
+    "422" -> "UnprocessableEntity"
+    "500" -> "InternalServerError"
+    "default" -> "Default"
+    other -> "Status" <> other
+  }
+}
+
+/// Convert a status code string to an int pattern for case matching.
+fn status_code_to_int_pattern(code: String) -> String {
+  case code {
+    "default" -> "_"
+    _ -> code
   }
 }
