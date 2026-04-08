@@ -573,25 +573,38 @@ fn generate_oneof_decoder(
               }
             })
 
-          let first_variant = case schemas {
+          // For unknown discriminator values, decode as the first variant
+          // then immediately fail. This avoids needing a placeholder value
+          // while maintaining the correct return type.
+          let first_ref_decoder = case schemas {
+            [Reference(ref:), ..] -> {
+              let ref_name = resolver.ref_to_name(ref)
+              naming.to_snake_case(ref_name) <> "_decoder()"
+            }
+            _ -> "decode.string"
+          }
+          let first_variant_name = case schemas {
             [Reference(ref:), ..] -> {
               let ref_name = resolver.ref_to_name(ref)
               let variant_type = naming.schema_to_type_name(ref_name)
-              type_name <> variant_type
+              "types." <> type_name <> variant_type
             }
-            _ -> type_name
+            _ -> "types." <> type_name
           }
 
           let sb =
             sb
+            |> se.indent(2, "_ -> {")
+            |> se.indent(3, "use v <- decode.then(" <> first_ref_decoder <> ")")
             |> se.indent(
-              2,
-              "_ -> decode.failure(types."
-                <> first_variant
-                <> "(todo), \""
+              3,
+              "decode.failure("
+                <> first_variant_name
+                <> "(v), \""
                 <> type_name
                 <> "\")",
             )
+            |> se.indent(2, "}")
             |> se.indent(1, "}")
             |> se.line("}")
             |> se.blank_line()
