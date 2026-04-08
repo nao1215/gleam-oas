@@ -11,6 +11,7 @@ import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
+import oaspec/util/content_type
 import oaspec/util/naming
 
 pub fn main() {
@@ -955,4 +956,66 @@ components:
   ref |> should.not_equal("#/components/schemas/PetAddress")
   // It should still be a valid components reference
   string.contains(ref, "#/components/schemas/") |> should.be_true()
+}
+
+// --- ContentType Tests ---
+
+pub fn content_type_from_string_test() {
+  content_type.from_string("application/json")
+  |> should.equal(content_type.ApplicationJson)
+
+  content_type.from_string("text/plain")
+  |> should.equal(content_type.TextPlain)
+
+  content_type.from_string("multipart/form-data")
+  |> should.equal(content_type.MultipartFormData)
+
+  content_type.from_string("application/xml")
+  |> should.equal(content_type.UnsupportedContentType("application/xml"))
+}
+
+pub fn content_type_to_string_test() {
+  content_type.to_string(content_type.ApplicationJson)
+  |> should.equal("application/json")
+
+  content_type.to_string(content_type.TextPlain)
+  |> should.equal("text/plain")
+
+  content_type.to_string(content_type.MultipartFormData)
+  |> should.equal("multipart/form-data")
+
+  content_type.to_string(content_type.UnsupportedContentType("application/xml"))
+  |> should.equal("application/xml")
+}
+
+pub fn content_type_is_supported_test() {
+  content_type.is_supported(content_type.ApplicationJson)
+  |> should.be_true()
+
+  content_type.is_supported(content_type.TextPlain)
+  |> should.be_false()
+
+  content_type.is_supported(content_type.MultipartFormData)
+  |> should.be_false()
+
+  content_type.is_supported(content_type.UnsupportedContentType("application/xml"))
+  |> should.be_false()
+}
+
+pub fn content_type_roundtrip_test() {
+  content_type.from_string("application/json")
+  |> content_type.to_string()
+  |> should.equal("application/json")
+
+  content_type.from_string("text/plain")
+  |> content_type.to_string()
+  |> should.equal("text/plain")
+
+  content_type.from_string("multipart/form-data")
+  |> content_type.to_string()
+  |> should.equal("multipart/form-data")
+
+  content_type.from_string("image/png")
+  |> content_type.to_string()
+  |> should.equal("image/png")
 }

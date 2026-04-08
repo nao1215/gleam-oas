@@ -9,6 +9,7 @@ import oaspec/openapi/schema.{
   Inline, ObjectSchema, OneOfSchema, Reference,
 }
 import oaspec/openapi/spec
+import oaspec/util/content_type
 
 /// A validation error representing an unsupported OpenAPI feature.
 pub type ValidationError {
@@ -92,9 +93,11 @@ fn validate_request_body(
     None -> []
     Some(rb) -> {
       let content_keys = dict.keys(rb.content)
-      let non_json =
-        list.filter(content_keys, fn(key) { key != "application/json" })
-      let content_type_errors = case non_json {
+      let unsupported =
+        list.filter(content_keys, fn(key) {
+          !content_type.is_supported(content_type.from_string(key))
+        })
+      let content_type_errors = case unsupported {
         [] -> []
         [media_type, ..] -> [
           UnsupportedFeature(
@@ -133,9 +136,11 @@ fn validate_responses(
     list.flat_map(content_entries, fn(ce) {
       let #(media_type_name, media_type) = ce
       let path = op_id <> ".responses." <> status_code
-      let content_type_errors = case media_type_name {
-        "application/json" -> []
-        _ -> [
+      let content_type_errors = case
+        content_type.is_supported(content_type.from_string(media_type_name))
+      {
+        True -> []
+        False -> [
           UnsupportedFeature(
             path: path,
             detail: "Response content type '"
