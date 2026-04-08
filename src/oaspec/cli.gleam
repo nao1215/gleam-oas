@@ -8,6 +8,7 @@ import oaspec/codegen/context
 import oaspec/codegen/validate
 import oaspec/codegen/writer
 import oaspec/config
+import oaspec/openapi/dedup
 import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import simplifile
@@ -193,6 +194,9 @@ fn run_generate(
 
   // Hoist inline complex schemas into components.schemas
   let spec = hoist.hoist(spec)
+
+  // Deduplicate names to avoid collisions in generated code
+  let spec = dedup.dedup(spec)
 
   // Create generation context
   let ctx = context.new(spec, cfg)

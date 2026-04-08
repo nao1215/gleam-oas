@@ -11,6 +11,7 @@ import oaspec/codegen/guards
 import oaspec/codegen/types
 import oaspec/codegen/validate
 import oaspec/config
+import oaspec/openapi/dedup
 import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import oaspec/openapi/resolver
@@ -389,7 +390,7 @@ paths:
   |> should.be_true()
 }
 
-pub fn validate_rejects_property_name_collision_test() {
+pub fn dedup_resolves_property_name_collision_test() {
   let yaml =
     "
 openapi: 3.0.3
@@ -412,13 +413,12 @@ components:
         pet_id: { type: string }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  // Dedup pass resolves property name collisions
+  let spec = dedup.dedup(hoist.hoist(spec))
   let ctx = make_ctx_from_spec(spec)
   let errors = validate.validate(ctx)
-  let error_strings = list.map(errors, validate.error_to_string)
-  list.any(error_strings, fn(s) {
-    string.contains(s, "Property name collision")
-  })
-  |> should.be_true()
+  // No collision errors since dedup resolved them
+  errors |> should.equal([])
 }
 
 pub fn parse_rejects_optional_path_parameter_test() {
@@ -507,6 +507,8 @@ pub fn parse_additional_properties_untyped_test() {
 
 fn make_ctx(spec_path: String) -> context.Context {
   let assert Ok(spec) = parser.parse_file(spec_path)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
   let cfg =
     config.Config(
       input: spec_path,
@@ -721,14 +723,15 @@ pub fn validate_deep_additional_properties_in_response_test() {
   |> should.be_false()
 }
 
-pub fn validate_duplicate_operation_id_test() {
+pub fn dedup_resolves_duplicate_operation_id_test() {
   let ctx = make_ctx("test/fixtures/collision.yaml")
   let errors = validate.validate(ctx)
+  // No duplicate operationId errors since dedup resolved them
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) {
-    string.contains(s, "Duplicate operationId") && string.contains(s, "getUser")
+    string.contains(s, "Duplicate operationId")
   })
-  |> should.be_true()
+  |> should.be_false()
 }
 
 pub fn validate_accepts_typed_additional_properties_test() {

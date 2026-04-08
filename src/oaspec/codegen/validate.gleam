@@ -1,7 +1,6 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/set
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
@@ -12,7 +11,6 @@ import oaspec/openapi/schema.{
 }
 import oaspec/openapi/spec
 import oaspec/util/content_type
-import oaspec/util/naming
 
 /// A validation error representing an unsupported OpenAPI feature.
 pub type ValidationError {
@@ -21,12 +19,13 @@ pub type ValidationError {
 
 /// Validate the parsed spec for unsupported patterns.
 /// Returns a list of errors; empty list means validation passed.
+/// Name collisions and duplicate operationIds are handled by the dedup pass
+/// before validation, so they are no longer checked here.
 pub fn validate(ctx: Context) -> List(ValidationError) {
   let op_errors = validate_operations(ctx)
   let schema_errors = validate_component_schemas(ctx)
-  let collision_errors = validate_name_collisions(ctx)
   let security_errors = validate_security_schemes(ctx)
-  list.flatten([op_errors, schema_errors, collision_errors, security_errors])
+  list.flatten([op_errors, schema_errors, security_errors])
 }
 
 /// Convert a validation error to a human-readable string.
@@ -254,27 +253,10 @@ fn validate_schema_recursive(
           let prop_path = path <> "." <> prop_name
           validate_schema_ref_recursive(prop_path, prop_ref)
         })
-      // Property name collisions after snake_case conversion
-      let prop_names =
-        dict.to_list(properties)
-        |> list.map(fn(entry) {
-          let #(prop_name, _) = entry
-          naming.to_snake_case(prop_name)
-        })
-      let prop_collision_errors =
-        find_name_collisions(prop_names, fn(dup) {
-          UnsupportedFeature(
-            path: path,
-            detail: "Property name collision after snake_case conversion: '"
-              <> dup
-              <> "'",
-          )
-        })
       list.flatten([
         ap_errors,
         typed_ap_errors,
         prop_errors,
-        prop_collision_errors,
       ])
     }
 
@@ -298,84 +280,6 @@ fn validate_schema_recursive(
 
     _ -> []
   }
-}
-
-/// Validate for operationId duplicates and naming collisions.
-fn validate_name_collisions(ctx: Context) -> List(ValidationError) {
-  let operations = type_gen.collect_operations(ctx)
-
-  // Check duplicate operationId
-  let op_id_errors =
-    find_duplicates(
-      operations,
-      fn(op) {
-        let #(op_id, _, _, _) = op
-        op_id
-      },
-      fn(dup) {
-        UnsupportedFeature(
-          path: "paths",
-          detail: "Duplicate operationId: '" <> dup <> "'",
-        )
-      },
-    )
-
-  // Function name collisions after snake_case conversion
-  let fn_names =
-    list.map(operations, fn(op) {
-      let #(op_id, _, _, _) = op
-      naming.operation_to_function_name(op_id)
-    })
-  let fn_collision_errors =
-    find_name_collisions(fn_names, fn(dup) {
-      UnsupportedFeature(
-        path: "paths",
-        detail: "Function name collision after case conversion: '" <> dup <> "'",
-      )
-    })
-
-  // Type name collisions after PascalCase conversion
-  let type_names =
-    list.map(operations, fn(op) {
-      let #(op_id, _, _, _) = op
-      naming.schema_to_type_name(op_id)
-    })
-  let type_collision_errors =
-    find_name_collisions(type_names, fn(dup) {
-      UnsupportedFeature(
-        path: "paths",
-        detail: "Type name collision after case conversion: '" <> dup <> "'",
-      )
-    })
-
-  list.flatten([op_id_errors, fn_collision_errors, type_collision_errors])
-}
-
-/// Find duplicates in a list using a key function, producing errors via an
-/// error function. Only reports the first occurrence of each duplicate.
-fn find_duplicates(
-  items: List(a),
-  key_fn: fn(a) -> String,
-  error_fn: fn(String) -> ValidationError,
-) -> List(ValidationError) {
-  let #(_, errors) =
-    list.fold(items, #(set.new(), []), fn(acc, item) {
-      let #(seen, errs) = acc
-      let key = key_fn(item)
-      case set.contains(seen, key) {
-        True -> #(seen, [error_fn(key), ..errs])
-        False -> #(set.insert(seen, key), errs)
-      }
-    })
-  list.reverse(errors)
-}
-
-/// Find duplicate names in a simple list of strings.
-fn find_name_collisions(
-  names: List(String),
-  error_fn: fn(String) -> ValidationError,
-) -> List(ValidationError) {
-  find_duplicates(names, fn(name) { name }, error_fn)
 }
 
 /// Validate security schemes for unsupported types.

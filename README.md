@@ -218,17 +218,12 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Function/type name collision detection after case conversion
 - Property name collision detection after snake_case conversion
 - Enum variant collision detection after PascalCase conversion
+- Auto-deduplication of duplicate operationIds (appends `_2`, `_3`, etc.)
+- Auto-deduplication of property name collisions after snake_case conversion
+- Auto-deduplication of enum variant collisions after PascalCase conversion
+- Auto-deduplication of function/type name collisions after case conversion
 - Config validation: output directory basename must match package name
 - Gleam keyword escaping in generated field names
-
-### Unsupported (exits with error)
-
-These are detected before code generation. The generator prints an error and exits non-zero.
-
-- Duplicate operationId
-- Function/type name collisions after case conversion
-- Property name collisions after snake_case conversion
-- Enum variant collisions after PascalCase conversion
 
 ### Schema-to-type mapping
 
