@@ -2,6 +2,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{Some}
+import gleam/result
 import glint
 import oaspec/codegen/context
 import oaspec/codegen/validate
@@ -47,20 +48,9 @@ fn generate_command() -> glint.Command(Nil) {
       "Generate Gleam code from an OpenAPI specification",
       fn() {
         glint.command(fn(_named_args, _args, flags) {
-          let config_path = case config_path(flags) {
-            Ok(p) -> p
-            Error(_) -> "./oaspec.yaml"
-          }
-
-          let mode_str = case mode(flags) {
-            Ok(m) -> m
-            Error(_) -> "both"
-          }
-
-          let output_str = case output(flags) {
-            Ok(o) -> o
-            Error(_) -> ""
-          }
+          let config_path = config_path(flags) |> result.unwrap("./oaspec.yaml")
+          let mode_str = mode(flags) |> result.unwrap("both")
+          let output_str = output(flags) |> result.unwrap("")
 
           run_generate(config_path, mode_str, output_str)
         })
