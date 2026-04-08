@@ -242,7 +242,7 @@ pub fn parse_global_security_inherited_test() {
   get_public.security |> should.equal(Some([]))
 }
 
-pub fn validate_rejects_array_parameter_test() {
+pub fn validate_accepts_array_parameter_test() {
   let yaml =
     "
 openapi: 3.0.3
@@ -267,7 +267,34 @@ paths:
   let errors = validate.validate(ctx)
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "Array parameters") })
-  |> should.be_true()
+  |> should.be_false()
+}
+
+pub fn validate_accepts_optional_array_parameter_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: array
+            items: { type: integer }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  errors |> should.equal([])
 }
 
 pub fn validate_rejects_non_json_response_content_type_test() {

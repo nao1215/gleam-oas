@@ -61,14 +61,8 @@ fn validate_parameters(
       ]
       _ -> []
     }
-    // Reject array and complex schema parameters
+    // Reject complex schema parameters (array params are supported)
     let schema_errors = case param.schema {
-      Some(Inline(ArraySchema(..))) -> [
-        UnsupportedFeature(
-          path: path,
-          detail: "Array parameters are not yet supported. Use a single-value parameter instead.",
-        ),
-      ]
       Some(Inline(ObjectSchema(..)))
       | Some(Inline(AllOfSchema(..)))
       | Some(Inline(OneOfSchema(..)))

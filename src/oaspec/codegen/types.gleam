@@ -692,6 +692,18 @@ fn generate_request_type(
             Some(Inline(IntegerSchema(..))) -> "Int"
             Some(Inline(NumberSchema(..))) -> "Float"
             Some(Inline(BooleanSchema(..))) -> "Bool"
+            Some(Inline(ArraySchema(items:, ..))) -> {
+              let item_type = case items {
+                Inline(StringSchema(..)) -> "String"
+                Inline(IntegerSchema(..)) -> "Int"
+                Inline(NumberSchema(..)) -> "Float"
+                Inline(BooleanSchema(..)) -> "Bool"
+                Reference(ref:) ->
+                  naming.schema_to_type_name(resolver.ref_to_name(ref))
+                _ -> "String"
+              }
+              "List(" <> item_type <> ")"
+            }
             Some(Reference(ref:)) ->
               naming.schema_to_type_name(resolver.ref_to_name(ref))
             _ -> "String"

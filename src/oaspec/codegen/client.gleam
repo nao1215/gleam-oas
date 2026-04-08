@@ -44,6 +44,13 @@ fn generate_client(ctx: Context) -> String {
         _ -> False
       }
     })
+  let needs_list =
+    list.any(all_params, fn(p) {
+      case p.schema {
+        Some(Inline(schema.ArraySchema(..))) -> True
+        _ -> False
+      }
+    })
 
   // dyn_decode + json needed for inline primitive response decoding
   let needs_dyn_decode =
@@ -184,6 +191,10 @@ fn generate_client(ctx: Context) -> String {
   }
   let imports = case needs_float {
     True -> ["gleam/float", ..imports]
+    False -> imports
+  }
+  let imports = case needs_list {
+    True -> ["gleam/list", ..imports]
     False -> imports
   }
 
@@ -736,6 +747,18 @@ fn param_to_type(param: spec.Parameter, _ctx: Context) -> String {
     Some(Inline(IntegerSchema(..))) -> "Int"
     Some(Inline(schema.NumberSchema(..))) -> "Float"
     Some(Inline(schema.BooleanSchema(..))) -> "Bool"
+    Some(Inline(schema.ArraySchema(items:, ..))) -> {
+      let item_type = case items {
+        Inline(StringSchema(..)) -> "String"
+        Inline(IntegerSchema(..)) -> "Int"
+        Inline(schema.NumberSchema(..)) -> "Float"
+        Inline(schema.BooleanSchema(..)) -> "Bool"
+        Reference(ref:) ->
+          "types." <> naming.schema_to_type_name(resolver.ref_to_name(ref))
+        _ -> "String"
+      }
+      "List(" <> item_type <> ")"
+    }
     Some(Reference(ref:)) ->
       "types." <> naming.schema_to_type_name(resolver.ref_to_name(ref))
     _ -> "String"
@@ -757,6 +780,14 @@ fn param_to_string_expr(
     Some(Inline(NumberSchema(..))) -> "float.to_string(" <> param_name <> ")"
     Some(Inline(schema.BooleanSchema(..))) ->
       "bool.to_string(" <> param_name <> ")"
+    Some(Inline(schema.ArraySchema(items:, ..))) -> {
+      let item_to_str = array_item_to_string_fn(items, ctx)
+      "string.join(list.map("
+      <> param_name
+      <> ", "
+      <> item_to_str
+      <> "), \",\")"
+    }
     Some(Reference(ref:) as schema_ref) -> {
       // Resolve the $ref to determine the actual schema type
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
@@ -794,6 +825,10 @@ fn to_str_for_optional_value(param: spec.Parameter, ctx: Context) -> String {
     Some(Inline(IntegerSchema(..))) -> "int.to_string(v)"
     Some(Inline(NumberSchema(..))) -> "float.to_string(v)"
     Some(Inline(schema.BooleanSchema(..))) -> "bool.to_string(v)"
+    Some(Inline(schema.ArraySchema(items:, ..))) -> {
+      let item_to_str = array_item_to_string_fn(items, ctx)
+      "string.join(list.map(v, " <> item_to_str <> "), \",\")"
+    }
     Some(Reference(ref:) as schema_ref) -> {
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
@@ -913,5 +948,33 @@ fn inline_schema_to_decoder(s: schema.SchemaObject) -> String {
     schema.NumberSchema(..) -> "dyn_decode.float"
     schema.BooleanSchema(..) -> "dyn_decode.bool"
     _ -> "dyn_decode.string"
+  }
+}
+
+/// Return a function expression that converts an array item to String.
+/// Used in generated code: `list.map(param, <fn>)`.
+fn array_item_to_string_fn(
+  items: schema.SchemaRef,
+  ctx: Context,
+) -> String {
+  case items {
+    Inline(IntegerSchema(..)) -> "int.to_string"
+    Inline(NumberSchema(..)) -> "float.to_string"
+    Inline(schema.BooleanSchema(..)) -> "bool.to_string"
+    Inline(StringSchema(..)) -> "fn(x) { x }"
+    Reference(ref:) -> {
+      case resolver.resolve_schema_ref(items, ctx.spec) {
+        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
+          let name = resolver.ref_to_name(ref)
+          "encode.encode_" <> naming.to_snake_case(name) <> "_to_string"
+        }
+        Ok(IntegerSchema(..)) -> "int.to_string"
+        Ok(NumberSchema(..)) -> "float.to_string"
+        Ok(schema.BooleanSchema(..)) -> "bool.to_string"
+        Ok(StringSchema(..)) -> "fn(x) { x }"
+        _ -> "fn(x) { x }"
+      }
+    }
+    _ -> "fn(x) { x }"
   }
 }
