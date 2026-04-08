@@ -198,6 +198,68 @@ components:
   should.be_error(result)
 }
 
+pub fn parse_primitive_api_test() {
+  let assert Ok(spec) = parser.parse_file("test/fixtures/primitive_api.yaml")
+  spec.info.title |> should.equal("Primitive API")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+pub fn parse_global_security_inherited_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/global_security_api.yaml")
+  // Top-level security should be parsed
+  list.length(spec.security) |> should.equal(1)
+  // /me has no operation-level security -> inherits
+  let assert Ok(me_path) = dict.get(spec.paths, "/me")
+  let assert Some(get_me) = me_path.get
+  get_me.security |> should.equal(None)
+  // /public has explicit empty security -> opts out
+  let assert Ok(public_path) = dict.get(spec.paths, "/public")
+  let assert Some(get_public) = public_path.get
+  get_public.security |> should.equal(Some([]))
+}
+
+pub fn validate_rejects_array_parameter_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items: { type: string }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  list.any(error_strings, fn(s) { string.contains(s, "Array parameters") })
+  |> should.be_true()
+}
+
+fn make_ctx_from_spec(spec) -> context.Context {
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  context.new(spec, cfg)
+}
+
 // --- Resolver Tests ---
 
 pub fn ref_to_name_test() {

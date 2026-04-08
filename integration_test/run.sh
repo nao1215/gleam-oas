@@ -163,8 +163,8 @@ GLEAM_EOF
 cd "$CLIENT_DIR"
 gleam deps download
 
-if gleam build 2>&1; then
-  info "PASS: Generated client code compiles successfully."
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: Generated client code compiles (warnings-as-errors)."
 else
   fail "Generated client code failed to compile."
 fi
@@ -295,13 +295,69 @@ GLEAM_EOF
 cd "$SECURE_DIR"
 gleam deps download
 
-if gleam build 2>&1; then
-  info "PASS: Generated security client code compiles successfully."
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: Generated security client code compiles (warnings-as-errors)."
 else
   fail "Generated security client code failed to compile."
 fi
 
 # Clean up
 rm -rf "$SECURE_DIR"
+
+info "Security client integration tests passed."
+
+# -------------------------------------------------------
+# Step 8: Generate primitive API client and verify it compiles
+# -------------------------------------------------------
+info "Testing primitive schema + default response client code generation..."
+
+PRIM_DIR="$SCRIPT_DIR/primitive_test"
+rm -rf "$PRIM_DIR"
+mkdir -p "$PRIM_DIR/src"
+
+cat > "$PRIM_DIR/oaspec-prim.yaml" << 'YAML_EOF'
+input: test/fixtures/primitive_api.yaml
+output:
+  client: ./integration_test/primitive_test/src/api
+package: api
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$PRIM_DIR/oaspec-prim.yaml" \
+  --mode=client
+
+cat > "$PRIM_DIR/gleam.toml" << 'TOML_EOF'
+name = "primitive_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_http = ">= 4.0.0 and < 5.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$PRIM_DIR/src/primitive_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cd "$PRIM_DIR"
+gleam deps download
+
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: Generated primitive API client code compiles (warnings-as-errors)."
+else
+  fail "Generated primitive API client code failed to compile."
+fi
+
+# Clean up
+rm -rf "$PRIM_DIR"
 
 info "All integration tests passed!"
