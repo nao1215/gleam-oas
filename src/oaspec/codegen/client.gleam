@@ -579,12 +579,23 @@ fn generate_client_function(
       }
     })
 
+  // Only add a fallback _ branch if no "default" response exists
+  let has_default =
+    list.any(responses, fn(entry) {
+      let #(code, _) = entry
+      code == "default"
+    })
+  let sb = case has_default {
+    True -> sb
+    False ->
+      sb
+      |> se.indent(
+        4,
+        "_ -> Error(DecodeError(detail: \"Unexpected status: \" <> int.to_string(resp.status)))",
+      )
+  }
   let sb =
     sb
-    |> se.indent(
-      4,
-      "_ -> Error(DecodeError(detail: \"Unexpected status: \" <> int.to_string(resp.status)))",
-    )
     |> se.indent(3, "}")
     |> se.indent(2, "}")
     |> se.indent(1, "}")
