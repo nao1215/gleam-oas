@@ -23,9 +23,28 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
 fn generate_client(ctx: Context) -> String {
   let operations = type_gen.collect_operations(ctx)
 
-  let imports = [
-    "gleam/bool",
-    "gleam/float",
+  // Determine which imports are needed based on parameter types
+  let all_params =
+    list.flat_map(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      operation.parameters
+    })
+  let needs_bool =
+    list.any(all_params, fn(p) {
+      case p.schema {
+        Some(Inline(schema.BooleanSchema(..))) -> True
+        _ -> False
+      }
+    })
+  let needs_float =
+    list.any(all_params, fn(p) {
+      case p.schema {
+        Some(Inline(schema.NumberSchema(..))) -> True
+        _ -> False
+      }
+    })
+
+  let base_imports = [
     "gleam/http/request",
     "gleam/http",
     "gleam/int",
@@ -36,6 +55,14 @@ fn generate_client(ctx: Context) -> String {
     ctx.config.package <> "/decode",
     ctx.config.package <> "/response_types",
   ]
+  let imports = case needs_bool {
+    True -> ["gleam/bool", ..base_imports]
+    False -> base_imports
+  }
+  let imports = case needs_float {
+    True -> ["gleam/float", ..imports]
+    False -> imports
+  }
 
   let sb =
     se.file_header(context.version)

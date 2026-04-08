@@ -84,15 +84,15 @@ Describe 'oaspec generate'
     # --- Client files ---
 
     It 'creates client/types.gleam'
-      The path "$TEST_OUTPUT_DIR/api_client/types.gleam" should be file
+      The path "$TEST_OUTPUT_DIR_CLIENT/api/types.gleam" should be file
     End
 
     It 'creates client/client.gleam'
-      The path "$TEST_OUTPUT_DIR/api_client/client.gleam" should be file
+      The path "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should be file
     End
 
     It 'creates client/middleware.gleam'
-      The path "$TEST_OUTPUT_DIR/api_client/middleware.gleam" should be file
+      The path "$TEST_OUTPUT_DIR_CLIENT/api/middleware.gleam" should be file
     End
   End
 
@@ -240,21 +240,21 @@ Describe 'oaspec generate'
     # --- Client ---
 
     It 'generates client functions for each operation'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub fn list_pets'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub fn create_pet'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub fn get_pet'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub fn delete_pet'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub fn list_pets'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub fn create_pet'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub fn get_pet'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub fn delete_pet'
     End
 
     It 'client uses http request construction'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'import gleam/http/request'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'request.to'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'request.set_method'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'import gleam/http/request'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'request.to'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'request.set_method'
     End
 
     It 'client has ClientConfig type'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub type ClientConfig {'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/client.gleam" should include 'pub fn new'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub type ClientConfig {'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should include 'pub fn new'
     End
 
     # --- Middleware ---
@@ -267,8 +267,8 @@ Describe 'oaspec generate'
     End
 
     It 'generates retry middleware for client'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/middleware.gleam" should include 'pub fn retry'
-      The contents of file "$TEST_OUTPUT_DIR/api_client/middleware.gleam" should include 'max_retries'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/middleware.gleam" should include 'pub fn retry'
+      The contents of file "$TEST_OUTPUT_DIR_CLIENT/api/middleware.gleam" should include 'max_retries'
     End
   End
 
@@ -284,7 +284,7 @@ Describe 'oaspec generate'
       The output should include 'Successfully generated'
       The path "$TEST_OUTPUT_DIR/api/handlers.gleam" should be file
       The path "$TEST_OUTPUT_DIR/api/router.gleam" should be file
-      The path "$TEST_OUTPUT_DIR/api_client" should not be exist
+      The path "$TEST_OUTPUT_DIR_CLIENT/api" should not be exist
     End
   End
 
@@ -294,7 +294,7 @@ Describe 'oaspec generate'
       When run generate --config=test/fixtures/oaspec.yaml --mode=client
       The status should be success
       The output should include 'Successfully generated'
-      The path "$TEST_OUTPUT_DIR/api_client/client.gleam" should be file
+      The path "$TEST_OUTPUT_DIR_CLIENT/api/client.gleam" should be file
       The path "$TEST_OUTPUT_DIR/api" should not be exist
     End
   End

@@ -54,7 +54,7 @@ pub fn load_config_test() {
   let assert Ok(cfg) = config.load("test/fixtures/oaspec.yaml")
   cfg.input |> should.equal("test/fixtures/petstore.yaml")
   cfg.output_server |> should.equal("./test_output/api")
-  cfg.output_client |> should.equal("./test_output/api_client")
+  cfg.output_client |> should.equal("./test_output_client/api")
   cfg.package |> should.equal("api")
 }
 
@@ -78,7 +78,7 @@ pub fn config_package_dir_mismatch_test() {
     config.Config(
       input: "openapi.yaml",
       output_server: "./gen/wrong_name",
-      output_client: "./gen/api_client",
+      output_client: "./gen/api",
       package: "api",
       mode: config.Both,
     )
@@ -104,7 +104,7 @@ pub fn config_package_dir_match_test() {
     config.Config(
       input: "openapi.yaml",
       output_server: "./gen/api",
-      output_client: "./gen/api_client",
+      output_client: "./gen_client/api",
       package: "api",
       mode: config.Both,
     )
@@ -192,7 +192,7 @@ fn make_ctx(spec_path: String) -> context.Context {
     config.Config(
       input: spec_path,
       output_server: "./test_output/api",
-      output_client: "./test_output/api_client",
+      output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
     )

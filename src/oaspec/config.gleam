@@ -88,7 +88,7 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
 
   let output_client =
     extract_nested_string(root, "output", "client")
-    |> option.unwrap(output_dir <> "/" <> package <> "_client")
+    |> option.unwrap(output_dir <> "_client/" <> package)
 
   use mode <- result.try(
     case yay.extract_optional_string(root, "mode") |> result.unwrap(None) {
@@ -104,9 +104,7 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
     },
   )
 
-  let cfg = Config(input:, output_server:, output_client:, package:, mode:)
-  use _ <- result.try(validate_output_package_match(cfg))
-  Ok(cfg)
+  Ok(Config(input:, output_server:, output_client:, package:, mode:))
 }
 
 /// Apply CLI overrides to a config.
@@ -115,14 +113,14 @@ pub fn with_mode(config: Config, mode: GenerateMode) -> Config {
 }
 
 /// Apply output base directory override.
-/// Derives server/client paths as <dir>/<package> and <dir>/<package>_client.
+/// Derives server/client paths as <dir>/<package> and <dir>_client/<package>.
 pub fn with_output(config: Config, output: Option(String)) -> Config {
   case output {
     Some(dir) ->
       Config(
         ..config,
         output_server: dir <> "/" <> config.package,
-        output_client: dir <> "/" <> config.package <> "_client",
+        output_client: dir <> "_client/" <> config.package,
       )
     None -> config
   }
@@ -131,18 +129,15 @@ pub fn with_output(config: Config, output: Option(String)) -> Config {
 /// Validate that output directory basenames match the package name.
 /// Gleam imports require `import <package>/types`, so the directory must match.
 pub fn validate_output_package_match(config: Config) -> Result(Nil, ConfigError) {
-  let server_basename = basename(config.output_server)
-  let client_expected = config.package <> "_client"
-
   case config.mode {
     Server | Both ->
-      case server_basename == config.package {
+      case basename(config.output_server) == config.package {
         True -> Ok(Nil)
         False ->
           Error(InvalidValue(
             field: "output.server",
             detail: "Directory basename '"
-              <> server_basename
+              <> basename(config.output_server)
               <> "' must match package '"
               <> config.package
               <> "'",
@@ -153,15 +148,15 @@ pub fn validate_output_package_match(config: Config) -> Result(Nil, ConfigError)
   |> result.try(fn(_) {
     case config.mode {
       Client | Both ->
-        case basename(config.output_client) == client_expected {
+        case basename(config.output_client) == config.package {
           True -> Ok(Nil)
           False ->
             Error(InvalidValue(
               field: "output.client",
               detail: "Directory basename '"
                 <> basename(config.output_client)
-                <> "' must match '"
-                <> client_expected
+                <> "' must match package '"
+                <> config.package
                 <> "'",
             ))
         }

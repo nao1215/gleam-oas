@@ -169,6 +169,15 @@ fn run_generate(
     path -> config.with_output(cfg, Some(path))
   }
 
+  // Validate config after all overrides
+  case config.validate_output_package_match(cfg) {
+    Ok(_) -> Nil
+    Error(e) -> {
+      io.println("Error: " <> config.error_to_string(e))
+      halt(1)
+    }
+  }
+
   io.println("Parsing OpenAPI spec: " <> cfg.input)
 
   // Parse the OpenAPI spec
