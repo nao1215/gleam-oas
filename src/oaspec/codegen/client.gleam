@@ -241,7 +241,7 @@ fn generate_client_function(
   let sb =
     list.fold(path_params, sb, fn(sb, p) {
       let param_name = naming.to_snake_case(p.name)
-      let to_string_expr = param_to_string_expr(p, param_name)
+      let to_string_expr = param_to_string_expr(p, param_name, ctx)
       sb
       |> se.indent(
         1,
@@ -263,7 +263,7 @@ fn generate_client_function(
           let param_name = naming.to_snake_case(p.name)
           case p.required {
             True -> {
-              let to_str = to_str_for_required(p, param_name)
+              let to_str = to_str_for_required(p, param_name, ctx)
               sb
               |> se.indent(
                 1,
@@ -275,7 +275,7 @@ fn generate_client_function(
               )
             }
             False -> {
-              let to_str = to_str_for_optional_value(p)
+              let to_str = to_str_for_optional_value(p, ctx)
               sb
               |> se.indent(1, "let query_parts = case " <> param_name <> " {")
               |> se.indent(
@@ -340,7 +340,7 @@ fn generate_client_function(
       let header_name = string.lowercase(p.name)
       case p.required {
         True -> {
-          let to_str = param_to_string_expr(p, param_name)
+          let to_str = param_to_string_expr(p, param_name, ctx)
           sb
           |> se.indent(
             1,
@@ -352,7 +352,7 @@ fn generate_client_function(
           )
         }
         False -> {
-          let to_str = to_str_for_optional_value(p)
+          let to_str = to_str_for_optional_value(p, ctx)
           sb
           |> se.indent(1, "let req = case " <> param_name <> " {")
           |> se.indent(
@@ -379,7 +379,7 @@ fn generate_client_function(
           let param_name = naming.to_snake_case(p.name)
           case p.required {
             True -> {
-              let to_str = param_to_string_expr(p, param_name)
+              let to_str = param_to_string_expr(p, param_name, ctx)
               sb
               |> se.indent(
                 1,
@@ -391,7 +391,7 @@ fn generate_client_function(
               )
             }
             False -> {
-              let to_str = to_str_for_optional_value(p)
+              let to_str = to_str_for_optional_value(p, ctx)
               sb
               |> se.indent(1, "let cookie_parts = case " <> param_name <> " {")
               |> se.indent(
@@ -605,38 +605,65 @@ fn param_to_type(param: spec.Parameter, _ctx: Context) -> String {
 }
 
 /// Convert a parameter value to its String representation for URL/header use.
-fn param_to_string_expr(param: spec.Parameter, param_name: String) -> String {
+fn param_to_string_expr(
+  param: spec.Parameter,
+  param_name: String,
+  ctx: Context,
+) -> String {
   case param.schema {
     Some(Inline(IntegerSchema(..))) -> "int.to_string(" <> param_name <> ")"
     Some(Inline(NumberSchema(..))) -> "float.to_string(" <> param_name <> ")"
     Some(Inline(schema.BooleanSchema(..))) ->
       "bool.to_string(" <> param_name <> ")"
-    Some(Reference(ref:)) -> {
-      let name = resolver.ref_to_name(ref)
-      "encode.encode_"
-      <> naming.to_snake_case(name)
-      <> "_to_string("
-      <> param_name
-      <> ")"
+    Some(Reference(ref:) as schema_ref) -> {
+      // Resolve the $ref to determine the actual schema type
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
+          let name = resolver.ref_to_name(ref)
+          "encode.encode_"
+          <> naming.to_snake_case(name)
+          <> "_to_string("
+          <> param_name
+          <> ")"
+        }
+        Ok(IntegerSchema(..)) -> "int.to_string(" <> param_name <> ")"
+        Ok(NumberSchema(..)) -> "float.to_string(" <> param_name <> ")"
+        Ok(schema.BooleanSchema(..)) -> "bool.to_string(" <> param_name <> ")"
+        Ok(StringSchema(..)) -> param_name
+        _ -> param_name
+      }
     }
     _ -> param_name
   }
 }
 
 /// Convert a required param to string for query building.
-fn to_str_for_required(param: spec.Parameter, param_name: String) -> String {
-  param_to_string_expr(param, param_name)
+fn to_str_for_required(
+  param: spec.Parameter,
+  param_name: String,
+  ctx: Context,
+) -> String {
+  param_to_string_expr(param, param_name, ctx)
 }
 
 /// Convert an optional param value (bound to `v`) to string.
-fn to_str_for_optional_value(param: spec.Parameter) -> String {
+fn to_str_for_optional_value(param: spec.Parameter, ctx: Context) -> String {
   case param.schema {
     Some(Inline(IntegerSchema(..))) -> "int.to_string(v)"
     Some(Inline(NumberSchema(..))) -> "float.to_string(v)"
     Some(Inline(schema.BooleanSchema(..))) -> "bool.to_string(v)"
-    Some(Reference(ref:)) -> {
-      let name = resolver.ref_to_name(ref)
-      "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(v)"
+    Some(Reference(ref:) as schema_ref) -> {
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
+          let name = resolver.ref_to_name(ref)
+          "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(v)"
+        }
+        Ok(IntegerSchema(..)) -> "int.to_string(v)"
+        Ok(NumberSchema(..)) -> "float.to_string(v)"
+        Ok(schema.BooleanSchema(..)) -> "bool.to_string(v)"
+        Ok(StringSchema(..)) -> "v"
+        _ -> "v"
+      }
     }
     _ -> "v"
   }
