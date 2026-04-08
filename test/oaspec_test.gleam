@@ -571,6 +571,35 @@ pub fn validate_duplicate_operation_id_test() {
   |> should.be_true()
 }
 
+pub fn validate_accepts_typed_additional_properties_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /config:
+    get:
+      operationId: getConfig
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Config:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+      additionalProperties:
+        type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  errors |> should.equal([])
+}
+
 pub fn validate_petstore_has_no_errors_test() {
   let ctx = make_ctx("test/fixtures/petstore.yaml")
   let errors = validate.validate(ctx)

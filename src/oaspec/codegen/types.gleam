@@ -45,9 +45,18 @@ fn generate_types(ctx: Context) -> String {
       schema_has_optional_fields(schema_ref, ctx)
     })
 
-  let imports = case needs_option {
-    True -> ["gleam/option.{type Option}"]
-    False -> []
+  // Check if Dict is needed (any schema with typed additionalProperties)
+  let needs_dict =
+    list.any(schemas, fn(entry) {
+      let #(_, schema_ref) = entry
+      schema_has_additional_properties(schema_ref, ctx)
+    })
+
+  let imports = case needs_option, needs_dict {
+    True, True -> ["gleam/dict.{type Dict}", "gleam/option.{type Option}"]
+    True, False -> ["gleam/option.{type Option}"]
+    False, True -> ["gleam/dict.{type Dict}"]
+    False, False -> []
   }
 
   let sb =
@@ -167,12 +176,13 @@ fn generate_schema_type(
   ctx: Context,
 ) -> se.StringBuilder {
   case schema {
-    ObjectSchema(description:, properties:, required:, ..) -> {
+    ObjectSchema(description:, properties:, required:, additional_properties:, ..) -> {
       let sb = maybe_doc_comment(sb, description)
       let sb = sb |> se.line("pub type " <> type_name <> " {")
       let sb = sb |> se.indent(1, type_name <> "(")
 
       let props = dict.to_list(properties)
+      let has_additional_props = option.is_some(additional_properties)
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
@@ -193,12 +203,22 @@ fn generate_schema_type(
             False, True -> field_type
             False, False -> "Option(" <> field_type <> ")"
           }
-          let trailing = case idx == list.length(props) - 1 {
+          let is_last = idx == list.length(props) - 1
+          let trailing = case is_last && !has_additional_props {
             True -> ""
             False -> ","
           }
           sb |> se.indent(2, field_name <> ": " <> final_type <> trailing)
         })
+
+      // Add additional_properties field if typed additionalProperties exists
+      let sb = case additional_properties {
+        Some(ap_ref) -> {
+          let inner_type = schema_ref_to_type(ap_ref, ctx)
+          sb |> se.indent(2, "additional_properties: Dict(String, " <> inner_type <> ")")
+        }
+        None -> sb
+      }
 
       sb
       |> se.indent(1, ")")
@@ -865,6 +885,21 @@ pub fn collect_operations(
       }
     })
   })
+}
+
+/// Check if a schema has typed additionalProperties that would need Dict.
+pub fn schema_has_additional_properties(schema_ref: SchemaRef, ctx: Context) -> Bool {
+  case schema_ref {
+    Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
+    Inline(AllOfSchema(schemas:, ..)) ->
+      list.any(schemas, fn(s) { schema_has_additional_properties(s, ctx) })
+    Reference(_) ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(schema_obj) -> schema_has_additional_properties(Inline(schema_obj), ctx)
+        Error(_) -> False
+      }
+    _ -> False
+  }
 }
 
 /// Check if a schema has any optional or nullable fields that would need Option.

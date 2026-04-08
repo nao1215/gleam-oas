@@ -197,14 +197,9 @@ fn validate_schema_recursive(
         ]
         False -> []
       }
-      // Check typed additionalProperties (unsupported for now)
+      // Recurse into typed additionalProperties schema
       let typed_ap_errors = case additional_properties {
-        Some(_) -> [
-          UnsupportedFeature(
-            path: path,
-            detail: "Typed additionalProperties is not yet supported.",
-          ),
-        ]
+        Some(ap_ref) -> validate_schema_ref_recursive(path <> ".additionalProperties", ap_ref)
         None -> []
       }
       // Recurse into properties, also catching inline objects
