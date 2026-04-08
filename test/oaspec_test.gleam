@@ -246,6 +246,29 @@ paths: {}
   let assert Error(parser.MissingField(path: "info", field: "title")) = result
 }
 
+pub fn validate_deep_inline_oneof_in_request_body_test() {
+  let ctx = make_ctx("test/fixtures/deep_unsupported.yaml")
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  // oneOf with inline primitives in requestBody should be caught
+  list.any(error_strings, fn(s) {
+    string.contains(s, "oneOf/anyOf with inline primitive")
+    && string.contains(s, "requestBody")
+  })
+  |> should.be_true()
+}
+
+pub fn validate_deep_additional_properties_in_response_test() {
+  let ctx = make_ctx("test/fixtures/deep_unsupported.yaml")
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  // additionalProperties: true nested in response object property should be caught
+  list.any(error_strings, fn(s) {
+    string.contains(s, "additionalProperties") && string.contains(s, "payload")
+  })
+  |> should.be_true()
+}
+
 pub fn validate_petstore_has_no_errors_test() {
   let ctx = make_ctx("test/fixtures/petstore.yaml")
   let errors = validate.validate(ctx)

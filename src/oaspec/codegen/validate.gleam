@@ -4,8 +4,9 @@ import gleam/option.{type Option, None, Some}
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AnyOfSchema, BooleanSchema, Inline,
-  IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
+  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
+  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
+  Reference, StringSchema,
 }
 import oaspec/openapi/spec
 
@@ -59,7 +60,7 @@ fn validate_parameters(
   })
 }
 
-/// Validate request body for unsupported patterns (e.g., non-JSON content types).
+/// Validate request body for unsupported patterns.
 fn validate_request_body(
   op_id: String,
   request_body: Option(spec.RequestBody),
@@ -70,7 +71,7 @@ fn validate_request_body(
       let content_keys = dict.keys(rb.content)
       let non_json =
         list.filter(content_keys, fn(key) { key != "application/json" })
-      case non_json {
+      let content_type_errors = case non_json {
         [] -> []
         [media_type, ..] -> [
           UnsupportedFeature(
@@ -81,11 +82,23 @@ fn validate_request_body(
           ),
         ]
       }
+      // Recurse into request body schemas
+      let schema_errors =
+        dict.to_list(rb.content)
+        |> list.flat_map(fn(entry) {
+          let #(_media_type, media_type) = entry
+          case media_type.schema {
+            Some(schema_ref) ->
+              validate_schema_ref_recursive(op_id <> ".requestBody", schema_ref)
+            None -> []
+          }
+        })
+      list.append(content_type_errors, schema_errors)
     }
   }
 }
 
-/// Validate response schemas for inline oneOf with mixed primitives.
+/// Validate response schemas recursively.
 fn validate_responses(
   op_id: String,
   responses: dict.Dict(String, spec.Response),
@@ -97,36 +110,104 @@ fn validate_responses(
     list.flat_map(content_entries, fn(ce) {
       let #(_media_type, media_type) = ce
       case media_type.schema {
-        Some(Inline(schema_obj)) ->
-          validate_schema_inline(
+        Some(schema_ref) ->
+          validate_schema_ref_recursive(
             op_id <> ".responses." <> status_code,
-            schema_obj,
+            schema_ref,
           )
-        _ -> []
+        None -> []
       }
     })
   })
 }
 
-/// Validate inline schemas for unsupported patterns.
-fn validate_schema_inline(
+/// Validate component schemas recursively.
+fn validate_component_schemas(ctx: Context) -> List(ValidationError) {
+  let schemas = case ctx.spec.components {
+    Some(components) -> dict.to_list(components.schemas)
+    None -> []
+  }
+  list.flat_map(schemas, fn(entry) {
+    let #(name, schema_ref) = entry
+    validate_schema_ref_recursive("components.schemas." <> name, schema_ref)
+  })
+}
+
+/// Recursively validate a SchemaRef at any depth.
+fn validate_schema_ref_recursive(
+  path: String,
+  schema_ref: SchemaRef,
+) -> List(ValidationError) {
+  case schema_ref {
+    Reference(_) -> []
+    Inline(schema_obj) -> validate_schema_recursive(path, schema_obj)
+  }
+}
+
+/// Recursively validate a SchemaObject, descending into all sub-schemas.
+fn validate_schema_recursive(
   path: String,
   schema_obj: SchemaObject,
 ) -> List(ValidationError) {
   case schema_obj {
-    OneOfSchema(schemas:, ..) -> validate_oneof_schemas(path, schemas)
-    AnyOfSchema(schemas:, ..) -> validate_oneof_schemas(path, schemas)
+    ObjectSchema(
+      properties:,
+      additional_properties:,
+      additional_properties_untyped:,
+      ..,
+    ) -> {
+      // Check additionalProperties: true
+      let ap_errors = case additional_properties_untyped {
+        True -> [
+          UnsupportedFeature(
+            path: path,
+            detail: "additionalProperties: true is not supported. Gleam has no untyped map type.",
+          ),
+        ]
+        False -> []
+      }
+      // Check typed additionalProperties (unsupported for now)
+      let typed_ap_errors = case additional_properties {
+        Some(_) -> [
+          UnsupportedFeature(
+            path: path,
+            detail: "Typed additionalProperties is not yet supported.",
+          ),
+        ]
+        None -> []
+      }
+      // Recurse into properties
+      let prop_errors =
+        dict.to_list(properties)
+        |> list.flat_map(fn(entry) {
+          let #(prop_name, prop_ref) = entry
+          validate_schema_ref_recursive(path <> "." <> prop_name, prop_ref)
+        })
+      list.flatten([ap_errors, typed_ap_errors, prop_errors])
+    }
+
+    ArraySchema(items:, ..) ->
+      validate_schema_ref_recursive(path <> ".items", items)
+
+    OneOfSchema(schemas:, ..) -> validate_compound_schemas(path, schemas)
+    AnyOfSchema(schemas:, ..) -> validate_compound_schemas(path, schemas)
+
+    AllOfSchema(schemas:, ..) ->
+      list.flat_map(schemas, fn(s_ref) {
+        validate_schema_ref_recursive(path <> ".allOf", s_ref)
+      })
+
     _ -> []
   }
 }
 
 /// Validate oneOf/anyOf schemas: inline primitives are unsupported.
-fn validate_oneof_schemas(
+/// Also recurse into each sub-schema.
+fn validate_compound_schemas(
   path: String,
   schemas: List(SchemaRef),
 ) -> List(ValidationError) {
-  let has_inline_primitives = has_inline_primitive_schemas(schemas)
-  case has_inline_primitives {
+  let primitive_errors = case has_inline_primitive_schemas(schemas) {
     True -> [
       UnsupportedFeature(
         path: path,
@@ -135,67 +216,12 @@ fn validate_oneof_schemas(
     ]
     False -> []
   }
-}
-
-/// Validate component schemas for unsupported patterns.
-fn validate_component_schemas(ctx: Context) -> List(ValidationError) {
-  let schemas = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.schemas)
-    None -> []
-  }
-  list.flat_map(schemas, fn(entry) {
-    let #(name, schema_ref) = entry
-    validate_component_schema("components.schemas." <> name, schema_ref)
-  })
-}
-
-/// Validate a single component schema for unsupported patterns.
-fn validate_component_schema(
-  path: String,
-  schema_ref: SchemaRef,
-) -> List(ValidationError) {
-  case schema_ref {
-    Inline(ObjectSchema(properties:, additional_properties_untyped: True, ..)) -> {
-      let prop_errors = validate_object_properties(path, properties)
-      [
-        UnsupportedFeature(
-          path: path,
-          detail: "additionalProperties: true is not supported. Gleam has no untyped map type.",
-        ),
-        ..prop_errors
-      ]
-    }
-    Inline(ObjectSchema(properties:, ..)) ->
-      validate_object_properties(path, properties)
-    Inline(OneOfSchema(schemas:, ..)) -> validate_oneof_schemas(path, schemas)
-    Inline(AnyOfSchema(schemas:, ..)) -> validate_oneof_schemas(path, schemas)
-    _ -> []
-  }
-}
-
-/// Validate object properties for unsupported patterns.
-fn validate_object_properties(
-  path: String,
-  properties: dict.Dict(String, SchemaRef),
-) -> List(ValidationError) {
-  let entries = dict.to_list(properties)
-  list.flat_map(entries, fn(entry) {
-    let #(prop_name, prop_ref) = entry
-    let prop_path = path <> "." <> prop_name
-    case prop_ref {
-      Inline(OneOfSchema(schemas:, ..)) ->
-        validate_oneof_schemas(prop_path, schemas)
-      Inline(AnyOfSchema(schemas:, ..)) ->
-        validate_oneof_schemas(prop_path, schemas)
-      Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> [
-        UnsupportedFeature(
-          path: prop_path,
-          detail: "additionalProperties: true is not supported. Gleam has no untyped map type.",
-        ),
-      ]
-      _ -> []
-    }
-  })
+  // Recurse into each sub-schema
+  let child_errors =
+    list.flat_map(schemas, fn(s_ref) {
+      validate_schema_ref_recursive(path, s_ref)
+    })
+  list.append(primitive_errors, child_errors)
 }
 
 /// Check if any schema in a list is an inline primitive type.
