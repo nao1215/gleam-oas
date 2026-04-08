@@ -45,9 +45,11 @@ fn generate_client(ctx: Context) -> String {
     })
 
   let base_imports = [
+    "gleam/dynamic/decode as dyn_decode",
     "gleam/http/request",
     "gleam/http",
     "gleam/int",
+    "gleam/json",
     "gleam/option.{type Option, None, Some}",
     "gleam/string",
     ctx.config.package <> "/types",
@@ -728,7 +730,10 @@ fn get_response_decode_expr(
           let name = resolver.ref_to_name(ref)
           "decode.decode_" <> naming.to_snake_case(name) <> "_list(resp.body)"
         }
-        _ -> "Ok(resp.body)"
+        Inline(inner) -> {
+          let inner_decoder = inline_schema_to_decoder(inner)
+          "json.parse(resp.body, decode.list(" <> inner_decoder <> "))"
+        }
       }
     Inline(_) -> {
       let fn_name =
@@ -764,5 +769,18 @@ fn status_code_to_int_pattern(code: String) -> String {
   case code {
     "default" -> "_"
     _ -> code
+  }
+}
+
+/// Convert an inline schema to a decoder expression for use in generated client.
+/// Uses dyn_decode (gleam/dynamic/decode) to avoid collision with the generated
+/// decode module.
+fn inline_schema_to_decoder(s: schema.SchemaObject) -> String {
+  case s {
+    schema.StringSchema(..) -> "dyn_decode.string"
+    schema.IntegerSchema(..) -> "dyn_decode.int"
+    schema.NumberSchema(..) -> "dyn_decode.float"
+    schema.BooleanSchema(..) -> "dyn_decode.bool"
+    _ -> "dyn_decode.string"
   }
 }
