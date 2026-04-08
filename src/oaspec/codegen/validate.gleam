@@ -6,8 +6,7 @@ import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema,
+  Inline, ObjectSchema, OneOfSchema, Reference,
 }
 import oaspec/openapi/spec
 import oaspec/util/naming
@@ -204,17 +203,18 @@ fn validate_schema_recursive(
   }
 }
 
-/// Validate oneOf/anyOf schemas: inline primitives are unsupported.
-/// Also recurse into each sub-schema.
+/// Validate oneOf/anyOf schemas: only $ref variants are supported.
+/// Inline schemas (primitives, objects, arrays) cannot be generated as
+/// union variants.
 fn validate_compound_schemas(
   path: String,
   schemas: List(SchemaRef),
 ) -> List(ValidationError) {
-  let primitive_errors = case has_inline_primitive_schemas(schemas) {
+  let inline_errors = case has_any_inline_schemas(schemas) {
     True -> [
       UnsupportedFeature(
         path: path,
-        detail: "oneOf/anyOf with inline primitive types is not supported. Use $ref to named schemas instead.",
+        detail: "oneOf/anyOf with inline schemas is not supported. All variants must be $ref to named schemas.",
       ),
     ]
     False -> []
@@ -224,18 +224,15 @@ fn validate_compound_schemas(
     list.flat_map(schemas, fn(s_ref) {
       validate_schema_ref_recursive(path, s_ref)
     })
-  list.append(primitive_errors, child_errors)
+  list.append(inline_errors, child_errors)
 }
 
-/// Check if any schema in a list is an inline primitive type.
-fn has_inline_primitive_schemas(schemas: List(SchemaRef)) -> Bool {
+/// Check if any schema in a list is inline (not a $ref).
+fn has_any_inline_schemas(schemas: List(SchemaRef)) -> Bool {
   list.any(schemas, fn(s) {
     case s {
-      Inline(StringSchema(..)) -> True
-      Inline(IntegerSchema(..)) -> True
-      Inline(NumberSchema(..)) -> True
-      Inline(BooleanSchema(..)) -> True
-      _ -> False
+      Inline(_) -> True
+      Reference(_) -> False
     }
   })
 }

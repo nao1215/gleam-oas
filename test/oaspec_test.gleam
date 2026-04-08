@@ -220,7 +220,7 @@ pub fn validate_broken_spec_detects_inline_oneof_test() {
   let errors = validate.validate(ctx)
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) {
-    string.contains(s, "oneOf/anyOf with inline primitive")
+    string.contains(s, "oneOf/anyOf with inline schemas")
   })
   |> should.be_true()
 }
@@ -291,7 +291,7 @@ pub fn validate_deep_inline_oneof_in_request_body_test() {
   let error_strings = list.map(errors, validate.error_to_string)
   // oneOf with inline primitives in requestBody should be caught
   list.any(error_strings, fn(s) {
-    string.contains(s, "oneOf/anyOf with inline primitive")
+    string.contains(s, "oneOf/anyOf with inline schemas")
     && string.contains(s, "requestBody")
   })
   |> should.be_true()

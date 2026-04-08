@@ -210,7 +210,7 @@ These patterns are detected before code generation. The generator prints a clear
 - **`multipart/form-data`** request bodies (only `application/json` supported)
 - **`additionalProperties: true`** (untyped map — Gleam has no untyped map type)
 - **Typed `additionalProperties`** (e.g., `additionalProperties: { type: string }`)
-- **Inline oneOf/anyOf with primitive types** (`String | Int | Bool`)
+- **Inline oneOf/anyOf schemas** (all variants must be `$ref` to named schemas)
 - **Duplicate operationId** across paths
 - **Function/type name collisions** after case conversion
 

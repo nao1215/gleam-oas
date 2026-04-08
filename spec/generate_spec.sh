@@ -331,7 +331,7 @@ Describe 'oaspec generate'
     It 'reports inline oneOf primitives as unsupported'
       When run generate --config=test/fixtures/broken-oaspec.yaml
       The status should be failure
-      The output should include 'oneOf/anyOf with inline primitive'
+      The output should include 'oneOf/anyOf with inline schemas'
     End
   End
 
