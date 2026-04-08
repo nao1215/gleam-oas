@@ -7,6 +7,7 @@ import gleeunit/should
 import oaspec/codegen/context
 import oaspec/codegen/validate
 import oaspec/config
+import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
@@ -532,4 +533,404 @@ pub fn validate_complex_supported_has_no_errors_test() {
   let ctx = make_ctx("test/fixtures/complex_supported_openapi.yaml")
   let errors = validate.validate(ctx)
   errors |> should.equal([])
+}
+
+// --- Hoist Tests ---
+
+pub fn hoist_inline_object_property_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        address:
+          type: object
+          properties:
+            street: { type: string }
+            city: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // PetAddress should exist in components.schemas
+  dict.has_key(components.schemas, "PetAddress") |> should.be_true()
+
+  // Pet.address should now be a $ref
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: props, ..))) =
+    dict.get(components.schemas, "Pet")
+  let assert Ok(schema.Reference(ref: ref)) = dict.get(props, "address")
+  ref |> should.equal("#/components/schemas/PetAddress")
+
+  // PetAddress should have street and city properties
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: addr_props, ..))) =
+    dict.get(components.schemas, "PetAddress")
+  dict.has_key(addr_props, "street") |> should.be_true()
+  dict.has_key(addr_props, "city") |> should.be_true()
+}
+
+pub fn hoist_inline_oneof_variants_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    PetType:
+      oneOf:
+        - type: object
+          properties:
+            bark_volume: { type: integer }
+        - type: object
+          properties:
+            purr_frequency: { type: number }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // The oneOf variants should now be $ref references
+  let assert Ok(schema.Inline(schema.OneOfSchema(schemas: variants, ..))) =
+    dict.get(components.schemas, "PetType")
+  list.each(variants, fn(v) {
+    case v {
+      schema.Reference(_) -> should.be_true(True)
+      schema.Inline(_) -> should.fail()
+    }
+  })
+
+  // Hoisted schemas should exist (naming: PetType0, PetType1 or similar)
+  // At minimum, components.schemas should have more than just PetType
+  dict.size(components.schemas) |> should.equal(3)
+}
+
+pub fn hoist_inline_array_items_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    PetList:
+      type: array
+      items:
+        type: object
+        properties:
+          name: { type: string }
+          age: { type: integer }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // Array items should now be a $ref
+  let assert Ok(schema.Inline(schema.ArraySchema(items: items_ref, ..))) =
+    dict.get(components.schemas, "PetList")
+  let assert schema.Reference(ref: ref) = items_ref
+  string.contains(ref, "#/components/schemas/") |> should.be_true()
+
+  // The extracted schema should exist in components.schemas
+  dict.size(components.schemas) |> should.equal(2)
+}
+
+pub fn hoist_preserves_refs_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name: { type: string }
+        owner:
+          $ref: '#/components/schemas/Owner'
+    Owner:
+      type: object
+      properties:
+        name: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // No extra schemas should be added
+  dict.size(components.schemas) |> should.equal(2)
+
+  // The $ref should remain unchanged
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: props, ..))) =
+    dict.get(components.schemas, "Pet")
+  let assert Ok(schema.Reference(ref: ref)) = dict.get(props, "owner")
+  ref |> should.equal("#/components/schemas/Owner")
+}
+
+pub fn hoist_preserves_primitives_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        name: { type: string }
+        age: { type: integer }
+        active: { type: boolean }
+        score: { type: number }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // No extra schemas should be added for primitives
+  dict.size(components.schemas) |> should.equal(1)
+
+  // Properties should remain inline primitives
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: props, ..))) =
+    dict.get(components.schemas, "User")
+  let assert Ok(schema.Inline(schema.StringSchema(..))) =
+    dict.get(props, "name")
+  let assert Ok(schema.Inline(schema.IntegerSchema(..))) =
+    dict.get(props, "age")
+  let assert Ok(schema.Inline(schema.BooleanSchema(..))) =
+    dict.get(props, "active")
+  let assert Ok(schema.Inline(schema.NumberSchema(..))) =
+    dict.get(props, "score")
+}
+
+pub fn hoist_nested_inline_objects_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Company:
+      type: object
+      properties:
+        name: { type: string }
+        headquarters:
+          type: object
+          properties:
+            city: { type: string }
+            coordinates:
+              type: object
+              properties:
+                lat: { type: number }
+                lon: { type: number }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // Both nested levels should be hoisted
+  dict.has_key(components.schemas, "CompanyHeadquarters") |> should.be_true()
+  dict.has_key(components.schemas, "CompanyHeadquartersCoordinates")
+  |> should.be_true()
+
+  // Company.headquarters should be a $ref
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: company_props, ..))) =
+    dict.get(components.schemas, "Company")
+  let assert Ok(schema.Reference(ref: hq_ref)) =
+    dict.get(company_props, "headquarters")
+  hq_ref |> should.equal("#/components/schemas/CompanyHeadquarters")
+
+  // CompanyHeadquarters.coordinates should be a $ref
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: hq_props, ..))) =
+    dict.get(components.schemas, "CompanyHeadquarters")
+  let assert Ok(schema.Reference(ref: coord_ref)) =
+    dict.get(hq_props, "coordinates")
+  coord_ref
+  |> should.equal("#/components/schemas/CompanyHeadquartersCoordinates")
+
+  // CompanyHeadquartersCoordinates should have lat and lon
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: coord_props,
+    ..,
+  ))) = dict.get(components.schemas, "CompanyHeadquartersCoordinates")
+  dict.has_key(coord_props, "lat") |> should.be_true()
+  dict.has_key(coord_props, "lon") |> should.be_true()
+}
+
+pub fn hoist_request_body_inline_object_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets:
+    post:
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                tag: { type: string }
+      responses:
+        '201': { description: created }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // The inline request body schema should be extracted
+  dict.has_key(components.schemas, "CreatePetRequest")
+  |> should.be_true()
+
+  // The request body should now reference the extracted schema
+  let assert Ok(path_item) = dict.get(hoisted.paths, "/pets")
+  let assert Some(op) = path_item.post
+  let assert Some(req_body) = op.request_body
+  let assert Ok(media_type) = dict.get(req_body.content, "application/json")
+  let assert Some(schema.Reference(ref: ref)) = media_type.schema
+  string.contains(ref, "#/components/schemas/") |> should.be_true()
+}
+
+pub fn hoist_response_inline_object_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  name: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // The inline response schema should be extracted (with status code in name)
+  dict.has_key(components.schemas, "ListPetsResponse200")
+  |> should.be_true()
+
+  // The response should now reference the extracted schema
+  let assert Ok(path_item) = dict.get(hoisted.paths, "/pets")
+  let assert Some(op) = path_item.get
+  let assert Ok(response) = dict.get(op.responses, "200")
+  let assert Ok(media_type) = dict.get(response.content, "application/json")
+  let assert Some(schema.Reference(ref: ref)) = media_type.schema
+  string.contains(ref, "#/components/schemas/") |> should.be_true()
+}
+
+pub fn hoist_idempotent_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name: { type: string }
+        address:
+          type: object
+          properties:
+            street: { type: string }
+            city: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted_once = hoist.hoist(spec)
+  let hoisted_twice = hoist.hoist(hoisted_once)
+
+  // Both hoisted results should have the same schemas
+  let assert Some(components_once) = hoisted_once.components
+  let assert Some(components_twice) = hoisted_twice.components
+  dict.size(components_once.schemas)
+  |> should.equal(dict.size(components_twice.schemas))
+
+  // The schemas should be identical
+  hoisted_once |> should.equal(hoisted_twice)
+}
+
+pub fn hoist_name_collision_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name: { type: string }
+        address:
+          type: object
+          properties:
+            street: { type: string }
+    PetAddress:
+      type: object
+      properties:
+        zip: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let hoisted = hoist.hoist(spec)
+  let assert Some(components) = hoisted.components
+
+  // Original PetAddress should still exist
+  dict.has_key(components.schemas, "PetAddress") |> should.be_true()
+
+  // The hoisted schema should use a suffixed name to avoid collision
+  // There should be 3 schemas: Pet, PetAddress (original), and PetAddress2 (or similar)
+  dict.size(components.schemas) |> should.equal(3)
+
+  // Pet.address should reference the suffixed name, not the original PetAddress
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: props, ..))) =
+    dict.get(components.schemas, "Pet")
+  let assert Ok(schema.Reference(ref: ref)) = dict.get(props, "address")
+  // The ref should NOT be the original PetAddress
+  ref |> should.not_equal("#/components/schemas/PetAddress")
+  // It should still be a valid components reference
+  string.contains(ref, "#/components/schemas/") |> should.be_true()
 }

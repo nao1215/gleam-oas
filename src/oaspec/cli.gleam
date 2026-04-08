@@ -8,6 +8,7 @@ import oaspec/codegen/context
 import oaspec/codegen/validate
 import oaspec/codegen/writer
 import oaspec/config
+import oaspec/openapi/hoist
 import oaspec/openapi/parser
 import simplifile
 
@@ -189,6 +190,9 @@ fn run_generate(
   }
 
   io.println("Spec loaded: " <> spec.info.title <> " v" <> spec.info.version)
+
+  // Hoist inline complex schemas into components.schemas
+  let spec = hoist.hoist(spec)
 
   // Create generation context
   let ctx = context.new(spec, cfg)
