@@ -1400,6 +1400,42 @@ components:
   |> should.be_true()
 }
 
+pub fn typed_additional_props_decoder_rejects_invalid_extra_values_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /config:
+    get:
+      operationId: getConfig
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Config:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer }
+      additionalProperties:
+        type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = decoders.generate(ctx)
+  let assert [decode_file, ..] = files
+  let content = decode_file.content
+
+  // Invalid extra values must fail decoding rather than being silently dropped.
+  string.contains(content, "Error(_) -> acc")
+  |> should.be_false()
+  string.contains(content, "decode.failure(dict.new(), \"additionalProperties\")")
+  |> should.be_true()
+}
+
 // --- Finding 2: multipart/form-data client must handle optional and $ref fields.
 // Currently body.<field> is concatenated as-is, which breaks for Option(T) and
 // typed $ref fields.
