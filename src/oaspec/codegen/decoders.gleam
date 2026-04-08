@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
@@ -31,7 +32,10 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
 /// Generate JSON decoders for all component schemas and anonymous types.
 fn generate_decoders(ctx: Context) -> String {
   let schemas = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.schemas)
+    Some(components) ->
+      list.sort(dict.to_list(components.schemas), fn(a, b) {
+        string.compare(a.0, b.0)
+      })
     None -> []
   }
 
@@ -71,7 +75,10 @@ fn generate_decoders(ctx: Context) -> String {
     |> se.imports(imports)
 
   let schemas = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.schemas)
+    Some(components) ->
+      list.sort(dict.to_list(components.schemas), fn(a, b) {
+        string.compare(a.0, b.0)
+      })
     None -> []
   }
 
@@ -875,7 +882,10 @@ fn schema_ref_is_nullable(ref: SchemaRef, ctx: Context) -> Bool {
 /// Generate JSON encoders for all component schemas and anonymous types.
 fn generate_encoders(ctx: Context) -> String {
   let schemas = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.schemas)
+    Some(components) ->
+      list.sort(dict.to_list(components.schemas), fn(a, b) {
+        string.compare(a.0, b.0)
+      })
     None -> []
   }
 
