@@ -172,4 +172,80 @@ fi
 # Clean up
 rm -rf "$CLIENT_DIR"
 
+info "Petstore client integration tests passed."
+
+# -------------------------------------------------------
+# Step 6: Generate complex spec and verify it compiles
+# -------------------------------------------------------
+info "Testing complex spec code generation (inline schemas, oneOf, allOf, discriminator)..."
+
+COMPLEX_DIR="$SCRIPT_DIR/complex_test"
+rm -rf "$COMPLEX_DIR"
+mkdir -p "$COMPLEX_DIR/src"
+
+cat > "$COMPLEX_DIR/oaspec-complex.yaml" << 'YAML_EOF'
+input: test/fixtures/complex_supported_openapi.yaml
+output:
+  server: ./integration_test/complex_test/src/api
+package: api
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$COMPLEX_DIR/oaspec-complex.yaml" \
+  --mode=server
+
+# Overwrite handler stubs with minimal implementations that compile
+cat > "$COMPLEX_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
+import api/request_types
+import api/response_types
+
+pub fn get_user(req: request_types.GetUserRequest) -> response_types.GetUserResponse {
+  let _ = req
+  todo
+}
+
+pub fn post_search(req: request_types.PostSearchRequest) -> response_types.PostSearchResponse {
+  let _ = req
+  todo
+}
+
+pub fn post_webhook(req: request_types.PostWebhookRequest) -> response_types.PostWebhookResponse {
+  let _ = req
+  todo
+}
+GLEAM_EOF
+
+cat > "$COMPLEX_DIR/gleam.toml" << 'TOML_EOF'
+name = "complex_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$COMPLEX_DIR/src/complex_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cd "$COMPLEX_DIR"
+gleam deps download
+
+if gleam build 2>&1; then
+  info "PASS: Generated complex spec code compiles successfully."
+else
+  fail "Generated complex spec code failed to compile."
+fi
+
+# Clean up
+rm -rf "$COMPLEX_DIR"
+
 info "All integration tests passed!"
