@@ -169,7 +169,7 @@ fn generate_schema_type(
               ctx,
             )
           let is_required = list.contains(required, prop_name)
-          let is_already_optional = schema_ref_is_nullable(prop_ref)
+          let is_already_optional = schema_ref_is_nullable(prop_ref, ctx)
           // Avoid Option(Option(T)): if schema is nullable, type is
           // already Option(T), so don't wrap again for optional fields.
           let final_type = case is_required, is_already_optional {
@@ -825,11 +825,15 @@ pub fn collect_operations(
   })
 }
 
-/// Check if a SchemaRef is nullable (avoids wrapping in Option twice).
-fn schema_ref_is_nullable(ref: SchemaRef) -> Bool {
+/// Check if a SchemaRef is nullable, resolving $ref if needed.
+fn schema_ref_is_nullable(ref: SchemaRef, ctx: Context) -> Bool {
   case ref {
     Inline(s) -> schema.is_nullable(s)
-    Reference(_) -> False
+    Reference(_) ->
+      case resolver.resolve_schema_ref(ref, ctx.spec) {
+        Ok(s) -> schema.is_nullable(s)
+        Error(_) -> False
+      }
   }
 }
 

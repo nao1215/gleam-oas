@@ -44,22 +44,41 @@ fn generate_client(ctx: Context) -> String {
       }
     })
 
-  // Check if any response has an inline array with non-$ref items
+  // Check if any response/requestBody has inline schemas that need
+  // gleam/json + gleam/dynamic/decode for direct parsing
   let needs_json_decode =
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
-      let responses = dict.to_list(operation.responses)
-      list.any(responses, fn(entry) {
-        let #(_, response) = entry
-        let content = dict.to_list(response.content)
-        list.any(content, fn(ce) {
-          let #(_, mt) = ce
-          case mt.schema {
-            Some(Inline(schema.ArraySchema(items: Inline(_), ..))) -> True
-            _ -> False
-          }
+      let response_needs =
+        list.any(dict.to_list(operation.responses), fn(entry) {
+          let #(_, response) = entry
+          list.any(dict.to_list(response.content), fn(ce) {
+            let #(_, mt) = ce
+            case mt.schema {
+              Some(Inline(schema.ArraySchema(items: Inline(_), ..))) -> True
+              Some(Inline(schema.StringSchema(..))) -> True
+              Some(Inline(schema.IntegerSchema(..))) -> True
+              Some(Inline(schema.NumberSchema(..))) -> True
+              Some(Inline(schema.BooleanSchema(..))) -> True
+              _ -> False
+            }
+          })
         })
-      })
+      let body_needs = case operation.request_body {
+        Some(rb) ->
+          list.any(dict.to_list(rb.content), fn(ce) {
+            let #(_, mt) = ce
+            case mt.schema {
+              Some(Inline(schema.StringSchema(..))) -> True
+              Some(Inline(schema.IntegerSchema(..))) -> True
+              Some(Inline(schema.NumberSchema(..))) -> True
+              Some(Inline(schema.BooleanSchema(..))) -> True
+              _ -> False
+            }
+          })
+        _ -> False
+      }
+      response_needs || body_needs
     })
 
   let base_imports = [
@@ -699,6 +718,10 @@ fn get_body_type(rb: spec.RequestBody, op_id: String) -> String {
       case media_type.schema {
         Some(Reference(ref:)) ->
           "types." <> naming.schema_to_type_name(resolver.ref_to_name(ref))
+        Some(Inline(schema.StringSchema(..))) -> "String"
+        Some(Inline(schema.IntegerSchema(..))) -> "Int"
+        Some(Inline(schema.NumberSchema(..))) -> "Float"
+        Some(Inline(schema.BooleanSchema(..))) -> "Bool"
         Some(Inline(_)) ->
           "types." <> naming.schema_to_type_name(op_id) <> "RequestBody"
         _ -> "String"
@@ -721,6 +744,14 @@ fn get_body_encode_expr(
           let name = resolver.ref_to_name(ref)
           "encode.encode_" <> naming.to_snake_case(name) <> "(body)"
         }
+        Some(Inline(schema.StringSchema(..))) ->
+          "json.to_string(json.string(body))"
+        Some(Inline(schema.IntegerSchema(..))) ->
+          "json.to_string(json.int(body))"
+        Some(Inline(schema.NumberSchema(..))) ->
+          "json.to_string(json.float(body))"
+        Some(Inline(schema.BooleanSchema(..))) ->
+          "json.to_string(json.bool(body))"
         Some(Inline(_)) -> {
           let fn_name =
             "encode_" <> naming.to_snake_case(op_id) <> "_request_body"
@@ -755,6 +786,11 @@ fn get_response_decode_expr(
           "json.parse(resp.body, decode.list(" <> inner_decoder <> "))"
         }
       }
+    Inline(schema.StringSchema(..)) ->
+      "json.parse(resp.body, dyn_decode.string)"
+    Inline(schema.IntegerSchema(..)) -> "json.parse(resp.body, dyn_decode.int)"
+    Inline(schema.NumberSchema(..)) -> "json.parse(resp.body, dyn_decode.float)"
+    Inline(schema.BooleanSchema(..)) -> "json.parse(resp.body, dyn_decode.bool)"
     Inline(_) -> {
       let fn_name =
         "decode_"

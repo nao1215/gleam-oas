@@ -242,7 +242,7 @@ fn generate_decoder(
           let is_required = list.contains(required, prop_name)
           let field_decoder =
             schema_ref_to_decoder(prop_ref, name, prop_name, ctx)
-          let is_nullable_schema = schema_ref_is_nullable(prop_ref)
+          let is_nullable_schema = schema_ref_is_nullable(prop_ref, ctx)
 
           // For nullable schemas, the Gleam type is Option(T),
           // so the decoder must be decode.optional(inner_decoder).
@@ -492,6 +492,87 @@ fn generate_decoder(
         None,
         ctx,
       )
+    }
+
+    // Primitive schemas: generate decoder/encoder wrappers
+    Inline(StringSchema(enum_values: [], ..)) -> {
+      let sb =
+        sb
+        |> se.line(
+          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(String) {",
+        )
+        |> se.indent(1, "decode.string")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(json_string: String) -> Result(String, json.DecodeError) {",
+        )
+        |> se.indent(1, "json.parse(json_string, decode.string)")
+        |> se.line("}")
+        |> se.blank_line()
+      sb
+    }
+
+    Inline(IntegerSchema(..)) -> {
+      let sb =
+        sb
+        |> se.line(
+          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Int) {",
+        )
+        |> se.indent(1, "decode.int")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(json_string: String) -> Result(Int, json.DecodeError) {",
+        )
+        |> se.indent(1, "json.parse(json_string, decode.int)")
+        |> se.line("}")
+        |> se.blank_line()
+      sb
+    }
+
+    Inline(NumberSchema(..)) -> {
+      let sb =
+        sb
+        |> se.line(
+          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Float) {",
+        )
+        |> se.indent(1, "decode.float")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(json_string: String) -> Result(Float, json.DecodeError) {",
+        )
+        |> se.indent(1, "json.parse(json_string, decode.float)")
+        |> se.line("}")
+        |> se.blank_line()
+      sb
+    }
+
+    Inline(BooleanSchema(..)) -> {
+      let sb =
+        sb
+        |> se.line(
+          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Bool) {",
+        )
+        |> se.indent(1, "decode.bool")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(json_string: String) -> Result(Bool, json.DecodeError) {",
+        )
+        |> se.indent(1, "json.parse(json_string, decode.bool)")
+        |> se.line("}")
+        |> se.blank_line()
+      sb
     }
 
     _ -> sb
@@ -745,10 +826,14 @@ fn schema_ref_to_decoder(
 }
 
 /// Check if a SchemaRef has nullable: true.
-fn schema_ref_is_nullable(ref: SchemaRef) -> Bool {
+fn schema_ref_is_nullable(ref: SchemaRef, ctx: Context) -> Bool {
   case ref {
     Inline(schema) -> schema.is_nullable(schema)
-    Reference(_) -> False
+    Reference(_) ->
+      case resolver.resolve_schema_ref(ref, ctx.spec) {
+        Ok(s) -> schema.is_nullable(s)
+        Error(_) -> False
+      }
   }
 }
 
@@ -1146,6 +1231,55 @@ fn generate_encoder(
           sb
         }
       }
+    }
+
+    // Primitive schemas: generate encoder wrappers
+    Inline(StringSchema(enum_values: [], ..)) -> {
+      sb
+      |> se.line("pub fn " <> json_fn_name <> "(value: String) -> json.Json {")
+      |> se.indent(1, "json.string(value)")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line("pub fn " <> fn_name <> "(value: String) -> String {")
+      |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+
+    Inline(IntegerSchema(..)) -> {
+      sb
+      |> se.line("pub fn " <> json_fn_name <> "(value: Int) -> json.Json {")
+      |> se.indent(1, "json.int(value)")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line("pub fn " <> fn_name <> "(value: Int) -> String {")
+      |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+
+    Inline(NumberSchema(..)) -> {
+      sb
+      |> se.line("pub fn " <> json_fn_name <> "(value: Float) -> json.Json {")
+      |> se.indent(1, "json.float(value)")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line("pub fn " <> fn_name <> "(value: Float) -> String {")
+      |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+
+    Inline(BooleanSchema(..)) -> {
+      sb
+      |> se.line("pub fn " <> json_fn_name <> "(value: Bool) -> json.Json {")
+      |> se.indent(1, "json.bool(value)")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line("pub fn " <> fn_name <> "(value: Bool) -> String {")
+      |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
+      |> se.line("}")
+      |> se.blank_line()
     }
 
     _ -> sb
