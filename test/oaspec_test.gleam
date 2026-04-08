@@ -269,6 +269,16 @@ pub fn validate_deep_additional_properties_in_response_test() {
   |> should.be_true()
 }
 
+pub fn validate_duplicate_operation_id_test() {
+  let ctx = make_ctx("test/fixtures/collision.yaml")
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  list.any(error_strings, fn(s) {
+    string.contains(s, "Duplicate operationId") && string.contains(s, "getUser")
+  })
+  |> should.be_true()
+}
+
 pub fn validate_petstore_has_no_errors_test() {
   let ctx = make_ctx("test/fixtures/petstore.yaml")
   let errors = validate.validate(ctx)

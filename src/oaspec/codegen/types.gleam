@@ -787,11 +787,12 @@ pub fn collect_operations(
       case maybe_op {
         Some(operation) -> {
           // Merge path-level parameters with operation parameters.
-          // Operation params take precedence (by name) over path-level ones.
-          let op_param_names = list.map(operation.parameters, fn(p) { p.name })
+          // Operation params take precedence by (name, in) key per OpenAPI spec.
+          let op_param_keys =
+            list.map(operation.parameters, fn(p) { #(p.name, p.in_) })
           let inherited_params =
             list.filter(path_item.parameters, fn(p) {
-              !list.contains(op_param_names, p.name)
+              !list.contains(op_param_keys, #(p.name, p.in_))
             })
           let merged_params =
             list.append(inherited_params, operation.parameters)

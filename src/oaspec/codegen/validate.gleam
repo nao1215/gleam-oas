@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/set
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/schema.{
@@ -9,6 +10,7 @@ import oaspec/openapi/schema.{
   Reference, StringSchema,
 }
 import oaspec/openapi/spec
+import oaspec/util/naming
 
 /// A validation error representing an unsupported OpenAPI feature.
 pub type ValidationError {
@@ -20,7 +22,8 @@ pub type ValidationError {
 pub fn validate(ctx: Context) -> List(ValidationError) {
   let op_errors = validate_operations(ctx)
   let schema_errors = validate_component_schemas(ctx)
-  list.append(op_errors, schema_errors)
+  let collision_errors = validate_name_collisions(ctx)
+  list.flatten([op_errors, schema_errors, collision_errors])
 }
 
 /// Convert a validation error to a human-readable string.
@@ -235,4 +238,82 @@ fn has_inline_primitive_schemas(schemas: List(SchemaRef)) -> Bool {
       _ -> False
     }
   })
+}
+
+/// Validate for operationId duplicates and naming collisions.
+fn validate_name_collisions(ctx: Context) -> List(ValidationError) {
+  let operations = type_gen.collect_operations(ctx)
+
+  // Check duplicate operationId
+  let op_id_errors =
+    find_duplicates(
+      operations,
+      fn(op) {
+        let #(op_id, _, _, _) = op
+        op_id
+      },
+      fn(dup) {
+        UnsupportedFeature(
+          path: "paths",
+          detail: "Duplicate operationId: '" <> dup <> "'",
+        )
+      },
+    )
+
+  // Check snake_case function name collisions
+  let fn_name_errors =
+    find_duplicates(
+      operations,
+      fn(op) {
+        let #(op_id, _, _, _) = op
+        naming.operation_to_function_name(op_id)
+      },
+      fn(dup) {
+        UnsupportedFeature(
+          path: "paths",
+          detail: "Function name collision after snake_case conversion: '"
+            <> dup
+            <> "'",
+        )
+      },
+    )
+
+  // Check PascalCase type name collisions for response/request types
+  let type_name_errors =
+    find_duplicates(
+      operations,
+      fn(op) {
+        let #(op_id, _, _, _) = op
+        naming.schema_to_type_name(op_id)
+      },
+      fn(dup) {
+        UnsupportedFeature(
+          path: "paths",
+          detail: "Type name collision after PascalCase conversion: '"
+            <> dup
+            <> "'",
+        )
+      },
+    )
+
+  list.flatten([op_id_errors, fn_name_errors, type_name_errors])
+}
+
+/// Find duplicates in a list using a key function, producing errors via an
+/// error function. Only reports the first occurrence of each duplicate.
+fn find_duplicates(
+  items: List(a),
+  key_fn: fn(a) -> String,
+  error_fn: fn(String) -> ValidationError,
+) -> List(ValidationError) {
+  let #(_, errors) =
+    list.fold(items, #(set.new(), []), fn(acc, item) {
+      let #(seen, errs) = acc
+      let key = key_fn(item)
+      case set.contains(seen, key) {
+        True -> #(seen, [error_fn(key), ..errs])
+        False -> #(set.insert(seen, key), errs)
+      }
+    })
+  list.reverse(errors)
 }
