@@ -248,6 +248,38 @@ paths:
   |> should.be_true()
 }
 
+pub fn validate_rejects_property_name_collision_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [pet-id, pet_id]
+      properties:
+        pet-id: { type: string }
+        pet_id: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let error_strings = list.map(errors, validate.error_to_string)
+  list.any(error_strings, fn(s) {
+    string.contains(s, "Property name collision")
+  })
+  |> should.be_true()
+}
+
 pub fn parse_rejects_optional_path_parameter_test() {
   let yaml =
     "

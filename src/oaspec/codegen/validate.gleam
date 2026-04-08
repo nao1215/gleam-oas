@@ -226,7 +226,26 @@ fn validate_schema_recursive(
             validate_schema_ref_recursive(prop_path, prop_ref),
           )
         })
-      list.flatten([ap_errors, typed_ap_errors, prop_errors])
+      // Check property name collisions after snake_case conversion
+      let prop_names =
+        dict.to_list(properties)
+        |> list.map(fn(entry) {
+          let #(prop_name, _) = entry
+          naming.to_snake_case(prop_name)
+        })
+      let prop_collision_errors =
+        find_string_duplicates(prop_names, fn(dup) {
+          UnsupportedFeature(
+            path: path,
+            detail: "Property name collision after snake_case: '" <> dup <> "'",
+          )
+        })
+      list.flatten([
+        ap_errors,
+        typed_ap_errors,
+        prop_errors,
+        prop_collision_errors,
+      ])
     }
 
     ArraySchema(items:, ..) -> {
@@ -257,7 +276,22 @@ fn validate_schema_recursive(
         validate_schema_ref_recursive(path <> ".allOf", s_ref)
       })
 
-    _ -> []
+    _ -> {
+      // Check enum variant collisions for string enums
+      case schema_obj {
+        schema.StringSchema(enum_values:, ..) if enum_values != [] -> {
+          let variant_names =
+            list.map(enum_values, fn(v) { naming.schema_to_type_name(v) })
+          find_string_duplicates(variant_names, fn(dup) {
+            UnsupportedFeature(
+              path: path,
+              detail: "Enum variant collision after PascalCase: '" <> dup <> "'",
+            )
+          })
+        }
+        _ -> []
+      }
+    }
   }
 }
 
@@ -352,6 +386,14 @@ fn validate_name_collisions(ctx: Context) -> List(ValidationError) {
     )
 
   list.flatten([op_id_errors, fn_name_errors, type_name_errors])
+}
+
+/// Find duplicates in a list of strings.
+fn find_string_duplicates(
+  items: List(String),
+  error_fn: fn(String) -> ValidationError,
+) -> List(ValidationError) {
+  find_duplicates(items, fn(s) { s }, error_fn)
 }
 
 /// Find duplicates in a list using a key function, producing errors via an
