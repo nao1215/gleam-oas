@@ -59,14 +59,19 @@ fn generate_client(ctx: Context) -> String {
       list.any(dict.to_list(operation.responses), fn(entry) {
         let #(_, response) = entry
         list.any(dict.to_list(response.content), fn(ce) {
-          let #(_, mt) = ce
-          case mt.schema {
-            Some(Inline(schema.ArraySchema(items: Inline(_), ..))) -> True
-            Some(Inline(schema.StringSchema(..))) -> True
-            Some(Inline(schema.IntegerSchema(..))) -> True
-            Some(Inline(schema.NumberSchema(..))) -> True
-            Some(Inline(schema.BooleanSchema(..))) -> True
-            _ -> False
+          let #(media_type_name, mt) = ce
+          // text/plain responses don't need dyn_decode (body returned directly)
+          case media_type_name {
+            "text/plain" -> False
+            _ ->
+              case mt.schema {
+                Some(Inline(schema.ArraySchema(items: Inline(_), ..))) -> True
+                Some(Inline(schema.StringSchema(..))) -> True
+                Some(Inline(schema.IntegerSchema(..))) -> True
+                Some(Inline(schema.NumberSchema(..))) -> True
+                Some(Inline(schema.BooleanSchema(..))) -> True
+                _ -> False
+              }
           }
         })
       })
@@ -195,6 +200,17 @@ fn generate_client(ctx: Context) -> String {
   }
   let imports = case needs_list {
     True -> ["gleam/list", ..imports]
+    False -> imports
+  }
+
+  // uri module needed for percent-encoding parameter values
+  let needs_uri =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      !list.is_empty(operation.parameters)
+    })
+  let imports = case needs_uri {
+    True -> ["gleam/uri", ..imports]
     False -> imports
   }
 
@@ -381,9 +397,9 @@ fn generate_client_function(
         1,
         "let path = string.replace(path, \"{"
           <> p.name
-          <> "}\", "
+          <> "}\", uri.percent_encode("
           <> to_string_expr
-          <> ")",
+          <> "))",
       )
     })
 
@@ -403,9 +419,9 @@ fn generate_client_function(
                 1,
                 "let query_parts = [\""
                   <> p.name
-                  <> "=\" <> "
+                  <> "=\" <> uri.percent_encode("
                   <> to_str
-                  <> ", ..query_parts]",
+                  <> "), ..query_parts]",
               )
             }
             False -> {
@@ -416,9 +432,9 @@ fn generate_client_function(
                 2,
                 "Some(v) -> [\""
                   <> p.name
-                  <> "=\" <> "
+                  <> "=\" <> uri.percent_encode("
                   <> to_str
-                  <> ", ..query_parts]",
+                  <> "), ..query_parts]",
               )
               |> se.indent(2, "None -> query_parts")
               |> se.indent(1, "}")
@@ -519,9 +535,9 @@ fn generate_client_function(
                 1,
                 "let cookie_parts = [\""
                   <> p.name
-                  <> "=\" <> "
+                  <> "=\" <> uri.percent_encode("
                   <> to_str
-                  <> ", ..cookie_parts]",
+                  <> "), ..cookie_parts]",
               )
             }
             False -> {
@@ -532,9 +548,9 @@ fn generate_client_function(
                 2,
                 "Some(v) -> [\""
                   <> p.name
-                  <> "=\" <> "
+                  <> "=\" <> uri.percent_encode("
                   <> to_str
-                  <> ", ..cookie_parts]",
+                  <> "), ..cookie_parts]",
               )
               |> se.indent(2, "None -> cookie_parts")
               |> se.indent(1, "}")
@@ -645,37 +661,68 @@ fn generate_client_function(
               <> variant_name
               <> ")",
           )
-        [#(_media_type, media_type), ..] ->
-          case media_type.schema {
-            Some(schema_ref) -> {
-              let decode_expr =
-                get_response_decode_expr(schema_ref, op_id, status_code, ctx)
-              sb
-              |> se.indent(
-                4,
-                http.status_code_to_int_pattern(status_code) <> " -> {",
-              )
-              |> se.indent(5, "case " <> decode_expr <> " {")
-              |> se.indent(
-                6,
-                "Ok(decoded) -> Ok(" <> variant_name <> "(decoded))",
-              )
-              |> se.indent(
-                6,
-                "Error(_) -> Error(DecodeError(detail: \"Failed to decode response body\"))",
-              )
-              |> se.indent(5, "}")
-              |> se.indent(4, "}")
-            }
+        [#(media_type_name, media_type), ..] ->
+          case media_type_name {
+            // text/plain responses: return the body string directly
+            "text/plain" ->
+              case media_type.schema {
+                Some(_) ->
+                  sb
+                  |> se.indent(
+                    4,
+                    http.status_code_to_int_pattern(status_code)
+                      <> " -> Ok("
+                      <> variant_name
+                      <> "(resp.body))",
+                  )
+                _ ->
+                  sb
+                  |> se.indent(
+                    4,
+                    http.status_code_to_int_pattern(status_code)
+                      <> " -> Ok("
+                      <> variant_name
+                      <> ")",
+                  )
+              }
+            // JSON and other content types: decode the response body
             _ ->
-              sb
-              |> se.indent(
-                4,
-                http.status_code_to_int_pattern(status_code)
-                  <> " -> Ok("
-                  <> variant_name
-                  <> ")",
-              )
+              case media_type.schema {
+                Some(schema_ref) -> {
+                  let decode_expr =
+                    get_response_decode_expr(
+                      schema_ref,
+                      op_id,
+                      status_code,
+                      ctx,
+                    )
+                  sb
+                  |> se.indent(
+                    4,
+                    http.status_code_to_int_pattern(status_code) <> " -> {",
+                  )
+                  |> se.indent(5, "case " <> decode_expr <> " {")
+                  |> se.indent(
+                    6,
+                    "Ok(decoded) -> Ok(" <> variant_name <> "(decoded))",
+                  )
+                  |> se.indent(
+                    6,
+                    "Error(_) -> Error(DecodeError(detail: \"Failed to decode response body\"))",
+                  )
+                  |> se.indent(5, "}")
+                  |> se.indent(4, "}")
+                }
+                _ ->
+                  sb
+                  |> se.indent(
+                    4,
+                    http.status_code_to_int_pattern(status_code)
+                      <> " -> Ok("
+                      <> variant_name
+                      <> ")",
+                  )
+              }
           }
       }
     })
