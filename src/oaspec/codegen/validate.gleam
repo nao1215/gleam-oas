@@ -106,28 +106,28 @@ fn validate_parameters(
   list.flat_map(params, fn(p) {
     let path = op_id <> ".parameters." <> p.name
     let style_errors = case p.style {
-      Some("matrix") | Some("label") | Some("spaceDelimited")
-      | Some("pipeDelimited") ->
-        [
-          UnsupportedFeature(
-            path: path,
-            detail: "Parameter style '"
-              <> option_to_string(p.style)
-              <> "' is not supported. Supported styles: form, deepObject, simple.",
-          ),
-        ]
+      Some("matrix")
+      | Some("label")
+      | Some("spaceDelimited")
+      | Some("pipeDelimited") -> [
+        UnsupportedFeature(
+          path: path,
+          detail: "Parameter style '"
+            <> option_to_string(p.style)
+            <> "' is not supported. Supported styles: form, deepObject, simple.",
+        ),
+      ]
       _ -> []
     }
     // Parameter.schema is None when Parameter.content is used instead.
     // We don't support the content-based parameter serialization.
     let content_errors = case p.schema {
-      None ->
-        [
-          UnsupportedFeature(
-            path: path,
-            detail: "Parameters using 'content' instead of 'schema' are not supported.",
-          ),
-        ]
+      None -> [
+        UnsupportedFeature(
+          path: path,
+          detail: "Parameters using 'content' instead of 'schema' are not supported.",
+        ),
+      ]
       _ -> []
     }
     list.append(style_errors, content_errors)

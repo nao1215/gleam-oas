@@ -728,8 +728,7 @@ fn generate_client_function(
   }
   let sb = case effective_security {
     [] -> sb
-    alternatives ->
-      generate_security_or_chain(sb, ctx, alternatives, 1)
+    alternatives -> generate_security_or_chain(sb, ctx, alternatives, 1)
   }
 
   // Send request and decode response into typed variant
@@ -2119,17 +2118,11 @@ fn generate_security_or_chain(
               "let req = case config." <> field_name <> " {",
             )
           let sb =
-            generate_scheme_some_branch(
-              sb,
-              ctx,
-              single_scheme,
-              base_indent + 1,
-            )
+            generate_scheme_some_branch(sb, ctx, single_scheme, base_indent + 1)
           let sb =
             sb
             |> se.indent(base_indent + 1, "None -> {")
-          let sb =
-            generate_security_or_chain(sb, ctx, rest, base_indent + 2)
+          let sb = generate_security_or_chain(sb, ctx, rest, base_indent + 2)
           sb
           |> se.indent(base_indent + 2, "req")
           |> se.indent(base_indent + 1, "}")
@@ -2145,9 +2138,7 @@ fn generate_security_or_chain(
             sb
             |> se.indent(
               base_indent,
-              "let req = case "
-                <> string.join(fields, ", ")
-                <> " {",
+              "let req = case " <> string.join(fields, ", ") <> " {",
             )
           // Some, Some, ... branch — apply all schemes
           let some_patterns =
@@ -2178,8 +2169,7 @@ fn generate_security_or_chain(
           let sb =
             sb
             |> se.indent(base_indent + 1, "_, _ -> {")
-          let sb =
-            generate_security_or_chain(sb, ctx, rest, base_indent + 2)
+          let sb = generate_security_or_chain(sb, ctx, rest, base_indent + 2)
           sb
           |> se.indent(base_indent + 2, "req")
           |> se.indent(base_indent + 1, "}")

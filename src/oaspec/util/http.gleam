@@ -44,9 +44,7 @@ pub fn status_code_to_int_pattern(code: String) -> String {
 /// Sort response entries so that exact codes come before ranges,
 /// and ranges come before the default catch-all. This ensures
 /// correct pattern matching order in generated case expressions.
-pub fn sort_response_entries(
-  entries: List(#(String, a)),
-) -> List(#(String, a)) {
+pub fn sort_response_entries(entries: List(#(String, a))) -> List(#(String, a)) {
   list.sort(entries, fn(a, b) {
     int.compare(status_sort_priority(a.0), status_sort_priority(b.0))
   })
