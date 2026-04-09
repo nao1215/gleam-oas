@@ -8,6 +8,8 @@ import oaspec/codegen/client as client_gen
 import oaspec/codegen/context
 import oaspec/codegen/decoders
 import oaspec/codegen/guards
+import oaspec/codegen/ir
+import oaspec/codegen/ir_render
 import oaspec/codegen/server as server_gen
 import oaspec/codegen/types
 import oaspec/codegen/validate
@@ -4159,6 +4161,62 @@ paths:
     Error(_) -> should.be_true(True)
     Ok(_) -> should.be_true(False)
   }
+}
+
+// --- Gleam Code IR tests ---
+
+/// IR renderer produces correct type alias.
+pub fn ir_render_type_alias_test() {
+  let module =
+    ir.Module(header: "test", imports: [], declarations: [
+      ir.Declaration(
+        doc: None,
+        type_def: ir.TypeAlias(name: "UserId", target: "String"),
+      ),
+    ])
+  let output = ir_render.render(module)
+  string.contains(output, "pub type UserId = String")
+  |> should.be_true()
+}
+
+/// IR renderer produces correct union type.
+pub fn ir_render_union_type_test() {
+  let module =
+    ir.Module(header: "test", imports: [], declarations: [
+      ir.Declaration(
+        doc: None,
+        type_def: ir.UnionType(name: "Shape", variants: [
+          ir.VariantWithType(name: "ShapeCircle", inner_type: "Circle"),
+          ir.VariantWithType(name: "ShapeSquare", inner_type: "Square"),
+        ]),
+      ),
+    ])
+  let output = ir_render.render(module)
+  string.contains(output, "pub type Shape {")
+  |> should.be_true()
+  string.contains(output, "ShapeCircle(Circle)")
+  |> should.be_true()
+  string.contains(output, "ShapeSquare(Square)")
+  |> should.be_true()
+}
+
+/// IR renderer produces correct record type.
+pub fn ir_render_record_type_test() {
+  let module =
+    ir.Module(header: "test", imports: [], declarations: [
+      ir.Declaration(
+        doc: None,
+        type_def: ir.RecordType(name: "User", fields: [
+          ir.Field(name: "name", type_expr: "String"),
+          ir.Field(name: "age", type_expr: "Int"),
+        ]),
+      ),
+    ])
+  let output = ir_render.render(module)
+  string.contains(output, "pub type User {")
+  |> should.be_true()
+  string.contains(output, "User(name: String, age: Int)")
+  |> should.be_true()
 }
 
 // --- Fail-fast unsupported feature tests ---
