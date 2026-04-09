@@ -106,17 +106,17 @@ pub fn resolve_schema_refs_in_schema(
         max_items:,
         nullable:,
       )
-    AllOfSchema(description:, schemas:) -> {
+    AllOfSchema(description:, schemas:, nullable:) -> {
       let resolved = list_map_ref(schemas, spec)
-      AllOfSchema(description:, schemas: resolved)
+      AllOfSchema(description:, schemas: resolved, nullable:)
     }
-    OneOfSchema(description:, schemas:, discriminator:) -> {
+    OneOfSchema(description:, schemas:, discriminator:, nullable:) -> {
       let resolved = list_map_ref(schemas, spec)
-      OneOfSchema(description:, schemas: resolved, discriminator:)
+      OneOfSchema(description:, schemas: resolved, discriminator:, nullable:)
     }
-    AnyOfSchema(description:, schemas:, discriminator:) -> {
+    AnyOfSchema(description:, schemas:, discriminator:, nullable:) -> {
       let resolved = list_map_ref(schemas, spec)
-      AnyOfSchema(description:, schemas: resolved, discriminator:)
+      AnyOfSchema(description:, schemas: resolved, discriminator:, nullable:)
     }
     other -> other
   }

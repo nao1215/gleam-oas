@@ -43,16 +43,22 @@ pub type SchemaObject {
     additional_properties_untyped: Bool,
     nullable: Bool,
   )
-  AllOfSchema(description: Option(String), schemas: List(SchemaRef))
+  AllOfSchema(
+    description: Option(String),
+    schemas: List(SchemaRef),
+    nullable: Bool,
+  )
   OneOfSchema(
     description: Option(String),
     schemas: List(SchemaRef),
     discriminator: Option(Discriminator),
+    nullable: Bool,
   )
   AnyOfSchema(
     description: Option(String),
     schemas: List(SchemaRef),
     discriminator: Option(Discriminator),
+    nullable: Bool,
   )
 }
 
@@ -91,8 +97,8 @@ pub fn is_nullable(schema: SchemaObject) -> Bool {
     BooleanSchema(nullable:, ..) -> nullable
     ArraySchema(nullable:, ..) -> nullable
     ObjectSchema(nullable:, ..) -> nullable
-    AllOfSchema(..) -> False
-    OneOfSchema(..) -> False
-    AnyOfSchema(..) -> False
+    AllOfSchema(nullable:, ..) -> nullable
+    OneOfSchema(nullable:, ..) -> nullable
+    AnyOfSchema(nullable:, ..) -> nullable
   }
 }

@@ -4,8 +4,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, Inline, ObjectSchema, OneOfSchema,
-  Reference,
+  type SchemaObject, type SchemaRef, AnyOfSchema, Inline, ObjectSchema,
+  OneOfSchema, Reference,
 }
 import oaspec/openapi/spec.{
   type OpenApiSpec, type Operation, type PathItem, Components, OpenApiSpec,
@@ -212,11 +212,20 @@ fn dedup_schema_object(schema_obj: SchemaObject) -> SchemaObject {
     // Do NOT rename enum values — they are JSON wire values.
     // Gleam variant deduplication is handled at codegen time via
     // dedup_enum_variants/1.
-    OneOfSchema(description:, schemas:, discriminator:) ->
+    OneOfSchema(description:, schemas:, discriminator:, nullable:) ->
       OneOfSchema(
         description:,
         schemas: list.map(schemas, dedup_schema_ref),
         discriminator:,
+        nullable:,
+      )
+
+    AnyOfSchema(description:, schemas:, discriminator:, nullable:) ->
+      AnyOfSchema(
+        description:,
+        schemas: list.map(schemas, dedup_schema_ref),
+        discriminator:,
+        nullable:,
       )
 
     _ -> schema_obj

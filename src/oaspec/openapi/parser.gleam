@@ -835,7 +835,7 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
   case yay.select_sugar(from: node, selector: "allOf") {
     Ok(yay.NodeSeq(items)) -> {
       use schemas <- result.try(list.try_map(items, parse_schema_ref))
-      Ok(AllOfSchema(description:, schemas:))
+      Ok(AllOfSchema(description:, schemas:, nullable:))
     }
     _ ->
       case yay.select_sugar(from: node, selector: "oneOf") {
@@ -850,7 +850,7 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
               Error(_) -> Ok(None)
             },
           )
-          Ok(OneOfSchema(description:, schemas:, discriminator:))
+          Ok(OneOfSchema(description:, schemas:, discriminator:, nullable:))
         }
         _ ->
           case yay.select_sugar(from: node, selector: "anyOf") {
@@ -865,7 +865,7 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
                   Error(_) -> Ok(None)
                 },
               )
-              Ok(AnyOfSchema(description:, schemas:, discriminator:))
+              Ok(AnyOfSchema(description:, schemas:, discriminator:, nullable:))
             }
             _ -> parse_typed_schema(node, description, nullable)
           }

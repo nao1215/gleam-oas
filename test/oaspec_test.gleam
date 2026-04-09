@@ -3620,6 +3620,49 @@ components:
   |> should.be_true()
 }
 
+// --- Nullable composition schema tests ---
+
+/// nullable: true on a oneOf schema must produce Option(T) type.
+pub fn nullable_oneof_generates_option_type_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Cat:
+      type: object
+      properties:
+        name:
+          type: string
+    Dog:
+      type: object
+      properties:
+        name:
+          type: string
+    NullablePet:
+      nullable: true
+      oneOf:
+        - $ref: '#/components/schemas/Cat'
+        - $ref: '#/components/schemas/Dog'
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  // The NullablePet schema must have nullable: true in the AST
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(oneof_schema)) =
+    dict.get(components.schemas, "NullablePet")
+  schema.is_nullable(oneof_schema)
+  |> should.be_true()
+}
+
 // --- AnyOfSchema type generation tests ---
 
 /// anyOf with $ref schemas must generate a union type like oneOf,

@@ -583,7 +583,7 @@ fn generate_decoder(
       sb
     }
 
-    Inline(AllOfSchema(description:, schemas:)) -> {
+    Inline(AllOfSchema(description:, schemas:, ..)) -> {
       let merged = type_gen.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         Inline(ObjectSchema(
@@ -597,7 +597,7 @@ fn generate_decoder(
       generate_decoder(sb, name, merged_schema, ctx)
     }
 
-    Inline(OneOfSchema(description:, schemas:, discriminator:)) -> {
+    Inline(OneOfSchema(description:, schemas:, discriminator:, ..)) -> {
       generate_oneof_decoder(
         sb,
         name,
@@ -611,7 +611,7 @@ fn generate_decoder(
       )
     }
 
-    Inline(AnyOfSchema(description:, schemas:, discriminator:)) -> {
+    Inline(AnyOfSchema(description:, schemas:, discriminator:, ..)) -> {
       // Treat anyOf the same as oneOf, using discriminator if present
       generate_oneof_decoder(
         sb,
@@ -1504,7 +1504,7 @@ fn generate_encoder(
       sb
     }
 
-    Inline(AllOfSchema(description:, schemas:)) -> {
+    Inline(AllOfSchema(description:, schemas:, ..)) -> {
       let merged = type_gen.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         Inline(ObjectSchema(

@@ -313,7 +313,7 @@ fn generate_schema_type(
       |> se.blank_line()
     }
 
-    AllOfSchema(description:, schemas:) -> {
+    AllOfSchema(description:, schemas:, ..) -> {
       // Merge all properties into a single object type
       let sb = maybe_doc_comment(sb, description)
       let merged = merge_allof_schemas(schemas, ctx)
@@ -468,7 +468,7 @@ fn generate_anonymous_type_for_schema(
         False -> sb
       }
     }
-    AllOfSchema(description:, schemas:) -> {
+    AllOfSchema(description:, schemas:, ..) -> {
       let merged = merge_allof_schemas(schemas, ctx)
       let merged_schema =
         ObjectSchema(
