@@ -225,24 +225,36 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Gleam keyword escaping in generated field names
 - Optional request body (`requestBody.required: false`) generates `Option(T)` body parameter
 - Array alias component schemas (e.g. `type: array, items: ...`) generate decoder/encoder
+- Lossless AST: all OpenAPI 3.x fields preserved through parsing (info, servers, parameters, media types, responses, components, tags, webhooks, external docs)
+- Parameter style and security scheme location expressed as ADTs (not strings)
+- Schema metadata: `title`, `readOnly`, `writeOnly`, `default`, `example`, `deprecated` preserved
+- Numeric constraints: `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` preserved
+- OAuth2 flows with authorization/token/refresh URLs and scopes preserved
 
 ### Not yet supported
 
-The following OpenAPI 3.x features are not yet implemented. Specs using these features will either produce a parse error or have the feature silently ignored:
+The AST now parses and preserves all standard OpenAPI 3.x fields (lossless parse). The following features are **parsed and stored** but **not yet used by codegen**:
+
+- `webhooks`, `externalDocs`, `tags` (top-level) — parsed into AST
+- `Info.contact`, `Info.license`, `Info.summary`, `Info.termsOfService` — parsed into AST
+- `Server.variables` — parsed into AST
+- `Parameter.content`, `Parameter.examples` — parsed into AST
+- `MediaType.encoding`, `MediaType.examples` — parsed into AST
+- `Response.headers`, `Response.links` — parsed into AST
+- `PathItem.servers`, `Operation.servers`, `Operation.externalDocs` — parsed into AST
+- `components.headers`, `components.examples`, `components.links` — parsed into AST
+- Schema metadata: `title`, `readOnly`, `writeOnly`, `default`, `example` — parsed into AST
+- Numeric: `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` — parsed into AST
+- Array: `uniqueItems` — parsed into AST
+- Object: `minProperties`, `maxProperties` — parsed into AST
+- OAuth2: `flows` with authorization/token/refresh URLs and scopes — parsed into AST
+
+The following features are **not supported** at all:
 
 - `PathItem.$ref` (path-level `$ref`)
-- `Parameter.content` (media-type-based parameter encoding)
-- `Parameter.allowReserved`
-- `MediaType.encoding` (per-property encoding for multipart/form-data)
-- `Response.headers` and `Response.links`
-- OAuth2 `flows` / `scopes` detail (schemes are recognized but flow details are not preserved)
-- Webhooks (`webhooks` top-level field)
-- `components.pathItems`
 - OpenAPI 3.1 / JSON Schema 2020-12 advanced features (`$defs`, `prefixItems`, `if/then/else`, `dependentSchemas`, `$dynamicRef`, `contentMediaType`)
 - OpenAPI 3.1 multi-type unions (`type: [string, integer]`) — use `oneOf` instead
-- Server variable generation (server stubs are scaffolds only)
 - `xml` annotations
-- `externalDocs`
 
 ### Schema-to-type mapping
 
