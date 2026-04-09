@@ -1129,7 +1129,8 @@ fn parse_security_scheme(
       let description =
         yay.extract_optional_string(node, "description")
         |> result.unwrap(None)
-      Ok(spec.OAuth2Scheme(description:))
+      let flows = parse_oauth2_flows(node)
+      Ok(spec.OAuth2Scheme(description:, flows:))
     }
     "openIdConnect" -> {
       let description =
@@ -1151,6 +1152,55 @@ fn parse_security_scheme(
         path: "securityScheme.type",
         detail: "Unsupported security scheme type: " <> type_str,
       ))
+  }
+}
+
+/// Parse OAuth2 flows from a security scheme node.
+fn parse_oauth2_flows(node: yay.Node) -> dict.Dict(String, spec.OAuth2Flow) {
+  case yay.select_sugar(from: node, selector: "flows") {
+    Ok(yay.NodeMap(flow_entries)) ->
+      list.fold(flow_entries, dict.new(), fn(acc, entry) {
+        let #(key_node, flow_node) = entry
+        case key_node {
+          yay.NodeStr(flow_name) -> {
+            let authorization_url =
+              yay.extract_optional_string(flow_node, "authorizationUrl")
+              |> result.unwrap(None)
+            let token_url =
+              yay.extract_optional_string(flow_node, "tokenUrl")
+              |> result.unwrap(None)
+            let refresh_url =
+              yay.extract_optional_string(flow_node, "refreshUrl")
+              |> result.unwrap(None)
+            let scopes = case
+              yay.select_sugar(from: flow_node, selector: "scopes")
+            {
+              Ok(yay.NodeMap(scope_entries)) ->
+                list.fold(scope_entries, dict.new(), fn(sacc, sentry) {
+                  let #(sk, sv) = sentry
+                  case sk, sv {
+                    yay.NodeStr(scope_name), yay.NodeStr(scope_desc) ->
+                      dict.insert(sacc, scope_name, scope_desc)
+                    _, _ -> sacc
+                  }
+                })
+              _ -> dict.new()
+            }
+            dict.insert(
+              acc,
+              flow_name,
+              spec.OAuth2Flow(
+                authorization_url:,
+                token_url:,
+                refresh_url:,
+                scopes:,
+              ),
+            )
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
   }
 }
 

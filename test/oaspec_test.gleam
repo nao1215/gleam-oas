@@ -1383,7 +1383,7 @@ components:
   let assert Some(components) = parsed.components
   let assert Ok(scheme) = dict.get(components.security_schemes, "oauth2Auth")
   case scheme {
-    spec.OAuth2Scheme(description: Some("OAuth2 authorization code")) ->
+    spec.OAuth2Scheme(description: Some("OAuth2 authorization code"), ..) ->
       should.be_true(True)
     _ -> should.fail()
   }
@@ -2840,13 +2840,19 @@ security:
   // OAuth2 scheme must preserve flow URLs and scopes.
   // Currently OAuth2Scheme only has description, losing all flow data.
   case scheme {
-    spec.OAuth2Scheme(description: _desc) -> {
-      // After fix this branch won't match because OAuth2Scheme will have
-      // a flows field. For now, fail to show the data loss.
-      // The description alone proves flows/scopes are lost.
-      should.fail()
+    spec.OAuth2Scheme(flows:, ..) -> {
+      // flows must not be empty — must contain the authorizationCode flow
+      { flows != dict.new() }
+      |> should.be_true()
+      // Must have the authorizationCode flow
+      let assert Ok(auth_flow) = dict.get(flows, "authorizationCode")
+      // Must preserve scopes
+      { auth_flow.scopes != dict.new() }
+      |> should.be_true()
+      dict.has_key(auth_flow.scopes, "read")
+      |> should.be_true()
     }
-    _ -> should.be_ok(Ok(Nil))
+    _ -> should.fail()
   }
 }
 

@@ -39,8 +39,18 @@ pub type Components {
 pub type SecurityScheme {
   ApiKeyScheme(name: String, in_: String)
   HttpScheme(scheme: String, bearer_format: Option(String))
-  OAuth2Scheme(description: Option(String))
+  OAuth2Scheme(description: Option(String), flows: Dict(String, OAuth2Flow))
   OpenIdConnectScheme(open_id_connect_url: String, description: Option(String))
+}
+
+/// An OAuth2 flow definition.
+pub type OAuth2Flow {
+  OAuth2Flow(
+    authorization_url: Option(String),
+    token_url: Option(String),
+    refresh_url: Option(String),
+    scopes: Dict(String, String),
+  )
 }
 
 /// A single scheme reference within a security requirement (AND element).
