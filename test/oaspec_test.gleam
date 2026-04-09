@@ -6110,3 +6110,34 @@ paths:
   { summary.warnings != [] }
   |> should.be_true()
 }
+
+pub fn validate_warns_multi_content_responses_for_server_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { type: string }
+            text/plain:
+              schema: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let issues = validate.validate(ctx)
+  let warnings =
+    list.filter(issues, fn(issue) {
+      issue.severity == validate.SeverityWarning
+      && issue.target == validate.TargetServer
+      && string.contains(issue.detail, "Multiple response content types")
+    })
+  list.length(warnings)
+  |> should.equal(1)
+}

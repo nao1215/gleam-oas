@@ -699,6 +699,21 @@ fn validate_preserved_but_unused(ctx: Context) -> List(ValidationError) {
       list.flat_map(entries, fn(entry) {
         let #(status_code, response) = entry
         let base_path = op_id <> ".responses." <> status_code
+        let multi_content_warnings = case
+          ctx.config.mode,
+          list.length(dict.to_list(response.content))
+        {
+          config.Client, _ -> []
+          _, n if n > 1 -> [
+            ValidationError(
+              severity: SeverityWarning,
+              target: TargetServer,
+              path: base_path <> ".content",
+              detail: "Multiple response content types are not fully supported for server code generation. Generated server responses lose the content-type header.",
+            ),
+          ]
+          _, _ -> []
+        }
         let header_warnings = case dict.is_empty(response.headers) {
           True -> []
           False -> [
@@ -737,7 +752,12 @@ fn validate_preserved_but_unused(ctx: Context) -> List(ValidationError) {
               ]
             }
           })
-        list.flatten([header_warnings, link_warnings, encoding_warnings])
+        list.flatten([
+          multi_content_warnings,
+          header_warnings,
+          link_warnings,
+          encoding_warnings,
+        ])
       })
     })
   list.flatten([webhook_warnings, response_warnings])
