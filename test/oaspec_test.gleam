@@ -3620,6 +3620,83 @@ components:
   |> should.be_true()
 }
 
+// --- deepObject nested object validation tests ---
+
+/// deepObject with nested object properties must be rejected
+/// since codegen can only handle one level of nesting.
+pub fn deep_object_nested_object_rejected_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              meta:
+                type: object
+                properties:
+                  name:
+                    type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  // Must detect nested object in deepObject param
+  list.is_empty(errors)
+  |> should.be_false()
+}
+
+/// deepObject with flat scalar properties must pass validation.
+pub fn deep_object_flat_properties_passes_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              age:
+                type: integer
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  list.is_empty(errors)
+  |> should.be_true()
+}
+
 // --- PathItem.$ref tests ---
 
 /// PathItem.$ref must resolve to the referenced PathItem from components.pathItems.

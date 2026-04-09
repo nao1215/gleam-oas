@@ -145,9 +145,12 @@ fn validate_complex_param_schema(
   param: spec.Parameter,
   ctx: Context,
 ) -> List(ValidationError) {
-  // deepObject + query with object schema is supported
   case param.style {
-    Some("deepObject") -> []
+    Some("deepObject") ->
+      // deepObject supports one level of object nesting only.
+      // Reject nested object properties since codegen produces
+      // invalid code (e.g., uri.percent_encode(filter.meta)).
+      validate_deep_object_no_nested_objects(path, param, ctx)
     _ ->
       case param.in_ {
         spec.InPath -> []
@@ -165,6 +168,34 @@ fn validate_complex_param_schema(
             _ -> []
           }
       }
+  }
+}
+
+/// Validate that a deepObject parameter has no nested object properties.
+fn validate_deep_object_no_nested_objects(
+  path: String,
+  param: spec.Parameter,
+  ctx: Context,
+) -> List(ValidationError) {
+  case resolve_schema_object(param.schema, ctx) {
+    Some(ObjectSchema(properties:, ..)) ->
+      dict.to_list(properties)
+      |> list.flat_map(fn(entry) {
+        let #(prop_name, prop_ref) = entry
+        case resolve_schema_object(Some(prop_ref), ctx) {
+          Some(ObjectSchema(..))
+          | Some(AllOfSchema(..))
+          | Some(OneOfSchema(..))
+          | Some(AnyOfSchema(..)) -> [
+            UnsupportedFeature(
+              path: path <> "." <> prop_name,
+              detail: "Nested object properties in deepObject parameters are not supported. Only one level of object nesting is supported (e.g., filter[name]=value).",
+            ),
+          ]
+          _ -> []
+        }
+      })
+    _ -> []
   }
 }
 
@@ -340,8 +371,7 @@ fn validate_responses(
         ]
       }
       let schema_errors = case media_type.schema {
-        Some(schema_ref) ->
-          validate_schema_ref_recursive(path, schema_ref, ctx)
+        Some(schema_ref) -> validate_schema_ref_recursive(path, schema_ref, ctx)
         None -> []
       }
       list.append(content_type_errors, schema_errors)
@@ -357,7 +387,11 @@ fn validate_component_schemas(ctx: Context) -> List(ValidationError) {
   }
   list.flat_map(schemas, fn(entry) {
     let #(name, schema_ref) = entry
-    validate_schema_ref_recursive("components.schemas." <> name, schema_ref, ctx)
+    validate_schema_ref_recursive(
+      "components.schemas." <> name,
+      schema_ref,
+      ctx,
+    )
   })
 }
 
