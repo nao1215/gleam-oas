@@ -5255,3 +5255,126 @@ paths:
   string.contains(user_type_text, "id:") |> should.be_true()
   string.contains(user_type_text, "password:") |> should.be_true()
 }
+
+pub fn server_variable_substitution_default_base_url_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+servers:
+  - url: https://{env}.example.com/{version}
+    variables:
+      env:
+        default: production
+      version:
+        default: v2
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  // Must contain the default_base_url function
+  string.contains(content, "pub fn default_base_url() -> String {")
+  |> should.be_true()
+
+  // Must contain the resolved URL with variables substituted
+  string.contains(content, "\"https://production.example.com/v2\"")
+  |> should.be_true()
+}
+
+pub fn server_no_variables_default_base_url_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  string.contains(content, "pub fn default_base_url() -> String {")
+  |> should.be_true()
+
+  string.contains(content, "\"https://api.example.com/v1\"")
+  |> should.be_true()
+}
+
+pub fn server_empty_default_base_url_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  string.contains(content, "pub fn default_base_url() -> String {")
+  |> should.be_true()
+
+  // With no servers, should return empty string
+  string.contains(content, "  \"\"")
+  |> should.be_true()
+}

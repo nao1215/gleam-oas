@@ -373,6 +373,9 @@ fn generate_client(ctx: Context) -> String {
     |> se.line("}")
     |> se.blank_line()
 
+  // Generate default_base_url function from server template variables
+  let sb = generate_default_base_url(sb, ctx)
+
   // Generate operation functions
   let sb =
     list.fold(operations, sb, fn(sb, op) {
@@ -381,6 +384,69 @@ fn generate_client(ctx: Context) -> String {
     })
 
   se.to_string(sb)
+}
+
+/// Substitute server variable placeholders in a URL template with their default values.
+fn substitute_server_variables(
+  url: String,
+  variables: List(#(String, spec.ServerVariable)),
+) -> String {
+  list.fold(variables, url, fn(acc, entry) {
+    let #(name, variable) = entry
+    string.replace(acc, "{" <> name <> "}", variable.default)
+  })
+}
+
+/// Generate the default_base_url function from the first server's template and variables.
+fn generate_default_base_url(
+  sb: se.StringBuilder,
+  ctx: Context,
+) -> se.StringBuilder {
+  case ctx.spec.servers {
+    [first_server, ..] -> {
+      let variables = dict.to_list(first_server.variables)
+      let resolved_url =
+        substitute_server_variables(first_server.url, variables)
+      let defaults_doc = case variables {
+        [] -> ""
+        _ ->
+          "Defaults: "
+          <> string.join(
+            list.map(variables, fn(entry) {
+              let #(name, variable) = entry
+              name <> " = \"" <> variable.default <> "\""
+            }),
+            ", ",
+          )
+      }
+      let sb = case defaults_doc {
+        "" ->
+          sb
+          |> se.doc_comment(
+            "Build the base URL from server template variables.",
+          )
+        doc ->
+          sb
+          |> se.doc_comment(
+            "Build the base URL from server template variables.",
+          )
+          |> se.doc_comment(doc)
+      }
+      sb
+      |> se.line("pub fn default_base_url() -> String {")
+      |> se.indent(1, "\"" <> resolved_url <> "\"")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+    [] -> {
+      sb
+      |> se.doc_comment("Build the base URL from server template variables.")
+      |> se.line("pub fn default_base_url() -> String {")
+      |> se.indent(1, "\"\"")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+  }
 }
 
 /// Generate a client function for a single operation.
