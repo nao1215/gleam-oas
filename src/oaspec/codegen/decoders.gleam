@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/types as type_gen
+import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -288,10 +289,12 @@ fn generate_decoder(
         )
 
       let props = dict.to_list(properties)
+      let deduped_names =
+        dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
       let sb =
-        list.fold(props, sb, fn(sb, entry) {
+        list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = naming.to_snake_case(prop_name)
+          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           let is_required = list.contains(required, prop_name)
           let field_decoder =
             schema_ref_to_decoder(prop_ref, name, prop_name, ctx)
@@ -423,9 +426,9 @@ fn generate_decoder(
       }
 
       let param_names =
-        list.map(props, fn(entry) {
+        list.index_map(props, fn(entry, idx) {
           let #(prop_name, _) = entry
-          let field_name = naming.to_snake_case(prop_name)
+          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           field_name <> ": " <> field_name
         })
 
@@ -519,9 +522,11 @@ fn generate_decoder(
         |> se.indent(1, "use value <- decode.then(decode.string)")
         |> se.indent(1, "case value {")
 
+      let deduped_variants = dedup.dedup_enum_variants(enum_values)
       let sb =
-        list.fold(enum_values, sb, fn(sb, value) {
-          let variant = naming.schema_to_type_name(type_name <> "_" <> value)
+        list.index_fold(enum_values, sb, fn(sb, value, idx) {
+          let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
+          let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(
             2,
@@ -530,21 +535,16 @@ fn generate_decoder(
         })
 
       // Unknown enum values → decode failure, not silent fallback
+      let first_variant_suffix = list_at_or(deduped_variants, 0, case enum_values {
+        [first, ..] -> naming.to_pascal_case(first)
+        [] -> "Unknown"
+      })
       let sb =
         sb
         |> se.indent(
           2,
           "_ -> decode.failure(types."
-            <> naming.schema_to_type_name(
-            type_name
-            <> "_"
-            <> {
-              case enum_values {
-                [first, ..] -> first
-                [] -> "unknown"
-              }
-            },
-          )
+            <> naming.schema_to_type_name(type_name) <> first_variant_suffix
             <> ", \""
             <> type_name
             <> "\")",
@@ -1152,10 +1152,12 @@ fn generate_encoder(
       }
 
       let props = dict.to_list(properties)
+      let encoder_deduped_names =
+        dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = naming.to_snake_case(prop_name)
+          let field_name = list_at_or(encoder_deduped_names, idx, naming.to_snake_case(prop_name))
           let is_required = list.contains(required, prop_name)
           let trailing = case idx == list.length(props) - 1 {
             True -> ""
@@ -1253,6 +1255,7 @@ fn generate_encoder(
     }
 
     Inline(StringSchema(enum_values:, ..)) if enum_values != [] -> {
+      let enc_deduped_variants = dedup.dedup_enum_variants(enum_values)
       // _json version: returns json.Json
       let sb =
         sb
@@ -1266,8 +1269,9 @@ fn generate_encoder(
         |> se.indent(1, "let str = case value {")
 
       let sb =
-        list.fold(enum_values, sb, fn(sb, value) {
-          let variant = naming.schema_to_type_name(type_name <> "_" <> value)
+        list.index_fold(enum_values, sb, fn(sb, value, idx) {
+          let variant_suffix = list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
+          let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(2, "types." <> variant <> " -> \"" <> value <> "\"")
         })
@@ -1307,8 +1311,9 @@ fn generate_encoder(
         |> se.indent(1, "case value {")
 
       let sb =
-        list.fold(enum_values, sb, fn(sb, value) {
-          let variant = naming.schema_to_type_name(type_name <> "_" <> value)
+        list.index_fold(enum_values, sb, fn(sb, value, idx) {
+          let variant_suffix = list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
+          let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(2, "types." <> variant <> " -> \"" <> value <> "\"")
         })
@@ -1530,6 +1535,15 @@ fn schema_ref_to_json_encoder_fn(
       "encode_" <> naming.to_snake_case(name) <> "_json"
     }
     _ -> "json.string"
+  }
+}
+
+/// Get element at index from a list, or return a default.
+fn list_at_or(lst: List(String), idx: Int, default: String) -> String {
+  case lst, idx {
+    [], _ -> default
+    [head, ..], 0 -> head
+    [_, ..rest], n -> list_at_or(rest, n - 1, default)
   }
 }
 

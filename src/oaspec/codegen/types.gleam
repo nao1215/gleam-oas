@@ -4,6 +4,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -151,10 +152,12 @@ fn generate_inline_enums_from_properties(
           <> naming.schema_to_type_name(prop_name)
         let sb = maybe_doc_comment(sb, description)
         let sb = sb |> se.line("pub type " <> type_name <> " {")
+        let deduped_variants = dedup.dedup_enum_variants(enum_values)
         let sb =
-          list.fold(enum_values, sb, fn(sb, value) {
+          list.index_fold(enum_values, sb, fn(sb, value, idx) {
+            let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
             let variant_name =
-              naming.schema_to_type_name(type_name <> "_" <> value)
+              naming.schema_to_type_name(type_name) <> variant_suffix
             sb |> se.indent(1, variant_name)
           })
         sb
@@ -209,12 +212,14 @@ fn generate_schema_type(
       let sb = sb |> se.indent(1, type_name <> "(")
 
       let props = dict.to_list(properties)
+      let deduped_names =
+        dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
       let has_additional_props =
         option.is_some(additional_properties) || additional_properties_untyped
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = naming.to_snake_case(prop_name)
+          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           let field_type =
             schema_ref_to_type_with_inline_enum(
               prop_ref,
@@ -265,10 +270,12 @@ fn generate_schema_type(
     StringSchema(description:, enum_values:, ..) if enum_values != [] -> {
       let sb = maybe_doc_comment(sb, description)
       let sb = sb |> se.line("pub type " <> type_name <> " {")
+      let deduped_variants = dedup.dedup_enum_variants(enum_values)
       let sb =
-        list.fold(enum_values, sb, fn(sb, value) {
+        list.index_fold(enum_values, sb, fn(sb, value, idx) {
+          let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
           let variant_name =
-            naming.schema_to_type_name(type_name <> "_" <> value)
+            naming.schema_to_type_name(type_name) <> variant_suffix
           sb |> se.indent(1, variant_name)
         })
       sb
@@ -1084,6 +1091,15 @@ fn extract_inline_request_body_type(
     NumberSchema(..) -> "Float"
     BooleanSchema(..) -> "Bool"
     _ -> schema_to_gleam_type(schema_obj, ctx)
+  }
+}
+
+/// Get element at index from a list, or return a default.
+fn list_at_or(lst: List(String), idx: Int, default: String) -> String {
+  case lst, idx {
+    [], _ -> default
+    [head, ..], 0 -> head
+    [_, ..rest], n -> list_at_or(rest, n - 1, default)
   }
 }
 
