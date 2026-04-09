@@ -2,6 +2,7 @@ import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
+import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
@@ -404,16 +405,28 @@ fn validate_schema_ref_recursive(
 ) -> List(ValidationError) {
   case schema_ref {
     Reference(ref:, ..) ->
-      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-        Ok(_) -> []
-        Error(_) -> [
+      // Detect external refs (not starting with #/) before resolution
+      case string.starts_with(ref, "#/") {
+        False -> [
           UnsupportedFeature(
             path: path,
-            detail: "Unresolved schema reference: '"
+            detail: "External $ref '"
               <> ref
-              <> "'. The referenced schema does not exist in components.",
+              <> "' is not supported. Only local references (#/components/...) are supported.",
           ),
         ]
+        True ->
+          case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+            Ok(_) -> []
+            Error(_) -> [
+              UnsupportedFeature(
+                path: path,
+                detail: "Unresolved schema reference: '"
+                  <> ref
+                  <> "'. The referenced schema does not exist in components.",
+              ),
+            ]
+          }
       }
     Inline(schema_obj) -> validate_schema_recursive(path, schema_obj, ctx)
   }

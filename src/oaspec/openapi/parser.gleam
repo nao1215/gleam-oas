@@ -1044,8 +1044,7 @@ fn parse_typed_schema(
       Ok(ArraySchema(metadata:, items:, min_items:, max_items:))
     }
 
-    // Default: object
-    _ -> {
+    "object" -> {
       use properties <- result.try(parse_properties(node))
       let required = case yay.extract_string_list(node, "required") {
         Ok(r) -> r
@@ -1070,6 +1069,14 @@ fn parse_typed_schema(
         additional_properties_untyped:,
       ))
     }
+
+    unrecognized ->
+      Error(InvalidValue(
+        path: "schema.type",
+        detail: "Unrecognized schema type '"
+          <> unrecognized
+          <> "'. Supported types: string, integer, number, boolean, array, object.",
+      ))
   }
 }
 

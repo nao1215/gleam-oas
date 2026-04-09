@@ -4161,6 +4161,64 @@ paths:
   }
 }
 
+// --- Fail-fast unsupported feature tests ---
+
+/// External $ref (not #/) must be rejected as unsupported.
+pub fn external_ref_rejected_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: './other.yaml#/components/schemas/Foo'
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  list.is_empty(errors)
+  |> should.be_false()
+}
+
+/// Unrecognized schema type must be rejected at parse time.
+pub fn unrecognized_schema_type_rejected_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    Bad:
+      type: frobnicate
+"
+  let result = parser.parse_string(yaml)
+  case result {
+    Error(_) -> should.be_true(True)
+    Ok(_) -> should.be_true(False)
+  }
+}
+
 // --- oneOf vs anyOf semantic separation tests ---
 
 /// anyOf must generate a record with Option fields, NOT a tagged union.
