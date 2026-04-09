@@ -2166,9 +2166,12 @@ fn generate_security_or_chain(
             |> se.indent(base_indent + 2, "req")
             |> se.indent(base_indent + 1, "}")
           // Wildcard branch — try next alternative
+          let wildcard =
+            list.map(schemes, fn(_) { "_" })
+            |> string.join(", ")
           let sb =
             sb
-            |> se.indent(base_indent + 1, "_, _ -> {")
+            |> se.indent(base_indent + 1, wildcard <> " -> {")
           let sb = generate_security_or_chain(sb, ctx, rest, base_indent + 2)
           sb
           |> se.indent(base_indent + 2, "req")

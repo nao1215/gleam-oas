@@ -3620,6 +3620,69 @@ components:
   |> should.be_true()
 }
 
+// --- Security AND wildcard tests ---
+
+/// Security AND with 3 schemes must generate correct wildcard pattern.
+/// The wildcard must have 3 underscores, not hardcoded `_, _`.
+pub fn security_and_3_schemes_wildcard_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /secure:
+    get:
+      operationId: getSecure
+      security:
+        - ApiKeyAuth: []
+          BearerAuth: []
+          OAuth2: []
+        - BasicAuth: []
+      responses:
+        '200': { description: ok }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+    OAuth2:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://example.com
+          scopes: {}
+    BasicAuth:
+      type: http
+      scheme: basic
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+  // With 3 AND schemes, the wildcard must be `_, _, _`
+  string.contains(content, "_, _, _ -> {")
+  |> should.be_true()
+}
+
 // --- Nullable composition schema tests ---
 
 /// nullable: true on a oneOf schema must produce Option(T) type.
