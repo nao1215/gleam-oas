@@ -701,7 +701,8 @@ fn generate_decoder(
 
     Inline(ArraySchema(items:, ..)) -> {
       let inner_decoder = schema_ref_to_decoder(items, name, "", ctx)
-      let gleam_type = type_gen.schema_ref_to_type(schema_ref, ctx)
+      let inner_type = qualified_schema_ref_type(items, ctx)
+      let gleam_type = "List(" <> inner_type <> ")"
       let sb =
         sb
         |> se.line(
@@ -1544,7 +1545,8 @@ fn generate_encoder(
     }
 
     Inline(ArraySchema(items:, ..)) -> {
-      let gleam_type = type_gen.schema_ref_to_type(schema_ref, ctx)
+      let inner_type = qualified_schema_ref_type(items, ctx)
+      let gleam_type = "List(" <> inner_type <> ")"
       let inner_encoder = schema_ref_to_json_encoder_fn(items, name, "", ctx)
       sb
       |> se.line(
@@ -1647,6 +1649,17 @@ fn list_at_or(lst: List(String), idx: Int, default: String) -> String {
     [], _ -> default
     [head, ..], 0 -> head
     [_, ..rest], n -> list_at_or(rest, n - 1, default)
+  }
+}
+
+/// Convert a SchemaRef to a qualified Gleam type string (with types. prefix for refs).
+fn qualified_schema_ref_type(ref: SchemaRef, ctx: Context) -> String {
+  case ref {
+    Reference(ref:) -> {
+      let name = resolver.ref_to_name(ref)
+      "types." <> naming.schema_to_type_name(name)
+    }
+    Inline(schema) -> type_gen.schema_to_gleam_type(schema, ctx)
   }
 }
 
