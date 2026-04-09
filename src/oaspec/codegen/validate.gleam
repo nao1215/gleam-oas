@@ -1,6 +1,8 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/regexp
+import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
@@ -40,11 +42,57 @@ pub fn error_to_string(error: ValidationError) -> String {
 fn validate_operations(ctx: Context) -> List(ValidationError) {
   let operations = type_gen.collect_operations(ctx)
   list.flat_map(operations, fn(op) {
-    let #(op_id, operation, _path, _method) = op
+    let #(op_id, operation, path, _method) = op
+    let path_errors =
+      validate_path_template_params(op_id, path, operation.parameters)
     let param_errors = validate_parameters(op_id, operation.parameters, ctx)
     let body_errors = validate_request_body(op_id, operation.request_body, ctx)
     let response_errors = validate_responses(op_id, operation.responses)
-    list.flatten([param_errors, body_errors, response_errors])
+    list.flatten([path_errors, param_errors, body_errors, response_errors])
+  })
+}
+
+/// Validate that all {param} templates in the path have a corresponding
+/// path parameter definition. Reports unbound templates that would produce
+/// invalid generated code with literal {param} in URLs.
+fn validate_path_template_params(
+  op_id: String,
+  path: String,
+  params: List(spec.Parameter),
+) -> List(ValidationError) {
+  let template_names = extract_path_template_names(path)
+  let path_param_names =
+    list.filter_map(params, fn(p) {
+      case p.in_ {
+        spec.InPath -> Ok(p.name)
+        _ -> Error(Nil)
+      }
+    })
+  list.filter_map(template_names, fn(name) {
+    case list.contains(path_param_names, name) {
+      True -> Error(Nil)
+      False ->
+        Ok(UnsupportedFeature(
+          path: op_id <> ".path",
+          detail: "Path template parameter '{"
+            <> name
+            <> "}' in '"
+            <> path
+            <> "' has no corresponding parameter definition.",
+        ))
+    }
+  })
+}
+
+/// Extract parameter names from path template, e.g. "/items/{id}" -> ["id"].
+fn extract_path_template_names(path: String) -> List(String) {
+  let assert Ok(re) = regexp.from_string("\\{([^}]+)\\}")
+  regexp.scan(re, path)
+  |> list.filter_map(fn(match) {
+    case match.submatches {
+      [Some(name)] -> Ok(name)
+      _ -> Error(Nil)
+    }
   })
 }
 
