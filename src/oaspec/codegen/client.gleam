@@ -1437,54 +1437,80 @@ fn generate_form_nested_object(
       let sub_field = naming.to_snake_case(sub_name)
       let sub_accessor = accessor_prefix <> "." <> sub_field
       let sub_required = list.contains(required_fields, sub_name)
-      let to_str = multipart_field_to_string_fn(sub_ref, ctx)
-      case sub_required {
-        True -> {
-          let value_expr = case to_str {
-            "" -> sub_accessor
-            fn_name -> fn_name <> "(" <> sub_accessor <> ")"
+      // Check if sub-property is an object — need recursive bracket encoding
+      let is_sub_object = case sub_ref {
+        Inline(schema.ObjectSchema(..)) -> True
+        Reference(_) as sr ->
+          case resolver.resolve_schema_ref(sr, ctx.spec) {
+            Ok(schema.ObjectSchema(..)) -> True
+            _ -> False
           }
-          sb
-          |> se.indent(
+        _ -> False
+      }
+      case is_sub_object {
+        True ->
+          // Recurse: generate meta[author][name]=value encoding
+          generate_form_bracket_fields(
+            sb,
+            field_name <> "[" <> sub_name <> "]",
+            sub_accessor,
+            sub_ref,
+            sub_required,
             indent_base,
-            "let "
-              <> parts_var
-              <> " = [\""
-              <> field_name
-              <> "["
-              <> sub_name
-              <> "]=\" <> uri.percent_encode("
-              <> value_expr
-              <> "), .."
-              <> parts_var
-              <> "]",
+            parts_var,
+            ctx,
           )
-        }
         False -> {
-          sb
-          |> se.indent(
-            indent_base,
-            "let " <> parts_var <> " = case " <> sub_accessor <> " {",
-          )
-          |> se.indent(
-            indent_base + 1,
-            "Some(v) -> [\""
-              <> field_name
-              <> "["
-              <> sub_name
-              <> "]=\" <> uri.percent_encode("
-              <> {
-              case to_str {
-                "" -> "v"
-                fn_name -> fn_name <> "(v)"
+          let to_str = multipart_field_to_string_fn(sub_ref, ctx)
+          case sub_required {
+            True -> {
+              let value_expr = case to_str {
+                "" -> sub_accessor
+                fn_name -> fn_name <> "(" <> sub_accessor <> ")"
               }
+              sb
+              |> se.indent(
+                indent_base,
+                "let "
+                  <> parts_var
+                  <> " = [\""
+                  <> field_name
+                  <> "["
+                  <> sub_name
+                  <> "]=\" <> uri.percent_encode("
+                  <> value_expr
+                  <> "), .."
+                  <> parts_var
+                  <> "]",
+              )
             }
-              <> "), .."
-              <> parts_var
-              <> "]",
-          )
-          |> se.indent(indent_base + 1, "None -> " <> parts_var)
-          |> se.indent(indent_base, "}")
+            False -> {
+              sb
+              |> se.indent(
+                indent_base,
+                "let " <> parts_var <> " = case " <> sub_accessor <> " {",
+              )
+              |> se.indent(
+                indent_base + 1,
+                "Some(v) -> [\""
+                  <> field_name
+                  <> "["
+                  <> sub_name
+                  <> "]=\" <> uri.percent_encode("
+                  <> {
+                  case to_str {
+                    "" -> "v"
+                    fn_name -> fn_name <> "(v)"
+                  }
+                }
+                  <> "), .."
+                  <> parts_var
+                  <> "]",
+              )
+              |> se.indent(indent_base + 1, "None -> " <> parts_var)
+              |> se.indent(indent_base, "}")
+            }
+          }
         }
       }
     })
@@ -1496,6 +1522,109 @@ fn generate_form_nested_object(
       |> se.indent(2, "}")
       |> se.indent(2, "None -> form_parts")
       |> se.indent(1, "}")
+  }
+}
+
+/// Recursively generate bracket-encoded form fields for nested objects.
+/// Produces key[sub]=value for leaf fields and recurses for object children.
+fn generate_form_bracket_fields(
+  sb: se.StringBuilder,
+  key_prefix: String,
+  accessor_prefix: String,
+  field_schema: schema.SchemaRef,
+  _is_required: Bool,
+  indent_base: Int,
+  parts_var: String,
+  ctx: Context,
+) -> se.StringBuilder {
+  let resolved = case field_schema {
+    Inline(s) -> Ok(s)
+    Reference(_) -> resolver.resolve_schema_ref(field_schema, ctx.spec)
+  }
+  case resolved {
+    Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
+      let props = dict.to_list(properties)
+      list.fold(props, sb, fn(sb, entry) {
+        let #(prop_name, prop_ref) = entry
+        let prop_field = naming.to_snake_case(prop_name)
+        let prop_accessor = accessor_prefix <> "." <> prop_field
+        let prop_required = list.contains(required, prop_name)
+        let is_obj = case prop_ref {
+          Inline(schema.ObjectSchema(..)) -> True
+          Reference(_) as sr ->
+            case resolver.resolve_schema_ref(sr, ctx.spec) {
+              Ok(schema.ObjectSchema(..)) -> True
+              _ -> False
+            }
+          _ -> False
+        }
+        case is_obj {
+          True ->
+            generate_form_bracket_fields(
+              sb,
+              key_prefix <> "[" <> prop_name <> "]",
+              prop_accessor,
+              prop_ref,
+              prop_required,
+              indent_base,
+              parts_var,
+              ctx,
+            )
+          False -> {
+            let to_str = multipart_field_to_string_fn(prop_ref, ctx)
+            case prop_required {
+              True -> {
+                let value_expr = case to_str {
+                  "" -> prop_accessor
+                  fn_name -> fn_name <> "(" <> prop_accessor <> ")"
+                }
+                sb
+                |> se.indent(
+                  indent_base,
+                  "let "
+                    <> parts_var
+                    <> " = [\""
+                    <> key_prefix
+                    <> "["
+                    <> prop_name
+                    <> "]=\" <> uri.percent_encode("
+                    <> value_expr
+                    <> "), .."
+                    <> parts_var
+                    <> "]",
+                )
+              }
+              False ->
+                sb
+                |> se.indent(
+                  indent_base,
+                  "let " <> parts_var <> " = case " <> prop_accessor <> " {",
+                )
+                |> se.indent(
+                  indent_base + 1,
+                  "Some(v) -> [\""
+                    <> key_prefix
+                    <> "["
+                    <> prop_name
+                    <> "]=\" <> uri.percent_encode("
+                    <> {
+                    case to_str {
+                      "" -> "v"
+                      fn_name -> fn_name <> "(v)"
+                    }
+                  }
+                    <> "), .."
+                    <> parts_var
+                    <> "]",
+                )
+                |> se.indent(indent_base + 1, "None -> " <> parts_var)
+                |> se.indent(indent_base, "}")
+            }
+          }
+        }
+      })
+    }
+    _ -> sb
   }
 }
 
