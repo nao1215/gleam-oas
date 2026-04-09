@@ -114,9 +114,9 @@ pub fn resolve_schema_refs_in_schema(
       let resolved = list_map_ref(schemas, spec)
       OneOfSchema(description:, schemas: resolved, discriminator:)
     }
-    AnyOfSchema(description:, schemas:) -> {
+    AnyOfSchema(description:, schemas:, discriminator:) -> {
       let resolved = list_map_ref(schemas, spec)
-      AnyOfSchema(description:, schemas: resolved)
+      AnyOfSchema(description:, schemas: resolved, discriminator:)
     }
     other -> other
   }

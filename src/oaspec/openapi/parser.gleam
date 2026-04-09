@@ -856,7 +856,16 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
           case yay.select_sugar(from: node, selector: "anyOf") {
             Ok(yay.NodeSeq(items)) -> {
               use schemas <- result.try(list.try_map(items, parse_schema_ref))
-              Ok(AnyOfSchema(description:, schemas:))
+              use discriminator <- result.try(
+                case yay.select_sugar(from: node, selector: "discriminator") {
+                  Ok(_) -> {
+                    use d <- result.try(parse_discriminator(node))
+                    Ok(Some(d))
+                  }
+                  Error(_) -> Ok(None)
+                },
+              )
+              Ok(AnyOfSchema(description:, schemas:, discriminator:))
             }
             _ -> parse_typed_schema(node, description, nullable)
           }

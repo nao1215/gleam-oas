@@ -298,7 +298,7 @@ fn hoist_within_schema(
       )
     }
 
-    AnyOfSchema(description:, schemas:) -> {
+    AnyOfSchema(description:, schemas:, discriminator:) -> {
       let #(hoisted_schemas_rev, state) =
         list.index_fold(schemas, #([], state), fn(acc, s_ref, idx) {
           let #(schemas_acc, state) = acc
@@ -308,7 +308,11 @@ fn hoist_within_schema(
           #([hoisted, ..schemas_acc], state)
         })
       #(
-        AnyOfSchema(description:, schemas: list.reverse(hoisted_schemas_rev)),
+        AnyOfSchema(
+          description:,
+          schemas: list.reverse(hoisted_schemas_rev),
+          discriminator:,
+        ),
         state,
       )
     }

@@ -49,7 +49,11 @@ pub type SchemaObject {
     schemas: List(SchemaRef),
     discriminator: Option(Discriminator),
   )
-  AnyOfSchema(description: Option(String), schemas: List(SchemaRef))
+  AnyOfSchema(
+    description: Option(String),
+    schemas: List(SchemaRef),
+    discriminator: Option(Discriminator),
+  )
 }
 
 /// A reference to a schema, either inline or via $ref.

@@ -611,8 +611,8 @@ fn generate_decoder(
       )
     }
 
-    Inline(AnyOfSchema(description:, schemas:)) -> {
-      // Treat anyOf the same as oneOf without discriminator
+    Inline(AnyOfSchema(description:, schemas:, discriminator:)) -> {
+      // Treat anyOf the same as oneOf, using discriminator if present
       generate_oneof_decoder(
         sb,
         name,
@@ -621,7 +621,7 @@ fn generate_decoder(
         decoder_fn_name,
         description,
         schemas,
-        None,
+        discriminator,
         ctx,
       )
     }

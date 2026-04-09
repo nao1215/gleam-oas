@@ -3213,6 +3213,66 @@ pub fn status_code_suffix_range_test() {
   |> should.equal("Status4xx")
 }
 
+// --- AnyOfSchema discriminator tests ---
+
+/// anyOf with discriminator must be preserved in the AST, not lost.
+pub fn anyof_discriminator_preserved_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Cat:
+      type: object
+      properties:
+        pet_type:
+          type: string
+        meow:
+          type: string
+      required: [pet_type]
+    Dog:
+      type: object
+      properties:
+        pet_type:
+          type: string
+        bark:
+          type: string
+      required: [pet_type]
+    Pet:
+      anyOf:
+        - $ref: '#/components/schemas/Cat'
+        - $ref: '#/components/schemas/Dog'
+      discriminator:
+        propertyName: pet_type
+        mapping:
+          cat: '#/components/schemas/Cat'
+          dog: '#/components/schemas/Dog'
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  // The Pet schema must have a discriminator in the AST
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.AnyOfSchema(discriminator: disc, ..))) =
+    dict.get(components.schemas, "Pet")
+  // discriminator must be Some, not None
+  disc
+  |> option.is_some()
+  |> should.be_true()
+}
+
 // --- Nullable schema decoder/encoder tests ---
 
 /// A nullable primitive schema (type: [string, 'null']) must generate
