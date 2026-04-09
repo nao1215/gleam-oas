@@ -158,8 +158,10 @@ Definition of done:
 
 - [x] form-urlencoded request parsing implemented for sole-content object
   bodies whose fields are inline primitive scalars / inline primitive arrays
-- [ ] form-urlencoded support expanded to nested objects and referenced field
-  schemas
+- [x] form-urlencoded support expanded to one level of nested object fields
+  with inline primitive leaves
+- [ ] form-urlencoded support expanded to referenced primitive field schemas
+  and deeper nesting
 - [ ] multipart request parsing
 - [ ] integration fixtures for both content types
 - [ ] server validation relaxed for multipart once implemented
