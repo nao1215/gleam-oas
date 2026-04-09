@@ -3,6 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/schema_dispatch
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/dedup
 import oaspec/openapi/resolver
@@ -1113,18 +1114,11 @@ fn schema_ref_to_decoder(
         )
       decoder_name <> "_decoder()"
     }
-    Inline(StringSchema(..)) -> "decode.string"
-    Inline(IntegerSchema(..)) -> "decode.int"
-    Inline(NumberSchema(..)) -> "decode.float"
-    Inline(BooleanSchema(..)) -> "decode.bool"
     Inline(ArraySchema(items:, ..)) -> {
       let inner = schema_ref_to_decoder(items, parent_name, prop_name, ctx)
       "decode.list(" <> inner <> ")"
     }
-    Reference(name:, ..) -> {
-      naming.to_snake_case(name) <> "_decoder()"
-    }
-    _ -> "decode.string"
+    _ -> schema_dispatch.decoder_expr(ref)
   }
 }
 
@@ -1855,19 +1849,12 @@ fn schema_ref_to_json_encoder(
         <> "_json"
       fn_name <> "(" <> value_expr <> ")"
     }
-    Inline(StringSchema(..)) -> "json.string(" <> value_expr <> ")"
-    Inline(IntegerSchema(..)) -> "json.int(" <> value_expr <> ")"
-    Inline(NumberSchema(..)) -> "json.float(" <> value_expr <> ")"
-    Inline(BooleanSchema(..)) -> "json.bool(" <> value_expr <> ")"
     Inline(ArraySchema(items:, ..)) -> {
       let inner_fn =
         schema_ref_to_json_encoder_fn(items, parent_name, prop_name, ctx)
       "json.array(" <> value_expr <> ", " <> inner_fn <> ")"
     }
-    Reference(name:, ..) -> {
-      "encode_" <> naming.to_snake_case(name) <> "_json(" <> value_expr <> ")"
-    }
-    _ -> "json.string(" <> value_expr <> ")"
+    _ -> schema_dispatch.json_encoder_expr(ref, value_expr)
   }
 }
 
@@ -1889,19 +1876,12 @@ fn schema_ref_to_json_encoder_fn(
       )
       <> "_json"
     }
-    Inline(StringSchema(..)) -> "json.string"
-    Inline(IntegerSchema(..)) -> "json.int"
-    Inline(NumberSchema(..)) -> "json.float"
-    Inline(BooleanSchema(..)) -> "json.bool"
     Inline(ArraySchema(items:, ..)) -> {
       let inner =
         schema_ref_to_json_encoder_fn(items, parent_name, prop_name, ctx)
       "fn(items) { json.array(items, " <> inner <> ") }"
     }
-    Reference(name:, ..) -> {
-      "encode_" <> naming.to_snake_case(name) <> "_json"
-    }
-    _ -> "json.string"
+    _ -> schema_dispatch.json_encoder_fn(ref)
   }
 }
 
@@ -1917,10 +1897,8 @@ fn list_at_or(lst: List(String), idx: Int, default: String) -> String {
 /// Convert a SchemaRef to a qualified Gleam type string (with types. prefix for refs).
 fn qualified_schema_ref_type(ref: SchemaRef, ctx: Context) -> String {
   case ref {
-    Reference(name:, ..) -> {
-      "types." <> naming.schema_to_type_name(name)
-    }
     Inline(schema) -> type_gen.schema_to_gleam_type(schema, ctx)
+    _ -> schema_dispatch.schema_ref_qualified_type(ref)
   }
 }
 

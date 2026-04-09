@@ -10,6 +10,7 @@ import oaspec/codegen/decoders
 import oaspec/codegen/guards
 import oaspec/codegen/ir
 import oaspec/codegen/ir_render
+import oaspec/codegen/schema_dispatch
 import oaspec/codegen/server as server_gen
 import oaspec/codegen/types
 import oaspec/codegen/validate
@@ -4161,6 +4162,43 @@ paths:
     Error(_) -> should.be_true(True)
     Ok(_) -> should.be_true(False)
   }
+}
+
+// --- Schema dispatch centralization tests ---
+
+/// schema_dispatch must return correct types for primitives.
+pub fn schema_dispatch_primitive_types_test() {
+  schema_dispatch.schema_base_type(schema.StringSchema(
+    metadata: schema.default_metadata(),
+    format: None,
+    enum_values: [],
+    min_length: None,
+    max_length: None,
+    pattern: None,
+  ))
+  |> should.equal("String")
+
+  schema_dispatch.schema_base_type(schema.IntegerSchema(
+    metadata: schema.default_metadata(),
+    format: None,
+    minimum: None,
+    maximum: None,
+  ))
+  |> should.equal("Int")
+}
+
+/// schema_dispatch.to_string_expr must produce correct conversion expressions.
+pub fn schema_dispatch_to_string_expr_test() {
+  schema_dispatch.to_string_expr(
+    schema.IntegerSchema(
+      metadata: schema.default_metadata(),
+      format: None,
+      minimum: None,
+      maximum: None,
+    ),
+    "x",
+  )
+  |> should.equal("int.to_string(x)")
 }
 
 // --- Gleam Code IR tests ---

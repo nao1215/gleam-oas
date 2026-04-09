@@ -3,11 +3,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/schema_dispatch
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
-import oaspec/openapi/schema.{
-  Inline, IntegerSchema, NumberSchema, Reference, StringSchema,
-}
+import oaspec/openapi/schema.{Inline, Reference}
 import oaspec/openapi/spec
 import oaspec/util/http
 import oaspec/util/naming
@@ -958,26 +957,8 @@ fn build_param_list(
 }
 
 /// Convert a parameter to its Gleam type string.
-fn param_to_type(param: spec.Parameter, _ctx: Context) -> String {
-  let base = case param.schema {
-    Some(Inline(StringSchema(..))) -> "String"
-    Some(Inline(IntegerSchema(..))) -> "Int"
-    Some(Inline(schema.NumberSchema(..))) -> "Float"
-    Some(Inline(schema.BooleanSchema(..))) -> "Bool"
-    Some(Inline(schema.ArraySchema(items:, ..))) -> {
-      let item_type = case items {
-        Inline(StringSchema(..)) -> "String"
-        Inline(IntegerSchema(..)) -> "Int"
-        Inline(schema.NumberSchema(..)) -> "Float"
-        Inline(schema.BooleanSchema(..)) -> "Bool"
-        Reference(name:, ..) -> "types." <> naming.schema_to_type_name(name)
-        _ -> "String"
-      }
-      "List(" <> item_type <> ")"
-    }
-    Some(Reference(name:, ..)) -> "types." <> naming.schema_to_type_name(name)
-    _ -> "String"
-  }
+fn param_to_type(param: spec.Parameter, ctx: Context) -> String {
+  let base = schema_dispatch.resolve_param_type(param.schema, ctx.spec)
   case param.required {
     True -> base
     False -> "Option(" <> base <> ")"
@@ -991,41 +972,32 @@ fn param_to_string_expr(
   ctx: Context,
 ) -> String {
   case param.schema {
-    Some(Inline(IntegerSchema(..))) -> "int.to_string(" <> param_name <> ")"
-    Some(Inline(NumberSchema(..))) -> "float.to_string(" <> param_name <> ")"
-    Some(Inline(schema.BooleanSchema(..))) ->
-      "bool.to_string(" <> param_name <> ")"
     Some(Inline(schema.ArraySchema(items:, ..))) -> {
-      let item_to_str = array_item_to_string_fn(items, ctx)
+      let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
       "string.join(list.map("
       <> param_name
       <> ", "
       <> item_to_str
       <> "), \",\")"
     }
-    Some(Reference(name:, ..) as schema_ref) -> {
+    Some(Inline(s)) -> schema_dispatch.to_string_expr(s, param_name)
+    Some(Reference(..) as schema_ref) -> {
       // Resolve the $ref to determine the actual schema type
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
-          "encode.encode_"
-          <> naming.to_snake_case(name)
-          <> "_to_string("
-          <> param_name
-          <> ")"
-        }
         Ok(schema.ArraySchema(items:, ..)) -> {
-          let item_to_str = array_item_to_string_fn(items, ctx)
+          let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
           "string.join(list.map("
           <> param_name
           <> ", "
           <> item_to_str
           <> "), \",\")"
         }
-        Ok(IntegerSchema(..)) -> "int.to_string(" <> param_name <> ")"
-        Ok(NumberSchema(..)) -> "float.to_string(" <> param_name <> ")"
-        Ok(schema.BooleanSchema(..)) -> "bool.to_string(" <> param_name <> ")"
-        Ok(StringSchema(..)) -> param_name
-        _ -> param_name
+        _ ->
+          schema_dispatch.schema_ref_to_string_expr(
+            schema_ref,
+            param_name,
+            ctx.spec,
+          )
       }
     }
     _ -> param_name
@@ -1044,27 +1016,19 @@ fn to_str_for_required(
 /// Convert an optional param value (bound to `v`) to string.
 fn to_str_for_optional_value(param: spec.Parameter, ctx: Context) -> String {
   case param.schema {
-    Some(Inline(IntegerSchema(..))) -> "int.to_string(v)"
-    Some(Inline(NumberSchema(..))) -> "float.to_string(v)"
-    Some(Inline(schema.BooleanSchema(..))) -> "bool.to_string(v)"
     Some(Inline(schema.ArraySchema(items:, ..))) -> {
-      let item_to_str = array_item_to_string_fn(items, ctx)
+      let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
       "string.join(list.map(v, " <> item_to_str <> "), \",\")"
     }
-    Some(Reference(name:, ..) as schema_ref) -> {
+    Some(Inline(s)) -> schema_dispatch.to_string_expr(s, "v")
+    Some(Reference(..) as schema_ref) -> {
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
-          "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(v)"
-        }
         Ok(schema.ArraySchema(items:, ..)) -> {
-          let item_to_str = array_item_to_string_fn(items, ctx)
+          let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
           "string.join(list.map(v, " <> item_to_str <> "), \",\")"
         }
-        Ok(IntegerSchema(..)) -> "int.to_string(v)"
-        Ok(NumberSchema(..)) -> "float.to_string(v)"
-        Ok(schema.BooleanSchema(..)) -> "bool.to_string(v)"
-        Ok(StringSchema(..)) -> "v"
-        _ -> "v"
+        _ ->
+          schema_dispatch.schema_ref_to_string_expr(schema_ref, "v", ctx.spec)
       }
     }
     _ -> "v"
@@ -1252,21 +1216,11 @@ fn multipart_field_to_string_fn(
   field_schema: schema.SchemaRef,
   ctx: Context,
 ) -> String {
-  case field_schema {
-    Inline(schema.IntegerSchema(..)) -> "int.to_string"
-    Inline(schema.NumberSchema(..)) -> "float.to_string"
-    Inline(schema.BooleanSchema(..)) -> "bool.to_string"
-    Reference(name:, ..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-        Ok(schema.StringSchema(enum_values:, ..)) if enum_values != [] -> {
-          "encode.encode_" <> naming.to_snake_case(name) <> "_to_string"
-        }
-        Ok(schema.IntegerSchema(..)) -> "int.to_string"
-        Ok(schema.NumberSchema(..)) -> "float.to_string"
-        Ok(schema.BooleanSchema(..)) -> "bool.to_string"
-        _ -> ""
-      }
-    _ -> ""
+  let result = schema_dispatch.to_string_fn(field_schema, ctx.spec)
+  // Return "" for identity functions since callers use "" to mean "no conversion"
+  case result {
+    "fn(x) { x }" -> ""
+    _ -> result
   }
 }
 
@@ -1278,24 +1232,7 @@ fn form_array_item_to_string(
 ) -> String {
   case field_schema {
     Inline(schema.ArraySchema(items:, ..)) ->
-      case items {
-        Inline(schema.IntegerSchema(..)) -> "int.to_string(item)"
-        Inline(schema.NumberSchema(..)) -> "float.to_string(item)"
-        Inline(schema.BooleanSchema(..)) -> "bool.to_string(item)"
-        Inline(schema.StringSchema(..)) -> "item"
-        Reference(name:, ..) as sr ->
-          case resolver.resolve_schema_ref(sr, ctx.spec) {
-            Ok(schema.StringSchema(enum_values:, ..)) if enum_values != [] -> {
-              "encode.encode_"
-              <> naming.to_snake_case(name)
-              <> "_to_string(item)"
-            }
-            Ok(schema.IntegerSchema(..)) -> "int.to_string(item)"
-            Ok(schema.NumberSchema(..)) -> "float.to_string(item)"
-            _ -> "string.inspect(item)"
-          }
-        _ -> "string.inspect(item)"
-      }
+      schema_dispatch.schema_ref_to_string_expr(items, "item", ctx.spec)
     _ -> "string.inspect(item)"
   }
 }
@@ -1747,25 +1684,7 @@ fn inline_schema_to_decoder(s: schema.SchemaObject) -> String {
 /// Return a function expression that converts an array item to String.
 /// Used in generated code: `list.map(param, <fn>)`.
 fn array_item_to_string_fn(items: schema.SchemaRef, ctx: Context) -> String {
-  case items {
-    Inline(IntegerSchema(..)) -> "int.to_string"
-    Inline(NumberSchema(..)) -> "float.to_string"
-    Inline(schema.BooleanSchema(..)) -> "bool.to_string"
-    Inline(StringSchema(..)) -> "fn(x) { x }"
-    Reference(name:, ..) -> {
-      case resolver.resolve_schema_ref(items, ctx.spec) {
-        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
-          "encode.encode_" <> naming.to_snake_case(name) <> "_to_string"
-        }
-        Ok(IntegerSchema(..)) -> "int.to_string"
-        Ok(NumberSchema(..)) -> "float.to_string"
-        Ok(schema.BooleanSchema(..)) -> "bool.to_string"
-        Ok(StringSchema(..)) -> "fn(x) { x }"
-        _ -> "fn(x) { x }"
-      }
-    }
-    _ -> "fn(x) { x }"
-  }
+  schema_dispatch.to_string_fn(items, ctx.spec)
 }
 
 /// Convert a deepObject array item to a string expression.
@@ -1775,24 +1694,7 @@ fn deep_object_array_item_to_string(
 ) -> String {
   case prop_ref {
     Inline(schema.ArraySchema(items:, ..)) ->
-      case items {
-        Inline(IntegerSchema(..)) -> "int.to_string(item)"
-        Inline(NumberSchema(..)) -> "float.to_string(item)"
-        Inline(schema.BooleanSchema(..)) -> "bool.to_string(item)"
-        Inline(StringSchema(..)) -> "item"
-        Reference(name:, ..) as sr ->
-          case resolver.resolve_schema_ref(sr, ctx.spec) {
-            Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
-              "encode.encode_"
-              <> naming.to_snake_case(name)
-              <> "_to_string(item)"
-            }
-            Ok(IntegerSchema(..)) -> "int.to_string(item)"
-            Ok(NumberSchema(..)) -> "float.to_string(item)"
-            _ -> "item"
-          }
-        _ -> "item"
-      }
+      schema_dispatch.schema_ref_to_string_expr(items, "item", ctx.spec)
     _ -> "item"
   }
 }
@@ -2060,27 +1962,7 @@ fn schema_ref_to_string_expr(
   accessor: String,
   ctx: Context,
 ) -> String {
-  case schema_ref {
-    Inline(IntegerSchema(..)) -> "int.to_string(" <> accessor <> ")"
-    Inline(NumberSchema(..)) -> "float.to_string(" <> accessor <> ")"
-    Inline(schema.BooleanSchema(..)) -> "bool.to_string(" <> accessor <> ")"
-    Inline(StringSchema(..)) -> accessor
-    Reference(name:, ..) as sr ->
-      case resolver.resolve_schema_ref(sr, ctx.spec) {
-        Ok(StringSchema(enum_values:, ..)) if enum_values != [] -> {
-          "encode.encode_"
-          <> naming.to_snake_case(name)
-          <> "_to_string("
-          <> accessor
-          <> ")"
-        }
-        Ok(IntegerSchema(..)) -> "int.to_string(" <> accessor <> ")"
-        Ok(NumberSchema(..)) -> "float.to_string(" <> accessor <> ")"
-        Ok(schema.BooleanSchema(..)) -> "bool.to_string(" <> accessor <> ")"
-        _ -> accessor
-      }
-    _ -> accessor
-  }
+  schema_dispatch.schema_ref_to_string_expr(schema_ref, accessor, ctx.spec)
 }
 
 /// Capitalize the first letter of a string (for HTTP scheme prefix).

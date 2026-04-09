@@ -4,6 +4,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/schema_dispatch
 import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
@@ -585,48 +586,17 @@ fn schema_to_gleam_type_qualified(
 }
 
 /// Convert a SchemaRef to a Gleam type string.
-pub fn schema_ref_to_type(ref: SchemaRef, ctx: Context) -> String {
+pub fn schema_ref_to_type(ref: SchemaRef, _ctx: Context) -> String {
   case ref {
-    Inline(schema) -> schema_to_gleam_type(schema, ctx)
-    Reference(name:, ..) -> {
-      naming.schema_to_type_name(name)
-    }
+    Inline(schema) -> schema_dispatch.schema_type(schema)
+    Reference(name:, ..) -> naming.schema_to_type_name(name)
   }
 }
 
 /// Convert a schema object to a Gleam type string.
+/// Delegates to schema_dispatch for the centralized type mapping.
 pub fn schema_to_gleam_type(schema: SchemaObject, _ctx: Context) -> String {
-  let base_type = case schema {
-    StringSchema(..) -> "String"
-    IntegerSchema(..) -> "Int"
-    NumberSchema(..) -> "Float"
-    BooleanSchema(..) -> "Bool"
-    ArraySchema(items:, ..) ->
-      case items {
-        Reference(name:, ..) -> {
-          "List(" <> naming.schema_to_type_name(name) <> ")"
-        }
-        Inline(inner) -> {
-          let inner_type = case inner {
-            StringSchema(..) -> "String"
-            IntegerSchema(..) -> "Int"
-            NumberSchema(..) -> "Float"
-            BooleanSchema(..) -> "Bool"
-            _ -> "String"
-          }
-          "List(" <> inner_type <> ")"
-        }
-      }
-    ObjectSchema(..) -> "String"
-    AllOfSchema(..) -> "String"
-    OneOfSchema(..) -> "String"
-    AnyOfSchema(..) -> "String"
-  }
-
-  case schema.is_nullable(schema) {
-    True -> "Option(" <> base_type <> ")"
-    False -> base_type
-  }
+  schema_dispatch.schema_type(schema)
 }
 
 /// Generate request types for all operations.
