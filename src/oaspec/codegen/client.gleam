@@ -683,15 +683,24 @@ fn generate_client_function(
 
   // Apply security schemes.
   // OpenAPI security is OR of alternatives; each alternative is AND of
-  // schemes. We apply ALL scheme refs from the FIRST alternative only,
-  // since the generated client cannot dynamically choose at runtime.
+  // schemes. We collect ALL unique scheme refs across all alternatives
+  // and apply them. Each scheme is guarded by Option, so callers provide
+  // whichever credentials they have — unused ones stay None.
   let effective_security = option.unwrap(operation.security, [])
-  let first_alternative_schemes = case effective_security {
-    [first, ..] -> first.schemes
-    [] -> []
-  }
+  let all_scheme_refs =
+    list.flat_map(effective_security, fn(alt) { alt.schemes })
+  // Deduplicate by scheme name, keeping first occurrence
+  let #(_, unique_schemes_rev) =
+    list.fold(all_scheme_refs, #([], []), fn(acc, sr) {
+      let #(seen, result) = acc
+      case list.contains(seen, sr.scheme_name) {
+        True -> acc
+        False -> #([sr.scheme_name, ..seen], [sr, ..result])
+      }
+    })
+  let all_unique_schemes = list.reverse(unique_schemes_rev)
   let sb =
-    list.fold(first_alternative_schemes, sb, fn(sb, sec_ref) {
+    list.fold(all_unique_schemes, sb, fn(sb, sec_ref) {
       let field_name = naming.to_snake_case(sec_ref.scheme_name)
       // Look up the scheme definition
       case ctx.spec.components {
