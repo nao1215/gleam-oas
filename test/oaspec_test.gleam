@@ -6167,3 +6167,12 @@ pub fn server_cookie_params_are_generated_without_todo_placeholders_test() {
   string.contains(content, "cookie_lookup(headers, \"debug\")")
   |> should.be_true()
 }
+
+pub fn server_cookie_router_imports_list_for_cookie_lookup_test() {
+  let ctx = make_ctx("test/fixtures/server_cookie_params.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  string.contains(router_file.content, "import gleam/list")
+  |> should.be_true()
+}

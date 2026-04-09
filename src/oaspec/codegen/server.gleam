@@ -218,6 +218,8 @@ fn generate_router(ctx: Context) -> String {
       list.any(operation.parameters, fn(p) { p.in_ == spec.InCookie })
     })
 
+  let needs_list_import = needs_cookie_lookup
+
   let needs_option =
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
@@ -291,6 +293,10 @@ fn generate_router(ctx: Context) -> String {
   // Build imports list (Dict always needed for route signature)
   let _ = needs_dict
   let std_imports = ["gleam/dict.{type Dict}"]
+  let std_imports = case needs_list_import {
+    True -> list.append(std_imports, ["gleam/list"])
+    False -> std_imports
+  }
   let std_imports = case needs_int {
     True -> list.append(std_imports, ["gleam/int"])
     False -> std_imports
