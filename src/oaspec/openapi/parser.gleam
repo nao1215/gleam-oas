@@ -313,7 +313,7 @@ fn parse_operation(
 
   use security <- result.try(parse_optional_security_requirements(node, context))
 
-  let callbacks = parse_callbacks(node, context, components)
+  use callbacks <- result.try(parse_callbacks(node, context, components))
 
   Ok(Operation(
     operation_id:,
@@ -1206,29 +1206,35 @@ fn parse_security_requirement_object(
 
 /// Parse callbacks from an operation node.
 /// Returns an empty dict if no callbacks are present.
+/// Propagates parse errors instead of silently dropping invalid callbacks.
 fn parse_callbacks(
   node: yay.Node,
   context: String,
   components: Option(Components),
-) -> dict.Dict(String, Callback) {
+) -> Result(dict.Dict(String, Callback), ParseError) {
   case yay.select_sugar(from: node, selector: "callbacks") {
-    Ok(yay.NodeMap(entries)) ->
-      list.fold(entries, dict.new(), fn(acc, entry) {
+    Ok(yay.NodeMap(entries)) -> {
+      list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(callback_name) ->
-            case parse_callback_object(value_node, context, components) {
-              Ok(callback) -> dict.insert(acc, callback_name, callback)
-              Error(_) -> acc
-            }
-          _ -> acc
+          yay.NodeStr(callback_name) -> {
+            use callback <- result.try(parse_callback_object(
+              value_node,
+              context,
+              components,
+            ))
+            Ok(dict.insert(acc, callback_name, callback))
+          }
+          _ -> Ok(acc)
         }
       })
-    _ -> dict.new()
+    }
+    _ -> Ok(dict.new())
   }
 }
 
 /// Parse a single callback object (maps URL expressions -> PathItems).
+/// Propagates parse errors from individual URL expression path items.
 fn parse_callback_object(
   node: yay.Node,
   context: String,
@@ -1236,24 +1242,22 @@ fn parse_callback_object(
 ) -> Result(Callback, ParseError) {
   case node {
     yay.NodeMap(entries) -> {
-      let parsed_entries =
-        list.filter_map(entries, fn(entry) {
+      use parsed_entries <- result.try(
+        list.try_fold(entries, [], fn(acc, entry) {
           let #(key_node, path_item_node) = entry
           case key_node {
-            yay.NodeStr(url_expression) ->
-              case
-                parse_path_item(
-                  path_item_node,
-                  context <> ".callbacks",
-                  components,
-                )
-              {
-                Ok(path_item) -> Ok(#(url_expression, path_item))
-                Error(_) -> Error(Nil)
-              }
-            _ -> Error(Nil)
+            yay.NodeStr(url_expression) -> {
+              use path_item <- result.try(parse_path_item(
+                path_item_node,
+                context <> ".callbacks." <> url_expression,
+                components,
+              ))
+              Ok([#(url_expression, path_item), ..acc])
+            }
+            _ -> Ok(acc)
           }
-        })
+        }),
+      )
       case parsed_entries {
         [] ->
           Error(MissingField(
