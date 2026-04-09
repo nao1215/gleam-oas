@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, ArraySchema, Inline,
@@ -561,6 +562,7 @@ fn generate_composite_validator(
     False -> {
       let fn_name = "validate_" <> naming.to_snake_case(name)
       let type_name = naming.schema_to_type_name(name)
+      let gleam_type = composite_validator_type(name, schema_ref, ctx)
       let sb =
         sb
         |> se.doc_comment(
@@ -570,7 +572,11 @@ fn generate_composite_validator(
         |> se.line(
           "pub fn "
           <> fn_name
-          <> "(value: value_type) -> Result(value_type, List(String)) {",
+          <> "(value: "
+          <> gleam_type
+          <> ") -> Result("
+          <> gleam_type
+          <> ", List(String)) {",
         )
         |> se.indent(1, "let errors = []")
       let sb =
@@ -590,6 +596,27 @@ fn generate_composite_validator(
       |> se.line("}")
       |> se.blank_line()
     }
+  }
+}
+
+/// Determine the Gleam type for the composite validator parameter.
+fn composite_validator_type(
+  name: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> String {
+  let schema = case schema_ref {
+    Inline(s) -> Ok(s)
+    Reference(_) -> resolver.resolve_schema_ref(schema_ref, ctx.spec)
+  }
+  case schema {
+    Ok(ObjectSchema(..)) | Ok(AllOfSchema(..)) ->
+      "types." <> naming.schema_to_type_name(name)
+    Ok(s) -> {
+      let assert Ok(ctx_for_type) = Ok(ctx)
+      type_gen.schema_to_gleam_type(s, ctx_for_type)
+    }
+    _ -> "types." <> naming.schema_to_type_name(name)
   }
 }
 
@@ -654,7 +681,7 @@ fn collect_guard_calls(
       case min_items, max_items {
         None, None -> []
         _, _ -> [
-          #(guard_function_name(name, "", "items"), "value"),
+          #(guard_function_name(name, "", "length"), "value"),
         ]
       }
     _ -> []
