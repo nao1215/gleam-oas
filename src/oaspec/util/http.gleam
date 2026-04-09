@@ -50,6 +50,20 @@ pub fn sort_response_entries(entries: List(#(String, a))) -> List(#(String, a)) 
   })
 }
 
+/// Convert a status code string to an integer string for use in ServerResponse.
+/// Range codes and "default" map to a representative status code.
+pub fn status_code_to_int(code: String) -> String {
+  case code {
+    "default" -> "500"
+    "1XX" | "1xx" -> "100"
+    "2XX" | "2xx" -> "200"
+    "3XX" | "3xx" -> "300"
+    "4XX" | "4xx" -> "400"
+    "5XX" | "5xx" -> "500"
+    _ -> code
+  }
+}
+
 fn status_sort_priority(code: String) -> Int {
   case code {
     "default" -> 9999

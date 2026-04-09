@@ -2902,11 +2902,29 @@ paths:
   let router_file =
     list.find(files, fn(f) { string.contains(f.path, "router") })
   let assert Ok(router) = router_file
-  // Router must call the handler function, not just ignore it with `let _ =`
+  // Router must NOT have dead-code handler references
   string.contains(router.content, "let _ = handlers.")
   |> should.be_false()
-  // Router must actually invoke the handler
-  string.contains(router.content, "handlers.get_items")
+  // Router must NOT have placeholder "OK" strings
+  string.contains(router.content, "\"OK\"")
+  |> should.be_false()
+  // Router must actually call the handler
+  string.contains(router.content, "handlers.get_items()")
+  |> should.be_true()
+  // Router must have ServerResponse type
+  string.contains(router.content, "pub type ServerResponse")
+  |> should.be_true()
+  // Router must have proper route signature with query/headers/body
+  string.contains(
+    router.content,
+    "pub fn route(method: String, path: List(String), query: Dict(String, String), headers: Dict(String, String), body: String) -> ServerResponse",
+  )
+  |> should.be_true()
+  // Router must convert response to ServerResponse
+  string.contains(router.content, "ServerResponse(status: 200")
+  |> should.be_true()
+  // Router must have 404 fallback
+  string.contains(router.content, "ServerResponse(status: 404")
   |> should.be_true()
 }
 
