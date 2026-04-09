@@ -156,10 +156,13 @@ Definition of done:
 
 ### Phase C: server non-JSON request bodies
 
-- [ ] form-urlencoded request parsing
+- [x] form-urlencoded request parsing implemented for sole-content object
+  bodies whose fields are inline primitive scalars / inline primitive arrays
+- [ ] form-urlencoded support expanded to nested objects and referenced field
+  schemas
 - [ ] multipart request parsing
 - [ ] integration fixtures for both content types
-- [ ] server validation relaxed for implemented content types
+- [ ] server validation relaxed for multipart once implemented
 
 ### Phase D: response fidelity
 

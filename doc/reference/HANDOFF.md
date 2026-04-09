@@ -9,6 +9,7 @@ meaningful slice of work lands.
 
 ## Recent Commits
 
+- `ae524e4` `Support server deepObject query parameters`
 - `91bd911` `Support primitive query arrays in server codegen`
 - `e8ae2fa` `Percent-decode generated server cookie values`
 - `3b685aa` `Import list for generated cookie router helpers`
@@ -36,16 +37,19 @@ meaningful slice of work lands.
   generated server request construction.
 - Server deepObject query params are supported for flat object shapes whose
   leaves are inline primitive scalars or inline primitive arrays.
-- Non-JSON server request bodies remain the largest missing request-parsing
-  gap.
+- Server `application/x-www-form-urlencoded` bodies are supported when they
+  are the sole request content type and their object fields are inline
+  primitive scalars or inline primitive arrays.
+- Multipart request parsing remains the largest missing request-body gap.
 
 ## Next Concrete Tasks
 
-1. Add fixtures and failing tests for server
-   `application/x-www-form-urlencoded` request bodies.
-2. Implement typed form-urlencoded request parsing in
+1. Add fixtures and failing tests for server `multipart/form-data` request
+   bodies.
+2. Implement typed multipart request parsing in
    `src/oaspec/codegen/server.gleam`.
-3. Rework multipart validation and generation once form-urlencoded is stable.
+3. Expand form-urlencoded support beyond flat inline primitive fields if the
+   generated request-body types can safely represent nested/reference fields.
 4. Revisit multi-content server responses and response-header emission.
 
 ## Verification Commands
@@ -64,7 +68,7 @@ env PATH="$HOME/.local/share/mise/shims:/home/nao/.local/share/mise/installs/gle
 
 Latest known good local checks from this branch:
 
-- `gleam test` -> `203 passed, no failures`
+- `gleam test` -> `205 passed, no failures`
 - `gleam build --warnings-as-errors` -> pass
 - `just all` -> pass
 
