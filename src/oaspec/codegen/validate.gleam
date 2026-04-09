@@ -570,7 +570,7 @@ fn validate_server_form_urlencoded_request_body(
                       severity: SeverityError,
                       target: TargetServer,
                       path: op_id <> ".requestBody.form." <> field_name,
-                      detail: "application/x-www-form-urlencoded server request bodies only support inline primitive scalars/arrays and one level of object nesting with inline primitive leaves.",
+                      detail: "application/x-www-form-urlencoded server request bodies only support primitive scalars/arrays and one level of object nesting with primitive leaves.",
                     ),
                   ]
                 }
@@ -649,7 +649,7 @@ fn validate_server_multipart_request_body(
                       severity: SeverityError,
                       target: TargetServer,
                       path: op_id <> ".requestBody.multipart." <> field_name,
-                      detail: "multipart/form-data server request bodies only support inline primitive scalar fields.",
+                      detail: "multipart/form-data server request bodies only support primitive scalar fields.",
                     ),
                   ]
                 }
@@ -668,31 +668,32 @@ fn form_urlencoded_server_field_supported(
   ctx: Context,
   depth: Int,
 ) -> Bool {
-  case schema_ref {
-    Inline(StringSchema(..))
-    | Inline(IntegerSchema(..))
-    | Inline(NumberSchema(..))
-    | Inline(BooleanSchema(..))
-    | Inline(ArraySchema(items: Inline(StringSchema(..)), ..))
-    | Inline(ArraySchema(items: Inline(IntegerSchema(..)), ..))
-    | Inline(ArraySchema(items: Inline(NumberSchema(..)), ..))
-    | Inline(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
-    Inline(ObjectSchema(properties:, ..)) if depth == 0 ->
+  case resolve_schema_object(Some(schema_ref), ctx) {
+    Some(StringSchema(..))
+    | Some(IntegerSchema(..))
+    | Some(NumberSchema(..))
+    | Some(BooleanSchema(..)) -> True
+    Some(ArraySchema(items:, ..)) ->
+      form_urlencoded_server_array_item_supported(items, ctx)
+    Some(ObjectSchema(properties:, ..)) if depth == 0 ->
       dict.to_list(properties)
       |> list.all(fn(entry) {
         let #(_, child_schema) = entry
         form_urlencoded_server_field_supported(child_schema, ctx, 1)
       })
-    Reference(..) as schema_ref if depth == 0 ->
-      case resolve_schema_object(Some(schema_ref), ctx) {
-        Some(ObjectSchema(properties:, ..)) ->
-          dict.to_list(properties)
-          |> list.all(fn(entry) {
-            let #(_, child_schema) = entry
-            form_urlencoded_server_field_supported(child_schema, ctx, 1)
-          })
-        _ -> False
-      }
+    _ -> False
+  }
+}
+
+fn form_urlencoded_server_array_item_supported(
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> Bool {
+  case resolve_schema_object(Some(schema_ref), ctx) {
+    Some(StringSchema(..))
+    | Some(IntegerSchema(..))
+    | Some(NumberSchema(..))
+    | Some(BooleanSchema(..)) -> True
     _ -> False
   }
 }

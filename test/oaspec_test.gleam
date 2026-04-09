@@ -6624,3 +6624,87 @@ pub fn server_multipart_body_is_parsed_test() {
   string.contains(content, "let value = string.trim(raw_value)")
   |> should.be_false()
 }
+
+pub fn validate_accepts_form_urlencoded_ref_fields_for_server_codegen_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_ref_fields.yaml")
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "application/x-www-form-urlencoded")
+    })
+  list.length(server_errors)
+  |> should.equal(0)
+}
+
+pub fn server_form_urlencoded_ref_fields_are_parsed_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_ref_fields.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+
+  string.contains(
+    content,
+    "active: case dict.get(form_body, \"active\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "ratio: case dict.get(form_body, \"ratio\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "scores: { let assert Ok(vs) = dict.get(form_body, \"scores\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }",
+  )
+  |> should.be_true()
+  string.contains(content, "profile: types.Profile(")
+  |> should.be_true()
+  string.contains(
+    content,
+    "username: { let assert Ok([v, ..]) = dict.get(form_body, \"profile[username]\") v }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "enabled: case dict.get(form_body, \"profile[enabled]\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+}
+
+pub fn validate_accepts_multipart_ref_fields_for_server_codegen_test() {
+  let ctx = make_ctx("test/fixtures/server_multipart_ref_fields.yaml")
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "multipart/form-data")
+    })
+  list.length(server_errors)
+  |> should.equal(0)
+}
+
+pub fn server_multipart_ref_fields_are_parsed_test() {
+  let ctx = make_ctx("test/fixtures/server_multipart_ref_fields.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+
+  string.contains(
+    content,
+    "active: case dict.get(multipart_body, \"active\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "ratio: case dict.get(multipart_body, \"ratio\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "file: case dict.get(multipart_body, \"file\") { Ok([v, ..]) -> Some(v) _ -> None }",
+  )
+  |> should.be_true()
+}

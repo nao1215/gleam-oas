@@ -1005,6 +1005,83 @@ type DeepObjectProperty {
   )
 }
 
+type BodyFieldKind {
+  BodyFieldUnknown
+  BodyFieldString
+  BodyFieldInt
+  BodyFieldFloat
+  BodyFieldBool
+  BodyFieldStringArray
+  BodyFieldIntArray
+  BodyFieldFloatArray
+  BodyFieldBoolArray
+}
+
+fn schema_ref_body_field_kind(
+  schema_ref: Option(SchemaRef),
+  ctx: Context,
+) -> BodyFieldKind {
+  case schema_ref {
+    Some(schema_ref) -> body_field_kind(schema_ref, ctx)
+    None -> BodyFieldUnknown
+  }
+}
+
+fn body_field_kind(schema_ref: SchemaRef, ctx: Context) -> BodyFieldKind {
+  case schema_ref {
+    Inline(schema.StringSchema(..)) -> BodyFieldString
+    Inline(schema.IntegerSchema(..)) -> BodyFieldInt
+    Inline(schema.NumberSchema(..)) -> BodyFieldFloat
+    Inline(schema.BooleanSchema(..)) -> BodyFieldBool
+    Inline(schema.ArraySchema(items:, ..)) ->
+      case body_field_kind(items, ctx) {
+        BodyFieldString -> BodyFieldStringArray
+        BodyFieldInt -> BodyFieldIntArray
+        BodyFieldFloat -> BodyFieldFloatArray
+        BodyFieldBool -> BodyFieldBoolArray
+        _ -> BodyFieldUnknown
+      }
+    Reference(..) as schema_ref ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(schema_obj) -> body_field_kind_from_object(schema_obj, ctx)
+        Error(_) -> BodyFieldUnknown
+      }
+    _ -> BodyFieldUnknown
+  }
+}
+
+fn body_field_kind_from_object(schema_obj, ctx: Context) -> BodyFieldKind {
+  case schema_obj {
+    schema.StringSchema(..) -> BodyFieldString
+    schema.IntegerSchema(..) -> BodyFieldInt
+    schema.NumberSchema(..) -> BodyFieldFloat
+    schema.BooleanSchema(..) -> BodyFieldBool
+    schema.ArraySchema(items:, ..) ->
+      case body_field_kind(items, ctx) {
+        BodyFieldString -> BodyFieldStringArray
+        BodyFieldInt -> BodyFieldIntArray
+        BodyFieldFloat -> BodyFieldFloatArray
+        BodyFieldBool -> BodyFieldBoolArray
+        _ -> BodyFieldUnknown
+      }
+    _ -> BodyFieldUnknown
+  }
+}
+
+fn body_field_kind_needs_int(kind: BodyFieldKind) -> Bool {
+  case kind {
+    BodyFieldInt | BodyFieldIntArray -> True
+    _ -> False
+  }
+}
+
+fn body_field_kind_needs_float(kind: BodyFieldKind) -> Bool {
+  case kind {
+    BodyFieldFloat | BodyFieldFloatArray -> True
+    _ -> False
+  }
+}
+
 fn is_deep_object_param(param: spec.Parameter, ctx: Context) -> Bool {
   case param.in_, param.style, param.schema {
     spec.InQuery, Some(spec.DeepObjectStyle), Some(Reference(..) as schema_ref) ->
@@ -1310,9 +1387,9 @@ fn form_urlencoded_object_constructor_expr(
         True, False ->
           form_urlencoded_object_optional_expr(key, prop.schema_ref, ctx)
         False, True ->
-          form_body_required_expr_with_schema(key, Some(prop.schema_ref))
+          form_body_required_expr_with_schema(key, Some(prop.schema_ref), ctx)
         False, False ->
-          form_body_optional_expr_with_schema(key, Some(prop.schema_ref))
+          form_body_optional_expr_with_schema(key, Some(prop.schema_ref), ctx)
       }
       prop.field_name <> ": " <> value_expr
     })
@@ -1430,11 +1507,13 @@ fn multipart_body_constructor_expr(
           multipart_body_required_expr_with_schema(
             prop.name,
             Some(prop.schema_ref),
+            ctx,
           )
         False ->
           multipart_body_optional_expr_with_schema(
             prop.name,
             Some(prop.schema_ref),
+            ctx,
           )
       }
       prop.field_name <> ": " <> value_expr
@@ -1452,13 +1531,19 @@ fn multipart_body_has_optional_fields(
 
 fn multipart_body_needs_int(rb: spec.RequestBody, ctx: Context) -> Bool {
   list.any(multipart_body_properties(rb, ctx), fn(prop) {
-    query_schema_needs_int(Some(prop.schema_ref))
+    body_field_kind_needs_int(schema_ref_body_field_kind(
+      Some(prop.schema_ref),
+      ctx,
+    ))
   })
 }
 
 fn multipart_body_needs_float(rb: spec.RequestBody, ctx: Context) -> Bool {
   list.any(multipart_body_properties(rb, ctx), fn(prop) {
-    query_schema_needs_float(Some(prop.schema_ref))
+    body_field_kind_needs_float(schema_ref_body_field_kind(
+      Some(prop.schema_ref),
+      ctx,
+    ))
   })
 }
 
@@ -1512,7 +1597,10 @@ fn form_urlencoded_properties_need_int(
   allow_nested_objects: Bool,
 ) -> Bool {
   list.any(props, fn(prop) {
-    query_schema_needs_int(Some(prop.schema_ref))
+    body_field_kind_needs_int(schema_ref_body_field_kind(
+      Some(prop.schema_ref),
+      ctx,
+    ))
     || case
       allow_nested_objects
       && schema_ref_resolves_to_object(prop.schema_ref, ctx)
@@ -1534,7 +1622,10 @@ fn form_urlencoded_properties_need_float(
   allow_nested_objects: Bool,
 ) -> Bool {
   list.any(props, fn(prop) {
-    query_schema_needs_float(Some(prop.schema_ref))
+    body_field_kind_needs_float(schema_ref_body_field_kind(
+      Some(prop.schema_ref),
+      ctx,
+    ))
     || case
       allow_nested_objects
       && schema_ref_resolves_to_object(prop.schema_ref, ctx)
@@ -1579,37 +1670,38 @@ fn query_schema_needs_float(schema_ref: Option(SchemaRef)) -> Bool {
 fn form_body_required_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
+  ctx: Context,
 ) -> String {
   let base =
     "{ let assert Ok([v, ..]) = dict.get(form_body, \"" <> key <> "\") v }"
-  case schema_ref {
-    Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
+  case schema_ref_body_field_kind(schema_ref, ctx) {
+    BodyFieldStringArray ->
       "{ let assert Ok(vs) = dict.get(form_body, \""
       <> key
       <> "\") list.map(vs, fn(item) { string.trim(item) }) }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
+    BodyFieldIntArray ->
       "{ let assert Ok(vs) = dict.get(form_body, \""
       <> key
       <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
+    BodyFieldFloatArray ->
       "{ let assert Ok(vs) = dict.get(form_body, \""
       <> key
       <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n }) }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
+    BodyFieldBoolArray ->
       "{ let assert Ok(vs) = dict.get(form_body, \""
       <> key
       <> "\") list.map(vs, fn(item) { let v = string.trim(item) "
       <> bool_parse_expr
       <> " }) }"
-    Some(Inline(schema.IntegerSchema(..))) ->
+    BodyFieldInt ->
       "{ let assert Ok([v, ..]) = dict.get(form_body, \""
       <> key
       <> "\") let assert Ok(n) = int.parse(v) n }"
-    Some(Inline(schema.NumberSchema(..))) ->
+    BodyFieldFloat ->
       "{ let assert Ok([v, ..]) = dict.get(form_body, \""
       <> key
       <> "\") let assert Ok(n) = float.parse(v) n }"
-    Some(Inline(schema.BooleanSchema(..))) ->
+    BodyFieldBool ->
       "{ let assert Ok([v, ..]) = dict.get(form_body, \""
       <> key
       <> "\") "
@@ -1622,35 +1714,36 @@ fn form_body_required_expr_with_schema(
 fn form_body_optional_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
+  ctx: Context,
 ) -> String {
-  case schema_ref {
-    Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
+  case schema_ref_body_field_kind(schema_ref, ctx) {
+    BodyFieldStringArray ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
+    BodyFieldIntArray ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
+    BodyFieldFloatArray ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n })) _ -> None }"
-    Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
+    BodyFieldBoolArray ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let v = string.trim(item) "
       <> bool_parse_expr
       <> " })) _ -> None }"
-    Some(Inline(schema.IntegerSchema(..))) ->
+    BodyFieldInt ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> { case int.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
-    Some(Inline(schema.NumberSchema(..))) ->
+    BodyFieldFloat ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
-    Some(Inline(schema.BooleanSchema(..))) ->
+    BodyFieldBool ->
       "case dict.get(form_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> Some("
@@ -1666,19 +1759,20 @@ fn form_body_optional_expr_with_schema(
 fn multipart_body_required_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
+  ctx: Context,
 ) -> String {
   let base =
     "{ let assert Ok([v, ..]) = dict.get(multipart_body, \"" <> key <> "\") v }"
-  case schema_ref {
-    Some(Inline(schema.IntegerSchema(..))) ->
+  case schema_ref_body_field_kind(schema_ref, ctx) {
+    BodyFieldInt ->
       "{ let assert Ok([v, ..]) = dict.get(multipart_body, \""
       <> key
       <> "\") let assert Ok(n) = int.parse(v) n }"
-    Some(Inline(schema.NumberSchema(..))) ->
+    BodyFieldFloat ->
       "{ let assert Ok([v, ..]) = dict.get(multipart_body, \""
       <> key
       <> "\") let assert Ok(n) = float.parse(v) n }"
-    Some(Inline(schema.BooleanSchema(..))) ->
+    BodyFieldBool ->
       "{ let assert Ok([v, ..]) = dict.get(multipart_body, \""
       <> key
       <> "\") "
@@ -1691,17 +1785,18 @@ fn multipart_body_required_expr_with_schema(
 fn multipart_body_optional_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
+  ctx: Context,
 ) -> String {
-  case schema_ref {
-    Some(Inline(schema.IntegerSchema(..))) ->
+  case schema_ref_body_field_kind(schema_ref, ctx) {
+    BodyFieldInt ->
       "case dict.get(multipart_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> { case int.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
-    Some(Inline(schema.NumberSchema(..))) ->
+    BodyFieldFloat ->
       "case dict.get(multipart_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
-    Some(Inline(schema.BooleanSchema(..))) ->
+    BodyFieldBool ->
       "case dict.get(multipart_body, \""
       <> key
       <> "\") { Ok([v, ..]) -> Some("
