@@ -88,9 +88,10 @@ pub type Operation {
   )
 }
 
-/// A callback object: maps a URL expression to a PathItem.
+/// A callback object: maps URL expressions to PathItems.
+/// An OpenAPI callback can have multiple URL expressions.
 pub type Callback {
-  Callback(url_expression: String, path_item: PathItem)
+  Callback(entries: Dict(String, PathItem))
 }
 
 /// Parameter location.

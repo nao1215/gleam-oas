@@ -2164,13 +2164,14 @@ paths:
   let assert Ok(path_item) = subscribe_path
   let assert Some(post_op) = path_item.post
   let assert Ok(callback) = dict.get(post_op.callbacks, "onEvent")
-  // Callback should have multiple URL expressions, not just the first
-  // Current Callback type only holds one url_expression, which is the bug.
-  // After fix, we need a way to represent multiple URL expressions.
-  // For now, test that parsing doesn't silently drop the second entry.
-  let _ = callback
-  // We'll check the type holds a dict or list, not a single string
-  True |> should.be_true()
+  // Callback entries dict must have 2 URL expressions
+  let entries = dict.to_list(callback.entries)
+  list.length(entries) |> should.equal(2)
+  // Both URL expressions must be present
+  dict.has_key(callback.entries, "{$request.body#/callbackUrl}/event")
+  |> should.be_true()
+  dict.has_key(callback.entries, "{$request.body#/callbackUrl}/status")
+  |> should.be_true()
 }
 
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {

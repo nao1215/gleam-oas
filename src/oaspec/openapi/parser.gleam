@@ -1204,29 +1204,39 @@ fn parse_callbacks(
   }
 }
 
-/// Parse a single callback object (maps URL expression -> PathItem).
+/// Parse a single callback object (maps URL expressions -> PathItems).
 fn parse_callback_object(
   node: yay.Node,
   context: String,
   components: Option(Components),
 ) -> Result(Callback, ParseError) {
   case node {
-    yay.NodeMap(entries) ->
-      case entries {
-        [#(yay.NodeStr(url_expression), path_item_node), ..] -> {
-          use path_item <- result.try(parse_path_item(
-            path_item_node,
-            context <> ".callbacks",
-            components,
-          ))
-          Ok(Callback(url_expression:, path_item:))
-        }
-        _ ->
+    yay.NodeMap(entries) -> {
+      let parsed_entries =
+        list.filter_map(entries, fn(entry) {
+          let #(key_node, path_item_node) = entry
+          case key_node {
+            yay.NodeStr(url_expression) ->
+              case parse_path_item(
+                path_item_node,
+                context <> ".callbacks",
+                components,
+              ) {
+                Ok(path_item) -> Ok(#(url_expression, path_item))
+                Error(_) -> Error(Nil)
+              }
+            _ -> Error(Nil)
+          }
+        })
+      case parsed_entries {
+        [] ->
           Error(MissingField(
             path: context <> ".callbacks",
             field: "url expression",
           ))
+        _ -> Ok(Callback(entries: dict.from_list(parsed_entries)))
       }
+    }
     _ ->
       Error(MissingField(
         path: context <> ".callbacks",

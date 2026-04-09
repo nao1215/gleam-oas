@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{Some}
+import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/spec
@@ -109,21 +110,45 @@ fn generate_callback_handlers(
   let callbacks = dict.to_list(operation.callbacks)
   list.fold(callbacks, sb, fn(sb, entry) {
     let #(callback_name, callback) = entry
-    let fn_name =
-      naming.operation_to_function_name(op_id)
-      <> "_callback_"
-      <> naming.to_snake_case(callback_name)
-    sb
-    |> se.doc_comment(
-      "Callback handler stub for " <> callback_name <> " on " <> op_id,
-    )
-    |> se.doc_comment("URL: " <> callback.url_expression)
-    |> se.line("pub fn " <> fn_name <> "() -> String {")
-    |> se.indent(1, "// TODO: Implement callback " <> callback_name)
-    |> se.indent(1, "todo")
-    |> se.line("}")
-    |> se.blank_line()
+    let callback_entries = dict.to_list(callback.entries)
+    list.fold(callback_entries, sb, fn(sb, cb_entry) {
+      let #(url_expression, _path_item) = cb_entry
+      let fn_name =
+        naming.operation_to_function_name(op_id)
+        <> "_callback_"
+        <> naming.to_snake_case(callback_name)
+        <> "_"
+        <> naming.to_snake_case(url_expression_to_suffix(url_expression))
+      sb
+      |> se.doc_comment(
+        "Callback handler stub for "
+        <> callback_name
+        <> " on "
+        <> op_id,
+      )
+      |> se.doc_comment("URL: " <> url_expression)
+      |> se.line("pub fn " <> fn_name <> "() -> String {")
+      |> se.indent(1, "// TODO: Implement callback " <> callback_name)
+      |> se.indent(1, "todo")
+      |> se.line("}")
+      |> se.blank_line()
+    })
   })
+}
+
+/// Extract a short suffix from a URL expression for function naming.
+fn url_expression_to_suffix(url_expression: String) -> String {
+  // Take the last path segment, stripping any template expressions
+  let parts = string.split(url_expression, "/")
+  case list.last(parts) {
+    Ok(last) ->
+      last
+      |> string.replace("{", "")
+      |> string.replace("}", "")
+      |> string.replace("$", "")
+      |> string.replace("#", "")
+    Error(_) -> "handler"
+  }
 }
 
 /// Generate a router module that dispatches requests.
