@@ -7310,3 +7310,95 @@ components:
   list.length(deep_object_errors)
   |> should.equal(0)
 }
+
+// --- uniqueItems guard tests ---
+
+pub fn guards_unique_items_generates_guard_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    TagList:
+      type: array
+      items:
+        type: string
+      uniqueItems: true
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = guards.generate(ctx)
+  list.length(files) |> should.not_equal(0)
+  let assert [guard_file] = files
+  let content = guard_file.content
+  // Should generate a uniqueItems guard
+  string.contains(content, "validate_tag_list_unique")
+  |> should.be_true()
+  // Should use list.unique for deduplication
+  string.contains(content, "list.unique")
+  |> should.be_true()
+}
+
+pub fn guards_unique_items_field_generates_guard_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    SearchRequest:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = guards.generate(ctx)
+  list.length(files) |> should.not_equal(0)
+  let assert [guard_file] = files
+  let content = guard_file.content
+  string.contains(content, "validate_search_request_tags_unique")
+  |> should.be_true()
+}
+
+// --- minProperties/maxProperties guard tests ---
+
+pub fn guards_min_properties_generates_guard_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    FilterMap:
+      type: object
+      additionalProperties:
+        type: string
+      minProperties: 1
+      maxProperties: 10
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = guards.generate(ctx)
+  list.length(files) |> should.not_equal(0)
+  let assert [guard_file] = files
+  let content = guard_file.content
+  string.contains(content, "validate_filter_map_properties")
+  |> should.be_true()
+  string.contains(content, "dict.size")
+  |> should.be_true()
+}
