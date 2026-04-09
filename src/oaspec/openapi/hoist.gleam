@@ -70,6 +70,9 @@ pub fn hoist(spec: OpenApiSpec) -> OpenApiSpec {
             responses: dict.new(),
             security_schemes: dict.new(),
             path_items: dict.new(),
+            headers: dict.new(),
+            examples: dict.new(),
+            links: dict.new(),
           ))
       }
   }
@@ -475,7 +478,7 @@ fn hoist_request_body(
         Some(schema_ref) -> {
           let #(hoisted, state) =
             hoist_schema_ref(schema_ref, op_id, "Request", state)
-          let mt = spec.MediaType(schema: Some(hoisted))
+          let mt = spec.MediaType(..media_type, schema: Some(hoisted))
           #(dict.insert(result, media_type_name, mt), state)
         }
         None -> #(dict.insert(result, media_type_name, media_type), state)
@@ -504,7 +507,7 @@ fn hoist_responses(
             let suffix = "Response" <> naming.to_pascal_case(status_code)
             let #(hoisted, state) =
               hoist_schema_ref(schema_ref, op_id, suffix, state)
-            let mt = spec.MediaType(schema: Some(hoisted))
+            let mt = spec.MediaType(..media_type, schema: Some(hoisted))
             #(dict.insert(ct_result, media_type_name, mt), state)
           }
           None -> #(dict.insert(ct_result, media_type_name, media_type), state)

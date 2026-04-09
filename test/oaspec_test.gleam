@@ -4558,3 +4558,108 @@ fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
     False -> Error(Nil)
   }
 }
+
+// --- Lossless AST: new fields are preserved through parsing ---
+pub fn lossless_info_fields_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+  summary: A summary
+  termsOfService: https://example.com/tos
+  contact:
+    name: Support
+    url: https://example.com
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+paths: {}
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  parsed.info.summary |> should.equal(Some("A summary"))
+  parsed.info.terms_of_service
+  |> should.equal(Some("https://example.com/tos"))
+  let assert Some(contact) = parsed.info.contact
+  contact.name |> should.equal(Some("Support"))
+  contact.email |> should.equal(Some("support@example.com"))
+  let assert Some(lic) = parsed.info.license
+  lic.name |> should.equal("MIT")
+}
+
+pub fn lossless_server_variables_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+servers:
+  - url: https://{env}.example.com
+    variables:
+      env:
+        default: prod
+        enum: [prod, staging, dev]
+        description: Environment
+paths: {}
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  let assert [server] = parsed.servers
+  let assert Ok(var) = dict.get(server.variables, "env")
+  var.default |> should.equal("prod")
+  var.description |> should.equal(Some("Environment"))
+}
+
+pub fn lossless_response_headers_links_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Rate-Limit:
+              description: Rate limit
+              required: true
+              schema: { type: integer }
+          links:
+            GetItemById:
+              operationId: getItem
+              description: Get item by ID
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  let assert Ok(pi) = dict.get(parsed.paths, "/items")
+  let assert Some(op) = pi.get
+  let assert Ok(resp) = dict.get(op.responses, "200")
+  let assert Ok(header) = dict.get(resp.headers, "X-Rate-Limit")
+  header.description |> should.equal(Some("Rate limit"))
+  header.required |> should.be_true()
+  let assert Ok(link) = dict.get(resp.links, "GetItemById")
+  link.operation_id |> should.equal(Some("getItem"))
+}
+
+pub fn lossless_tags_and_external_docs_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+tags:
+  - name: users
+    description: User operations
+externalDocs:
+  url: https://docs.example.com
+  description: Full docs
+paths: {}
+"
+  let assert Ok(parsed) = parser.parse_string(yaml)
+  let assert [tag] = parsed.tags
+  tag.name |> should.equal("users")
+  tag.description |> should.equal(Some("User operations"))
+  let assert Some(ext) = parsed.external_docs
+  ext.url |> should.equal("https://docs.example.com")
+}

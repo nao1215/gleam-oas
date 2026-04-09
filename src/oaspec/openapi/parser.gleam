@@ -9,12 +9,15 @@ import oaspec/openapi/schema.{
   NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
 }
 import oaspec/openapi/spec.{
-  type Callback, type Components, type HttpMethod, type Info, type MediaType,
-  type OpenApiSpec, type Operation, type Parameter, type ParameterIn,
-  type PathItem, type RequestBody, type Response, type SecurityRequirement,
-  type Server, Callback, Components, Delete, Get, Head, Info, MediaType,
-  OpenApiSpec, Operation, Options, Parameter, Patch, PathItem, Post, Put,
-  RequestBody, Response, SecurityRequirement, Server, Trace,
+  type Callback, type Components, type Contact, type Encoding, type ExternalDoc,
+  type Header, type HttpMethod, type Info, type License, type Link,
+  type MediaType, type OpenApiSpec, type Operation, type Parameter,
+  type ParameterIn, type PathItem, type RequestBody, type Response,
+  type SecurityRequirement, type Server, type ServerVariable, type Tag, Callback,
+  Components, Contact, Delete, Encoding, ExternalDoc, Get, Head, Header, Info,
+  License, Link, MediaType, OpenApiSpec, Operation, Options, Parameter, Patch,
+  PathItem, Post, Put, RequestBody, Response, SecurityRequirement, Server,
+  ServerVariable, Tag, Trace,
 }
 import simplifile
 import yay
@@ -72,8 +75,25 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec, ParseError) {
   use paths <- result.try(parse_paths(node, components))
   use servers <- result.try(parse_servers(node))
   use security <- result.try(parse_security_requirements(node, ""))
+  use webhooks <- result.try(parse_webhooks(node, components))
+  let tags = parse_tags(node)
+  let external_docs = parse_optional_external_docs(node)
+  let json_schema_dialect =
+    yay.extract_optional_string(node, "jsonSchemaDialect")
+    |> result.unwrap(None)
 
-  Ok(OpenApiSpec(openapi:, info:, paths:, components:, servers:, security:))
+  Ok(OpenApiSpec(
+    openapi:,
+    info:,
+    paths:,
+    components:,
+    servers:,
+    security:,
+    webhooks:,
+    tags:,
+    external_docs:,
+    json_schema_dialect:,
+  ))
 }
 
 /// Parse optional components section.
@@ -111,7 +131,26 @@ fn parse_info(root: yay.Node) -> Result(Info, ParseError) {
     yay.extract_optional_string(info_node, "description")
     |> result.unwrap(None)
 
-  Ok(Info(title:, description:, version:))
+  let summary =
+    yay.extract_optional_string(info_node, "summary")
+    |> result.unwrap(None)
+
+  let terms_of_service =
+    yay.extract_optional_string(info_node, "termsOfService")
+    |> result.unwrap(None)
+
+  let contact = parse_optional_contact(info_node)
+  let license = parse_optional_license(info_node)
+
+  Ok(Info(
+    title:,
+    description:,
+    version:,
+    summary:,
+    terms_of_service:,
+    contact:,
+    license:,
+  ))
 }
 
 /// Parse servers array.
@@ -133,7 +172,9 @@ fn parse_server(node: yay.Node) -> Result(Server, ParseError) {
     yay.extract_optional_string(node, "description")
     |> result.unwrap(None)
 
-  Ok(Server(url:, description:))
+  let variables = parse_server_variables(node)
+
+  Ok(Server(url:, description:, variables:))
 }
 
 /// Parse the paths object.
@@ -240,6 +281,7 @@ fn parse_path_item(
   ))
 
   use parameters <- result.try(parse_parameters_list(node, components))
+  use servers <- result.try(parse_servers(node))
 
   Ok(PathItem(
     summary:,
@@ -253,6 +295,7 @@ fn parse_path_item(
     options:,
     trace:,
     parameters:,
+    servers:,
   ))
 }
 
@@ -343,6 +386,8 @@ fn parse_operation(
   use security <- result.try(parse_optional_security_requirements(node, context))
 
   use callbacks <- result.try(parse_callbacks(node, context, components))
+  use op_servers <- result.try(parse_servers(node))
+  let external_docs = parse_optional_external_docs(node)
 
   Ok(Operation(
     operation_id:,
@@ -355,6 +400,8 @@ fn parse_operation(
     deprecated:,
     security:,
     callbacks:,
+    servers: op_servers,
+    external_docs:,
   ))
 }
 
@@ -474,6 +521,9 @@ fn parse_parameter(
         |> result.unwrap(None)
         |> option.unwrap(False)
 
+      let content = parse_content_map(node)
+      let examples = parse_string_map(node, "examples")
+
       Ok(Parameter(
         name:,
         in_:,
@@ -484,6 +534,8 @@ fn parse_parameter(
         explode:,
         deprecated:,
         allow_reserved:,
+        content:,
+        examples:,
       ))
     }
   }
@@ -686,7 +738,21 @@ fn parse_required_content(
                 _ -> Ok(None)
               },
             )
-            Ok(dict.insert(acc, media_type_name, MediaType(schema: mt_schema)))
+            let mt_example =
+              yay.extract_optional_string(value_node, "example")
+              |> result.unwrap(None)
+            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_encoding = parse_encoding_map(value_node)
+            Ok(dict.insert(
+              acc,
+              media_type_name,
+              MediaType(
+                schema: mt_schema,
+                example: mt_example,
+                examples: mt_examples,
+                encoding: mt_encoding,
+              ),
+            ))
           }
           _ -> Ok(acc)
         }
@@ -716,7 +782,21 @@ fn parse_content(
                 _ -> Ok(None)
               },
             )
-            Ok(dict.insert(acc, media_type_name, MediaType(schema: mt_schema)))
+            let mt_example =
+              yay.extract_optional_string(value_node, "example")
+              |> result.unwrap(None)
+            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_encoding = parse_encoding_map(value_node)
+            Ok(dict.insert(
+              acc,
+              media_type_name,
+              MediaType(
+                schema: mt_schema,
+                example: mt_example,
+                examples: mt_examples,
+                encoding: mt_encoding,
+              ),
+            ))
           }
           _ -> Ok(acc)
         }
@@ -773,8 +853,10 @@ fn parse_response(
       )
 
       use content <- result.try(parse_content(node, "response"))
+      let headers = parse_headers_map(node)
+      let links = parse_links_map(node)
 
-      Ok(Response(description:, content:))
+      Ok(Response(description:, content:, headers:, links:))
     }
   }
 }
@@ -792,6 +874,9 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
   use responses <- result.try(parse_responses_map(components_node))
   use security_schemes <- result.try(parse_security_schemes_map(components_node))
   use path_items <- result.try(parse_path_items_map(components_node))
+  let headers = parse_headers_map(components_node)
+  let examples = parse_string_map(components_node, "examples")
+  let links = parse_links_map(components_node)
 
   Ok(Components(
     schemas:,
@@ -800,6 +885,9 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
     responses:,
     security_schemes:,
     path_items:,
+    headers:,
+    examples:,
+    links:,
   ))
 }
 
@@ -1604,6 +1692,280 @@ fn parse_callback_object(
     }
     _ ->
       Error(MissingField(path: context <> ".callbacks", field: "url expression"))
+  }
+}
+
+/// Parse optional contact from an info node.
+fn parse_optional_contact(info_node: yay.Node) -> Option(Contact) {
+  case yay.select_sugar(from: info_node, selector: "contact") {
+    Ok(contact_node) -> {
+      let name =
+        yay.extract_optional_string(contact_node, "name")
+        |> result.unwrap(None)
+      let url =
+        yay.extract_optional_string(contact_node, "url")
+        |> result.unwrap(None)
+      let email =
+        yay.extract_optional_string(contact_node, "email")
+        |> result.unwrap(None)
+      Some(Contact(name:, url:, email:))
+    }
+    _ -> None
+  }
+}
+
+/// Parse optional license from an info node.
+fn parse_optional_license(info_node: yay.Node) -> Option(License) {
+  case yay.select_sugar(from: info_node, selector: "license") {
+    Ok(license_node) -> {
+      case yay.extract_string(license_node, "name") {
+        Ok(name) -> {
+          let url =
+            yay.extract_optional_string(license_node, "url")
+            |> result.unwrap(None)
+          Some(License(name:, url:))
+        }
+        _ -> None
+      }
+    }
+    _ -> None
+  }
+}
+
+/// Parse server variables from a server node.
+fn parse_server_variables(node: yay.Node) -> Dict(String, ServerVariable) {
+  case yay.select_sugar(from: node, selector: "variables") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(var_name) -> {
+            let default =
+              yay.extract_optional_string(value_node, "default")
+              |> result.unwrap(None)
+              |> option.unwrap("")
+            let enum_values = case yay.extract_string_list(value_node, "enum") {
+              Ok(values) -> values
+              _ -> []
+            }
+            let description =
+              yay.extract_optional_string(value_node, "description")
+              |> result.unwrap(None)
+            dict.insert(
+              acc,
+              var_name,
+              ServerVariable(default:, enum_values:, description:),
+            )
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
+  }
+}
+
+/// Parse optional external docs from a node.
+fn parse_optional_external_docs(node: yay.Node) -> Option(ExternalDoc) {
+  case yay.select_sugar(from: node, selector: "externalDocs") {
+    Ok(doc_node) -> {
+      case yay.extract_string(doc_node, "url") {
+        Ok(url) -> {
+          let description =
+            yay.extract_optional_string(doc_node, "description")
+            |> result.unwrap(None)
+          Some(ExternalDoc(url:, description:))
+        }
+        _ -> None
+      }
+    }
+    _ -> None
+  }
+}
+
+/// Parse tags array from root.
+fn parse_tags(node: yay.Node) -> List(Tag) {
+  case yay.select_sugar(from: node, selector: "tags") {
+    Ok(yay.NodeSeq(items)) ->
+      list.filter_map(items, fn(tag_node) {
+        case yay.extract_string(tag_node, "name") {
+          Ok(name) -> {
+            let description =
+              yay.extract_optional_string(tag_node, "description")
+              |> result.unwrap(None)
+            let external_docs = parse_optional_external_docs(tag_node)
+            Ok(Tag(name:, description:, external_docs:))
+          }
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
+  }
+}
+
+/// Parse webhooks from root.
+fn parse_webhooks(
+  node: yay.Node,
+  components: Option(Components),
+) -> Result(Dict(String, PathItem), ParseError) {
+  case yay.select_sugar(from: node, selector: "webhooks") {
+    Ok(yay.NodeMap(entries)) -> {
+      list.try_fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(name) -> {
+            use path_item <- result.try(parse_path_item(
+              value_node,
+              "webhooks." <> name,
+              components,
+            ))
+            Ok(dict.insert(acc, name, path_item))
+          }
+          _ -> Ok(acc)
+        }
+      })
+    }
+    _ -> Ok(dict.new())
+  }
+}
+
+/// Parse a string->string map from a node at a given key.
+fn parse_string_map(node: yay.Node, key: String) -> Dict(String, String) {
+  case yay.extract_string_map(node, key) {
+    Ok(m) -> m
+    _ -> dict.new()
+  }
+}
+
+/// Parse a content map (non-result version for use in Parameter).
+fn parse_content_map(node: yay.Node) -> Dict(String, MediaType) {
+  case yay.select_sugar(from: node, selector: "content") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(media_type_name) -> {
+            let mt_schema = case
+              yay.select_sugar(from: value_node, selector: "schema")
+            {
+              Ok(schema_node) ->
+                case parse_schema_ref(schema_node) {
+                  Ok(sr) -> Some(sr)
+                  _ -> None
+                }
+              _ -> None
+            }
+            let mt_example =
+              yay.extract_optional_string(value_node, "example")
+              |> result.unwrap(None)
+            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_encoding = parse_encoding_map(value_node)
+            dict.insert(
+              acc,
+              media_type_name,
+              MediaType(
+                schema: mt_schema,
+                example: mt_example,
+                examples: mt_examples,
+                encoding: mt_encoding,
+              ),
+            )
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
+  }
+}
+
+/// Parse encoding map from a media type node.
+fn parse_encoding_map(node: yay.Node) -> Dict(String, Encoding) {
+  case yay.select_sugar(from: node, selector: "encoding") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(prop_name) -> {
+            let content_type =
+              yay.extract_optional_string(value_node, "contentType")
+              |> result.unwrap(None)
+            let style =
+              yay.extract_optional_string(value_node, "style")
+              |> result.unwrap(None)
+              |> option.map(parse_parameter_style)
+            let explode =
+              yay.extract_optional_bool(value_node, "explode")
+              |> result.unwrap(None)
+            dict.insert(
+              acc,
+              prop_name,
+              Encoding(content_type:, style:, explode:),
+            )
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
+  }
+}
+
+/// Parse headers map from a node.
+fn parse_headers_map(node: yay.Node) -> Dict(String, Header) {
+  case yay.select_sugar(from: node, selector: "headers") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(header_name) -> {
+            let description =
+              yay.extract_optional_string(value_node, "description")
+              |> result.unwrap(None)
+            let required =
+              yay.extract_optional_bool(value_node, "required")
+              |> result.unwrap(None)
+              |> option.unwrap(False)
+            let hdr_schema = case
+              yay.select_sugar(from: value_node, selector: "schema")
+            {
+              Ok(schema_node) ->
+                case parse_schema_ref(schema_node) {
+                  Ok(sr) -> Some(sr)
+                  _ -> None
+                }
+              _ -> None
+            }
+            dict.insert(
+              acc,
+              header_name,
+              Header(description:, required:, schema: hdr_schema),
+            )
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
+  }
+}
+
+/// Parse links map from a node.
+fn parse_links_map(node: yay.Node) -> Dict(String, Link) {
+  case yay.select_sugar(from: node, selector: "links") {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(link_name) -> {
+            let operation_id =
+              yay.extract_optional_string(value_node, "operationId")
+              |> result.unwrap(None)
+            let description =
+              yay.extract_optional_string(value_node, "description")
+              |> result.unwrap(None)
+            dict.insert(acc, link_name, Link(operation_id:, description:))
+          }
+          _ -> acc
+        }
+      })
+    _ -> dict.new()
   }
 }
 

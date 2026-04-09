@@ -11,17 +11,66 @@ pub type OpenApiSpec {
     components: Option(Components),
     servers: List(Server),
     security: List(SecurityRequirement),
+    webhooks: Dict(String, PathItem),
+    tags: List(Tag),
+    external_docs: Option(ExternalDoc),
+    json_schema_dialect: Option(String),
   )
 }
 
 /// API metadata.
 pub type Info {
-  Info(title: String, description: Option(String), version: String)
+  Info(
+    title: String,
+    description: Option(String),
+    version: String,
+    summary: Option(String),
+    terms_of_service: Option(String),
+    contact: Option(Contact),
+    license: Option(License),
+  )
+}
+
+/// Contact information for the API.
+pub type Contact {
+  Contact(name: Option(String), url: Option(String), email: Option(String))
+}
+
+/// License information for the API.
+pub type License {
+  License(name: String, url: Option(String))
 }
 
 /// Server object.
 pub type Server {
-  Server(url: String, description: Option(String))
+  Server(
+    url: String,
+    description: Option(String),
+    variables: Dict(String, ServerVariable),
+  )
+}
+
+/// A server variable for server URL template substitution.
+pub type ServerVariable {
+  ServerVariable(
+    default: String,
+    enum_values: List(String),
+    description: Option(String),
+  )
+}
+
+/// An external documentation reference.
+pub type ExternalDoc {
+  ExternalDoc(url: String, description: Option(String))
+}
+
+/// A tag for API documentation control.
+pub type Tag {
+  Tag(
+    name: String,
+    description: Option(String),
+    external_docs: Option(ExternalDoc),
+  )
 }
 
 /// Components section containing reusable schemas, parameters, etc.
@@ -33,6 +82,9 @@ pub type Components {
     responses: Dict(String, Response),
     security_schemes: Dict(String, SecurityScheme),
     path_items: Dict(String, PathItem),
+    headers: Dict(String, Header),
+    examples: Dict(String, String),
+    links: Dict(String, Link),
   )
 }
 
@@ -98,6 +150,7 @@ pub type PathItem {
     options: Option(Operation),
     trace: Option(Operation),
     parameters: List(Parameter),
+    servers: List(Server),
   )
 }
 
@@ -114,6 +167,8 @@ pub type Operation {
     deprecated: Bool,
     security: Option(List(SecurityRequirement)),
     callbacks: Dict(String, Callback),
+    servers: List(Server),
+    external_docs: Option(ExternalDoc),
   )
 }
 
@@ -143,6 +198,8 @@ pub type Parameter {
     explode: Option(Bool),
     deprecated: Bool,
     allow_reserved: Bool,
+    content: Dict(String, MediaType),
+    examples: Dict(String, String),
   )
 }
 
@@ -157,12 +214,41 @@ pub type RequestBody {
 
 /// Media type definition.
 pub type MediaType {
-  MediaType(schema: Option(SchemaRef))
+  MediaType(
+    schema: Option(SchemaRef),
+    example: Option(String),
+    examples: Dict(String, String),
+    encoding: Dict(String, Encoding),
+  )
+}
+
+/// Encoding definition for a media type property.
+pub type Encoding {
+  Encoding(
+    content_type: Option(String),
+    style: Option(ParameterStyle),
+    explode: Option(Bool),
+  )
+}
+
+/// Header definition for responses or components.
+pub type Header {
+  Header(description: Option(String), required: Bool, schema: Option(SchemaRef))
+}
+
+/// Link definition for responses or components.
+pub type Link {
+  Link(operation_id: Option(String), description: Option(String))
 }
 
 /// A response definition.
 pub type Response {
-  Response(description: Option(String), content: Dict(String, MediaType))
+  Response(
+    description: Option(String),
+    content: Dict(String, MediaType),
+    headers: Dict(String, Header),
+    links: Dict(String, Link),
+  )
 }
 
 /// HTTP method enumeration.
