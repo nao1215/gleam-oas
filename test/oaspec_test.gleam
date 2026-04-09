@@ -2615,6 +2615,7 @@ paths:
         || option.is_some(path_item.put)
         || option.is_some(path_item.delete)
         || option.is_some(path_item.patch)
+        || option.is_some(path_item.head)
       // HEAD was the only operation — if no ops exist, it was silently dropped
       has_any_op
       |> should.be_true()

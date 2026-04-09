@@ -12,9 +12,9 @@ import oaspec/openapi/spec.{
   type Callback, type Components, type HttpMethod, type Info, type MediaType,
   type OpenApiSpec, type Operation, type Parameter, type ParameterIn,
   type PathItem, type RequestBody, type Response, type SecurityRequirement,
-  type Server, Callback, Components, Delete, Get, Info, MediaType, OpenApiSpec,
-  Operation, Parameter, Patch, PathItem, Post, Put, RequestBody, Response,
-  SecurityRequirement, Server,
+  type Server, Callback, Components, Delete, Get, Head, Info, MediaType,
+  OpenApiSpec, Operation, Parameter, Patch, PathItem, Post, Put, RequestBody,
+  Response, SecurityRequirement, Server,
 }
 import simplifile
 import yay
@@ -212,6 +212,13 @@ fn parse_path_item(
     Patch,
     components,
   ))
+  use head <- result.try(parse_optional_operation(
+    node,
+    "head",
+    path,
+    Head,
+    components,
+  ))
 
   use parameters <- result.try(parse_parameters_list(node, components))
 
@@ -223,6 +230,7 @@ fn parse_path_item(
     put:,
     delete:,
     patch:,
+    head:,
     parameters:,
   ))
 }

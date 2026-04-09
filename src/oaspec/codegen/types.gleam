@@ -933,6 +933,7 @@ pub fn collect_operations(
       #(path_item.put, spec.Put),
       #(path_item.delete, spec.Delete),
       #(path_item.patch, spec.Patch),
+      #(path_item.head, spec.Head),
     ]
     list.filter_map(ops, fn(op_entry) {
       let #(maybe_op, method) = op_entry
