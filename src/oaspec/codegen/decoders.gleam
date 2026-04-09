@@ -699,6 +699,34 @@ fn generate_decoder(
       sb
     }
 
+    Inline(ArraySchema(items:, ..)) -> {
+      let inner_decoder = schema_ref_to_decoder(items, name, "", ctx)
+      let gleam_type = type_gen.schema_ref_to_type(schema_ref, ctx)
+      let sb =
+        sb
+        |> se.line(
+          "pub fn "
+          <> decoder_fn_name
+          <> "() -> decode.Decoder("
+          <> gleam_type
+          <> ") {",
+        )
+        |> se.indent(1, "decode.list(" <> inner_decoder <> ")")
+        |> se.line("}")
+        |> se.blank_line()
+        |> se.line(
+          "pub fn "
+          <> fn_name
+          <> "(json_string: String) -> Result("
+          <> gleam_type
+          <> ", json.DecodeError) {",
+        )
+        |> se.indent(1, "json.parse(json_string, " <> decoder_fn_name <> "())")
+        |> se.line("}")
+        |> se.blank_line()
+      sb
+    }
+
     _ -> sb
   }
 }
@@ -1510,6 +1538,28 @@ fn generate_encoder(
       |> se.line("}")
       |> se.blank_line()
       |> se.line("pub fn " <> fn_name <> "(value: Bool) -> String {")
+      |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
+      |> se.line("}")
+      |> se.blank_line()
+    }
+
+    Inline(ArraySchema(items:, ..)) -> {
+      let gleam_type = type_gen.schema_ref_to_type(schema_ref, ctx)
+      let inner_encoder = schema_ref_to_json_encoder_fn(items, name, "", ctx)
+      sb
+      |> se.line(
+        "pub fn "
+        <> json_fn_name
+        <> "(value: "
+        <> gleam_type
+        <> ") -> json.Json {",
+      )
+      |> se.indent(1, "json.array(value, " <> inner_encoder <> ")")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line(
+        "pub fn " <> fn_name <> "(value: " <> gleam_type <> ") -> String {",
+      )
       |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
       |> se.line("}")
       |> se.blank_line()
