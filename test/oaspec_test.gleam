@@ -19,6 +19,7 @@ import oaspec/openapi/schema
 import oaspec/openapi/spec
 import oaspec/util/content_type
 import oaspec/util/naming
+import simplifile
 
 pub fn main() {
   gleeunit.main()
@@ -2357,6 +2358,93 @@ security:
   let fn_body = string.drop_start(content, fn_start)
   string.contains(fn_body, "bearer_auth")
   |> should.be_true()
+}
+
+// --- Finding 2: OpenAPI 3.1 type: [string, 'null'] must parse as nullable string ---
+pub fn openapi_31_type_array_nullable_test() {
+  let yaml =
+    "
+openapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    MaybeName:
+      type: [string, 'null']
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = types.generate(ctx)
+  let assert [types_file, ..] = files
+  // MaybeName should be a nullable String type, not an empty object
+  // It must NOT generate as a record with no fields (which would be the object fallback)
+  string.contains(types_file.content, "pub type MaybeName =")
+  |> should.be_true()
+}
+
+// --- Finding 3: README says optional path params supported but parser rejects ---
+pub fn readme_no_optional_path_param_claim_test() {
+  let assert Ok(readme) = simplifile.read("README.md")
+  // README must NOT claim "Path parameters with required: false" as supported,
+  // since the parser correctly rejects them per OpenAPI spec.
+  string.contains(readme, "Path parameters with `required: false`")
+  |> should.be_false()
+}
+
+// --- Finding 6: Callback parse errors must propagate, not be swallowed ---
+pub fn callback_parse_error_not_swallowed_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /subscribe:
+    post:
+      operationId: subscribe
+      callbacks:
+        onEvent:
+          '{$request.body#/url}':
+            post:
+              operationId: onEvent
+              parameters:
+                - name: id
+                  in: path
+                  required: false
+              responses:
+                '200': { description: ok }
+      responses:
+        '200': { description: ok }
+"
+  // The callback contains a path parameter with required: false,
+  // which the parser correctly rejects. But the callback parser
+  // currently swallows this error and silently drops the callback.
+  // After fix, the error should propagate.
+  let result = parser.parse_string(yaml)
+  case result {
+    Ok(spec) -> {
+      // If parse succeeded, the callback must NOT have been silently dropped
+      let assert Ok(path_item) = dict.get(spec.paths, "/subscribe")
+      let assert Some(post_op) = path_item.post
+      // Currently the error is swallowed and onEvent is missing.
+      // After fix, either parse fails (Error) or callback is present.
+      dict.has_key(post_op.callbacks, "onEvent")
+      |> should.be_true()
+    }
+    Error(_) -> {
+      // Parse error is acceptable — means we propagate the failure
+      should.be_ok(Ok(Nil))
+    }
+  }
 }
 
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
