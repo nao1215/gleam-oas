@@ -177,6 +177,14 @@ fn generate_router(ctx: Context) -> String {
       let #(_, operation, _, _) = op
       operation_uses_form_urlencoded_body(operation)
     })
+  let has_nested_form_urlencoded_body =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      case operation.request_body {
+        Some(rb) -> form_urlencoded_body_has_nested_object(rb, ctx)
+        None -> False
+      }
+    })
 
   // Determine which imports are needed based on operations
   let needs_dict =
@@ -470,6 +478,21 @@ fn generate_router(ctx: Context) -> String {
       |> se.indent(4, "}")
       |> se.indent(2, "}")
       |> se.indent(1, "})")
+      |> se.line("}")
+      |> se.blank_line()
+    False -> sb
+  }
+
+  let sb = case has_nested_form_urlencoded_body {
+    True ->
+      sb
+      |> se.line(
+        "fn form_object_present(form_body: Dict(String, List(String)), prefix: String, props: List(String)) -> Bool {",
+      )
+      |> se.indent(
+        1,
+        "list.any(props, fn(prop) { dict.has_key(form_body, prefix <> \"[\" <> prop <> \"]\") })",
+      )
       |> se.line("}")
       |> se.blank_line()
     False -> sb
@@ -1017,40 +1040,63 @@ fn operation_uses_form_urlencoded_body(operation: spec.Operation) -> Bool {
   }
 }
 
+fn object_properties_from_schema_ref(
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> List(DeepObjectProperty) {
+  let details = case schema_ref {
+    Reference(..) as schema_ref ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
+        _ -> #(dict.new(), [])
+      }
+    Inline(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
+    _ -> #(dict.new(), [])
+  }
+  let #(properties, required_fields) = details
+  dict.to_list(properties)
+  |> list.map(fn(entry) {
+    let #(prop_name, prop_ref) = entry
+    DeepObjectProperty(
+      name: prop_name,
+      field_name: naming.to_snake_case(prop_name),
+      schema_ref: prop_ref,
+      required: list.contains(required_fields, prop_name),
+    )
+  })
+}
+
 fn form_urlencoded_body_properties(
   rb: spec.RequestBody,
   ctx: Context,
 ) -> List(DeepObjectProperty) {
   case dict.get(rb.content, "application/x-www-form-urlencoded") {
     Ok(media_type) -> {
-      let details = case media_type.schema {
-        Some(Reference(..) as schema_ref) ->
-          case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
-            Ok(ObjectSchema(properties:, required:, ..)) -> #(
-              properties,
-              required,
-            )
-            _ -> #(dict.new(), [])
-          }
-        Some(Inline(ObjectSchema(properties:, required:, ..))) -> #(
-          properties,
-          required,
-        )
-        _ -> #(dict.new(), [])
+      case media_type.schema {
+        Some(schema_ref) -> object_properties_from_schema_ref(schema_ref, ctx)
+        None -> []
       }
-      let #(properties, required_fields) = details
-      dict.to_list(properties)
-      |> list.map(fn(entry) {
-        let #(prop_name, prop_ref) = entry
-        DeepObjectProperty(
-          name: prop_name,
-          field_name: naming.to_snake_case(prop_name),
-          schema_ref: prop_ref,
-          required: list.contains(required_fields, prop_name),
-        )
-      })
     }
     Error(_) -> []
+  }
+}
+
+fn schema_ref_resolves_to_object(schema_ref: SchemaRef, ctx: Context) -> Bool {
+  case schema_ref {
+    Inline(ObjectSchema(..)) -> True
+    Reference(..) as schema_ref ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(ObjectSchema(..)) -> True
+        _ -> False
+      }
+    _ -> False
+  }
+}
+
+fn form_urlencoded_schema_ref_type_name(schema_ref: SchemaRef) -> String {
+  case schema_ref {
+    Reference(name:, ..) -> "types." <> naming.schema_to_type_name(name)
+    _ -> "String"
   }
 }
 
@@ -1068,49 +1114,226 @@ fn form_urlencoded_body_type_name(rb: spec.RequestBody, op_id: String) -> String
   }
 }
 
+fn form_urlencoded_key(prefix: String, name: String) -> String {
+  case prefix {
+    "" -> name
+    _ -> prefix <> "[" <> name <> "]"
+  }
+}
+
+fn form_urlencoded_object_constructor_expr(
+  type_name: String,
+  prefix: String,
+  properties: List(DeepObjectProperty),
+  ctx: Context,
+  allow_nested_objects: Bool,
+) -> String {
+  let fields =
+    properties
+    |> list.map(fn(prop) {
+      let key = form_urlencoded_key(prefix, prop.name)
+      let value_expr = case
+        allow_nested_objects
+        && schema_ref_resolves_to_object(prop.schema_ref, ctx),
+        prop.required
+      {
+        True, True ->
+          form_urlencoded_object_required_expr(key, prop.schema_ref, ctx)
+        True, False ->
+          form_urlencoded_object_optional_expr(key, prop.schema_ref, ctx)
+        False, True ->
+          form_body_required_expr_with_schema(key, Some(prop.schema_ref))
+        False, False ->
+          form_body_optional_expr_with_schema(key, Some(prop.schema_ref))
+      }
+      prop.field_name <> ": " <> value_expr
+    })
+    |> string.join(", ")
+  type_name <> "(" <> fields <> ")"
+}
+
+fn form_urlencoded_object_required_expr(
+  prefix: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> String {
+  form_urlencoded_object_constructor_expr(
+    form_urlencoded_schema_ref_type_name(schema_ref),
+    prefix,
+    object_properties_from_schema_ref(schema_ref, ctx),
+    ctx,
+    False,
+  )
+}
+
+fn form_urlencoded_object_optional_expr(
+  prefix: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> String {
+  let props = object_properties_from_schema_ref(schema_ref, ctx)
+  let prop_names =
+    props
+    |> list.map(fn(prop) { "\"" <> prop.name <> "\"" })
+    |> string.join(", ")
+  "case form_object_present(form_body, \""
+  <> prefix
+  <> "\", ["
+  <> prop_names
+  <> "]) { True -> Some("
+  <> form_urlencoded_object_constructor_expr(
+    form_urlencoded_schema_ref_type_name(schema_ref),
+    prefix,
+    props,
+    ctx,
+    False,
+  )
+  <> ") False -> None }"
+}
+
 fn form_urlencoded_body_constructor_expr(
   rb: spec.RequestBody,
   op_id: String,
   ctx: Context,
 ) -> String {
-  let fields =
-    form_urlencoded_body_properties(rb, ctx)
-    |> list.map(fn(prop) {
-      let value_expr = case prop.required {
-        True ->
-          form_body_required_expr_with_schema(prop.name, Some(prop.schema_ref))
-        False ->
-          form_body_optional_expr_with_schema(prop.name, Some(prop.schema_ref))
-      }
-      prop.field_name <> ": " <> value_expr
-    })
-    |> string.join(", ")
-  form_urlencoded_body_type_name(rb, op_id) <> "(" <> fields <> ")"
+  form_urlencoded_object_constructor_expr(
+    form_urlencoded_body_type_name(rb, op_id),
+    "",
+    form_urlencoded_body_properties(rb, ctx),
+    ctx,
+    True,
+  )
 }
 
 fn form_urlencoded_body_has_optional_fields(
   rb: spec.RequestBody,
   ctx: Context,
 ) -> Bool {
-  list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) { !prop.required })
+  form_urlencoded_properties_have_optional_fields(
+    form_urlencoded_body_properties(rb, ctx),
+    ctx,
+    True,
+  )
 }
 
 fn form_urlencoded_body_needs_string(rb: spec.RequestBody, ctx: Context) -> Bool {
-  request_body_uses_form_urlencoded(rb)
-  && list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
-    query_schema_needs_string(Some(prop.schema_ref))
-  })
+  form_urlencoded_properties_need_string(
+    form_urlencoded_body_properties(rb, ctx),
+    ctx,
+    True,
+  )
 }
 
 fn form_urlencoded_body_needs_int(rb: spec.RequestBody, ctx: Context) -> Bool {
-  list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
-    query_schema_needs_int(Some(prop.schema_ref))
-  })
+  form_urlencoded_properties_need_int(
+    form_urlencoded_body_properties(rb, ctx),
+    ctx,
+    True,
+  )
 }
 
 fn form_urlencoded_body_needs_float(rb: spec.RequestBody, ctx: Context) -> Bool {
+  form_urlencoded_properties_need_float(
+    form_urlencoded_body_properties(rb, ctx),
+    ctx,
+    True,
+  )
+}
+
+fn form_urlencoded_body_has_nested_object(
+  rb: spec.RequestBody,
+  ctx: Context,
+) -> Bool {
   list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
+    schema_ref_resolves_to_object(prop.schema_ref, ctx)
+  })
+}
+
+fn form_urlencoded_properties_have_optional_fields(
+  props: List(DeepObjectProperty),
+  ctx: Context,
+  allow_nested_objects: Bool,
+) -> Bool {
+  list.any(props, fn(prop) {
+    !prop.required
+    || case
+      allow_nested_objects
+      && schema_ref_resolves_to_object(prop.schema_ref, ctx)
+    {
+      True ->
+        form_urlencoded_properties_have_optional_fields(
+          object_properties_from_schema_ref(prop.schema_ref, ctx),
+          ctx,
+          False,
+        )
+      False -> False
+    }
+  })
+}
+
+fn form_urlencoded_properties_need_string(
+  props: List(DeepObjectProperty),
+  ctx: Context,
+  allow_nested_objects: Bool,
+) -> Bool {
+  list.any(props, fn(prop) {
+    query_schema_needs_string(Some(prop.schema_ref))
+    || case
+      allow_nested_objects
+      && schema_ref_resolves_to_object(prop.schema_ref, ctx)
+    {
+      True ->
+        form_urlencoded_properties_need_string(
+          object_properties_from_schema_ref(prop.schema_ref, ctx),
+          ctx,
+          False,
+        )
+      False -> False
+    }
+  })
+}
+
+fn form_urlencoded_properties_need_int(
+  props: List(DeepObjectProperty),
+  ctx: Context,
+  allow_nested_objects: Bool,
+) -> Bool {
+  list.any(props, fn(prop) {
+    query_schema_needs_int(Some(prop.schema_ref))
+    || case
+      allow_nested_objects
+      && schema_ref_resolves_to_object(prop.schema_ref, ctx)
+    {
+      True ->
+        form_urlencoded_properties_need_int(
+          object_properties_from_schema_ref(prop.schema_ref, ctx),
+          ctx,
+          False,
+        )
+      False -> False
+    }
+  })
+}
+
+fn form_urlencoded_properties_need_float(
+  props: List(DeepObjectProperty),
+  ctx: Context,
+  allow_nested_objects: Bool,
+) -> Bool {
+  list.any(props, fn(prop) {
     query_schema_needs_float(Some(prop.schema_ref))
+    || case
+      allow_nested_objects
+      && schema_ref_resolves_to_object(prop.schema_ref, ctx)
+    {
+      True ->
+        form_urlencoded_properties_need_float(
+          object_properties_from_schema_ref(prop.schema_ref, ctx),
+          ctx,
+          False,
+        )
+      False -> False
+    }
   })
 }
 

@@ -5658,8 +5658,11 @@ paths:
                 profile:
                   type: object
                   properties:
-                    username:
-                      type: string
+                    meta:
+                      type: object
+                      properties:
+                        username:
+                          type: string
       responses:
         '200': { description: ok }
 "
@@ -6515,6 +6518,44 @@ pub fn server_form_urlencoded_body_is_parsed_test() {
   string.contains(
     content,
     "tags: case dict.get(form_body, \"tags\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }",
+  )
+  |> should.be_true()
+}
+
+pub fn validate_accepts_nested_form_urlencoded_body_for_server_codegen_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_nested_body.yaml")
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "application/x-www-form-urlencoded")
+    })
+  list.length(server_errors)
+  |> should.equal(0)
+}
+
+pub fn server_nested_form_urlencoded_body_is_parsed_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_nested_body.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+
+  string.contains(content, "profile: types.SubmitNestedFormRequestProfile(")
+  |> should.be_true()
+  string.contains(
+    content,
+    "username: { let assert Ok([v, ..]) = dict.get(form_body, \"profile[username]\") v }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "aliases: case dict.get(form_body, \"profile[aliases]\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "age: case dict.get(form_body, \"profile[age]\") { Ok([v, ..]) -> { case int.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }",
   )
   |> should.be_true()
 }

@@ -552,14 +552,16 @@ fn validate_server_form_urlencoded_request_body(
               dict.to_list(properties)
               |> list.flat_map(fn(entry) {
                 let #(field_name, field_schema) = entry
-                case form_urlencoded_server_field_supported(field_schema) {
+                case
+                  form_urlencoded_server_field_supported(field_schema, ctx, 0)
+                {
                   True -> []
                   False -> [
                     ValidationError(
                       severity: SeverityError,
                       target: TargetServer,
                       path: op_id <> ".requestBody.form." <> field_name,
-                      detail: "application/x-www-form-urlencoded server request bodies only support inline primitive scalars and inline primitive array fields.",
+                      detail: "application/x-www-form-urlencoded server request bodies only support inline primitive scalars/arrays and one level of object nesting with inline primitive leaves.",
                     ),
                   ]
                 }
@@ -601,7 +603,11 @@ fn validate_server_request_body_content_types(
   }
 }
 
-fn form_urlencoded_server_field_supported(schema_ref: SchemaRef) -> Bool {
+fn form_urlencoded_server_field_supported(
+  schema_ref: SchemaRef,
+  ctx: Context,
+  depth: Int,
+) -> Bool {
   case schema_ref {
     Inline(StringSchema(..))
     | Inline(IntegerSchema(..))
@@ -611,6 +617,22 @@ fn form_urlencoded_server_field_supported(schema_ref: SchemaRef) -> Bool {
     | Inline(ArraySchema(items: Inline(IntegerSchema(..)), ..))
     | Inline(ArraySchema(items: Inline(NumberSchema(..)), ..))
     | Inline(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
+    Inline(ObjectSchema(properties:, ..)) if depth == 0 ->
+      dict.to_list(properties)
+      |> list.all(fn(entry) {
+        let #(_, child_schema) = entry
+        form_urlencoded_server_field_supported(child_schema, ctx, 1)
+      })
+    Reference(..) as schema_ref if depth == 0 ->
+      case resolve_schema_object(Some(schema_ref), ctx) {
+        Some(ObjectSchema(properties:, ..)) ->
+          dict.to_list(properties)
+          |> list.all(fn(entry) {
+            let #(_, child_schema) = entry
+            form_urlencoded_server_field_supported(child_schema, ctx, 1)
+          })
+        _ -> False
+      }
     _ -> False
   }
 }
