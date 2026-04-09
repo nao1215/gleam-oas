@@ -7,7 +7,7 @@ Generate Gleam code from OpenAPI 3.x specifications with strict codegen for a la
 
 - Custom types for component schemas
 - JSON decoders and encoders (allOf, oneOf/anyOf with discriminator)
-- Server handler stubs with callback support (scaffold — router dispatches to handler references but does not yet construct typed requests)
+- Server handler stubs with typed router (request construction, handler dispatch, response encoding)
 - Client SDK with parameter serialization and response decoding
 - Middleware (logging, retry, validation)
 - Security scheme support (`apiKey`, HTTP all schemes, OAuth2, OpenID Connect)
@@ -230,24 +230,26 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - Schema metadata: `title`, `readOnly`, `writeOnly`, `default`, `example`, `deprecated` preserved
 - Numeric constraints: `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` preserved
 - OAuth2 flows with authorization/token/refresh URLs and scopes preserved
+- `readOnly` properties filtered from request types and encoders; `writeOnly` properties treated as optional in response decoders
+- Structured capability errors with severity (Error/Warning) and target scope (Client/Server/Both)
+- Server router with typed request construction, handler dispatch, and response encoding (not just a scaffold)
+- IR-based type generation (component schemas generated via ir_build → ir_render pipeline)
+- Server variable substitution: `default_base_url()` generated from server URL templates with variable defaults
 
 ### Not yet supported
 
-The AST now parses and preserves all standard OpenAPI 3.x fields (lossless parse). The following features are **parsed and stored** but **not yet used by codegen**:
+The AST now parses and preserves all standard OpenAPI 3.x fields (lossless parse). The following features are **parsed and stored** but **not yet used by codegen** (preserved for downstream tools or future codegen use):
 
-- `webhooks`, `externalDocs`, `tags` (top-level) — parsed into AST
-- `Info.contact`, `Info.license`, `Info.summary`, `Info.termsOfService` — parsed into AST
-- `Server.variables` — parsed into AST
-- `Parameter.content`, `Parameter.examples` — parsed into AST
-- `MediaType.encoding`, `MediaType.examples` — parsed into AST
-- `Response.headers`, `Response.links` — parsed into AST
-- `PathItem.servers`, `Operation.servers`, `Operation.externalDocs` — parsed into AST
-- `components.headers`, `components.examples`, `components.links` — parsed into AST
-- Schema metadata: `title`, `readOnly`, `writeOnly`, `default`, `example` — parsed into AST
-- Numeric: `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` — parsed into AST
-- Array: `uniqueItems` — parsed into AST
-- Object: `minProperties`, `maxProperties` — parsed into AST
-- OAuth2: `flows` with authorization/token/refresh URLs and scopes — parsed into AST
+- `webhooks`, `externalDocs`, `tags` (top-level)
+- `Info.contact`, `Info.license`, `Info.summary`, `Info.termsOfService`
+- `Parameter.content`, `Parameter.examples`
+- `MediaType.encoding`, `MediaType.examples`
+- `Response.headers`, `Response.links`
+- `PathItem.servers`, `Operation.servers`, `Operation.externalDocs`
+- `components.headers`, `components.examples`, `components.links`
+- Numeric: `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`
+- Array: `uniqueItems`
+- Object: `minProperties`, `maxProperties`
 
 The following features are **not supported** at all:
 
