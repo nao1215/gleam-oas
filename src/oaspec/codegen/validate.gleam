@@ -5,7 +5,6 @@ import gleam/regexp
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
-import oaspec/config
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,

@@ -187,7 +187,13 @@ fn generate_router(ctx: Context) -> String {
   let needs_option =
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(p) { !p.required })
+      let has_optional_params =
+        list.any(operation.parameters, fn(p) { !p.required })
+      let has_optional_body = case operation.request_body {
+        Some(rb) -> !rb.required
+        None -> False
+      }
+      has_optional_params || has_optional_body
     })
 
   let needs_json =
@@ -228,11 +234,9 @@ fn generate_router(ctx: Context) -> String {
       || option.is_some(operation.request_body)
     })
 
-  // Build imports list
-  let std_imports = case needs_dict {
-    True -> ["gleam/dict.{type Dict}"]
-    False -> []
-  }
+  // Build imports list (Dict always needed for route signature)
+  let _ = needs_dict
+  let std_imports = ["gleam/dict.{type Dict}"]
   let std_imports = case needs_int {
     True -> list.append(std_imports, ["gleam/int"])
     False -> std_imports
@@ -348,6 +352,7 @@ fn generate_route_body(
         generate_request_construction(
           sb,
           request_type_name,
+          op_id,
           operation,
           path,
           ctx,
@@ -363,6 +368,7 @@ fn generate_route_body(
 fn generate_request_construction(
   sb: se.StringBuilder,
   request_type_name: String,
+  op_id: String,
   operation: spec.Operation,
   path: String,
   _ctx: Context,
@@ -441,7 +447,7 @@ fn generate_request_construction(
   // Add body field if present
   let sb = case operation.request_body {
     Some(rb) -> {
-      let body_expr = generate_body_decode_expr(rb)
+      let body_expr = generate_body_decode_expr(rb, op_id)
       sb |> se.indent(4, "body: " <> body_expr <> ",")
     }
     None -> sb
@@ -523,14 +529,24 @@ fn header_optional_expr(key: String, param: spec.Parameter) -> String {
 }
 
 /// Generate the body decode expression for a request body.
-fn generate_body_decode_expr(rb: spec.RequestBody) -> String {
+fn generate_body_decode_expr(rb: spec.RequestBody, op_id: String) -> String {
   let content_entries = dict.to_list(rb.content)
   case content_entries {
-    [#("application/json", _media_type)] -> {
+    [#("application/json", media_type)] -> {
+      let decode_fn = case media_type.schema {
+        Some(Reference(name:, ..)) ->
+          "decode.decode_" <> naming.to_snake_case(name) <> "(body)"
+        _ ->
+          "decode.decode_"
+          <> naming.to_snake_case(op_id)
+          <> "_request_body(body)"
+      }
       case rb.required {
-        True -> "{ let assert Ok(decoded) = decode.decode_body(body) decoded }"
+        True -> "{ let assert Ok(decoded) = " <> decode_fn <> " decoded }"
         False ->
-          "case body { \"\" -> None _ -> { case decode.decode_body(body) { Ok(decoded) -> Some(decoded) _ -> None } } }"
+          "case body { \"\" -> None _ -> { case "
+          <> decode_fn
+          <> " { Ok(decoded) -> Some(decoded) _ -> None } } }"
       }
     }
     _ -> {
@@ -594,7 +610,7 @@ fn generate_response_conversion(
                           <> status_int
                           <> ", body: json.to_string("
                           <> encode_fn
-                          <> "(data)), headers: [(\"content-type\", \"application/json\")])",
+                          <> "(data)), headers: [#(\"content-type\", \"application/json\")])",
                       )
                     }
                     None ->
@@ -621,7 +637,7 @@ fn generate_response_conversion(
                           <> variant_name
                           <> "(data) -> ServerResponse(status: "
                           <> status_int
-                          <> ", body: data, headers: [(\"content-type\", \""
+                          <> ", body: data, headers: [#(\"content-type\", \""
                           <> media_type_name
                           <> "\")])",
                       )
@@ -650,7 +666,7 @@ fn generate_response_conversion(
                           <> status_int
                           <> ", body: json.to_string("
                           <> encode_fn
-                          <> "(data)), headers: [(\"content-type\", \""
+                          <> "(data)), headers: [#(\"content-type\", \""
                           <> media_type_name
                           <> "\")])",
                       )
@@ -693,15 +709,21 @@ fn get_encode_function(
 ) -> String {
   case schema_ref {
     Some(Reference(name:, ..)) -> {
-      "encode.encode_" <> naming.to_snake_case(name)
+      "encode.encode_" <> naming.to_snake_case(name) <> "_json"
     }
     Some(Inline(schema.ArraySchema(items:, ..))) -> {
       case items {
         Reference(name:, ..) ->
-          "encode.encode_" <> naming.to_snake_case(name) <> "_list"
+          "fn(items) { json.array(items, encode.encode_"
+          <> naming.to_snake_case(name)
+          <> "_json) }"
         _ -> "json.string"
       }
     }
+    Some(Inline(schema.StringSchema(..))) -> "json.string"
+    Some(Inline(schema.IntegerSchema(..))) -> "json.int"
+    Some(Inline(schema.NumberSchema(..))) -> "json.float"
+    Some(Inline(schema.BooleanSchema(..))) -> "json.bool"
     _ -> "json.string"
   }
 }
