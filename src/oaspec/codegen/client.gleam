@@ -1511,6 +1511,11 @@ fn generate_form_urlencoded_body(
       let is_required = list.contains(required_fields, field_name)
       let is_array = case field_schema {
         Inline(schema.ArraySchema(..)) -> True
+        Reference(..) as sr ->
+          case resolver.resolve_schema_ref(sr, ctx.spec) {
+            Ok(schema.ArraySchema(..)) -> True
+            _ -> False
+          }
         _ -> False
       }
       let is_object = case field_schema {
