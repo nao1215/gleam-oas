@@ -22,8 +22,16 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let encode_content = generate_encoders(ctx)
 
   [
-    GeneratedFile(path: "decode.gleam", content: decode_content),
-    GeneratedFile(path: "encode.gleam", content: encode_content),
+    GeneratedFile(
+      path: "decode.gleam",
+      content: decode_content,
+      target: context.SharedTarget,
+    ),
+    GeneratedFile(
+      path: "encode.gleam",
+      content: encode_content,
+      target: context.SharedTarget,
+    ),
   ]
 }
 

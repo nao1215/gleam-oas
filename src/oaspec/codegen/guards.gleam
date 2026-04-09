@@ -18,7 +18,13 @@ import oaspec/util/string_extra as se
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let content = generate_guards(ctx)
   case string.contains(content, "pub fn validate_") {
-    True -> [GeneratedFile(path: "guards.gleam", content: content)]
+    True -> [
+      GeneratedFile(
+        path: "guards.gleam",
+        content: content,
+        target: context.SharedTarget,
+      ),
+    ]
     False -> []
   }
 }

@@ -17,7 +17,13 @@ import oaspec/util/string_extra as se
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let client_content = generate_client(ctx)
 
-  [GeneratedFile(path: "client.gleam", content: client_content)]
+  [
+    GeneratedFile(
+      path: "client.gleam",
+      content: client_content,
+      target: context.ClientTarget,
+    ),
+  ]
 }
 
 /// Generate the client module with functions for each operation.

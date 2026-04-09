@@ -2885,6 +2885,41 @@ paths:
   |> should.be_true()
 }
 
+// --- GeneratedFile uses target ADT, not filename strings ---
+pub fn generated_file_has_target_kind_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = generate.generate_all_files(ctx)
+  // All generated files must have proper target assignments
+  let shared_count =
+    list.count(files, fn(f) { f.target == context.SharedTarget })
+  let server_count =
+    list.count(files, fn(f) { f.target == context.ServerTarget })
+  let client_count =
+    list.count(files, fn(f) { f.target == context.ClientTarget })
+  // Must have shared files (types, decoders, etc.)
+  { shared_count > 0 }
+  |> should.be_true()
+  // Must have server files (handlers, router)
+  { server_count > 0 }
+  |> should.be_true()
+  // Must have client files (client)
+  { client_count > 0 }
+  |> should.be_true()
+}
+
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
   case string.contains(haystack, needle) {
     True -> {

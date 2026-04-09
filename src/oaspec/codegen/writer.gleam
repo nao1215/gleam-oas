@@ -26,19 +26,13 @@ pub fn write_all(
   cfg: config.Config,
   on_write: fn(String) -> Nil,
 ) -> Result(List(String), WriteError) {
-  // Separate shared files from server/client-specific ones by checking
-  // which modules are server-only (handlers, router) or client-only (client)
-  let server_only_paths = ["handlers.gleam", "router.gleam"]
-  let client_only_paths = ["client.gleam"]
+  // Separate files by their target kind (ADT-based, not filename matching)
   let shared_files =
-    list.filter(files, fn(f) {
-      !list.contains(server_only_paths, f.path)
-      && !list.contains(client_only_paths, f.path)
-    })
+    list.filter(files, fn(f) { f.target == context.SharedTarget })
   let server_files =
-    list.filter(files, fn(f) { list.contains(server_only_paths, f.path) })
+    list.filter(files, fn(f) { f.target == context.ServerTarget })
   let client_files =
-    list.filter(files, fn(f) { list.contains(client_only_paths, f.path) })
+    list.filter(files, fn(f) { f.target == context.ClientTarget })
 
   let server_path = cfg.output_server
   let client_path = cfg.output_client

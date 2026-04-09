@@ -14,8 +14,16 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let router_content = generate_router(ctx)
 
   [
-    GeneratedFile(path: "handlers.gleam", content: handlers_content),
-    GeneratedFile(path: "router.gleam", content: router_content),
+    GeneratedFile(
+      path: "handlers.gleam",
+      content: handlers_content,
+      target: context.ServerTarget,
+    ),
+    GeneratedFile(
+      path: "router.gleam",
+      content: router_content,
+      target: context.ServerTarget,
+    ),
   ]
 }
 
@@ -166,21 +174,19 @@ fn generate_router(ctx: Context) -> String {
 
   let sb =
     list.fold(operations, sb, fn(sb, op) {
-      let #(op_id, operation, path, method) = op
+      let #(op_id, _operation, path, method) = op
       let fn_name = naming.operation_to_function_name(op_id)
       let method_str = spec.method_to_string(method)
       let path_pattern = path_to_pattern(path)
 
-      let has_params =
-        !list.is_empty(operation.parameters)
-        || option.is_some(operation.request_body)
-      let call = case has_params {
-        True -> "handlers." <> fn_name <> "(req)"
-        False -> "handlers." <> fn_name <> "()"
-      }
+      let call = "handlers." <> fn_name
       sb
       |> se.indent(2, "\"" <> method_str <> "\", " <> path_pattern <> " -> {")
-      |> se.indent(3, "let _response = " <> call)
+      |> se.indent(
+        3,
+        "// TODO: Construct typed request and dispatch to handler",
+      )
+      |> se.indent(3, "let _handler = " <> call)
       |> se.indent(3, "\"OK\"")
       |> se.indent(2, "}")
     })

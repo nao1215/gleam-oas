@@ -23,9 +23,21 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let response_types_content = generate_response_types(ctx)
 
   [
-    GeneratedFile(path: "types.gleam", content: types_content),
-    GeneratedFile(path: "request_types.gleam", content: request_types_content),
-    GeneratedFile(path: "response_types.gleam", content: response_types_content),
+    GeneratedFile(
+      path: "types.gleam",
+      content: types_content,
+      target: context.SharedTarget,
+    ),
+    GeneratedFile(
+      path: "request_types.gleam",
+      content: request_types_content,
+      target: context.SharedTarget,
+    ),
+    GeneratedFile(
+      path: "response_types.gleam",
+      content: response_types_content,
+      target: context.SharedTarget,
+    ),
   ]
 }
 
