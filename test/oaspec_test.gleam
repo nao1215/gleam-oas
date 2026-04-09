@@ -6708,3 +6708,174 @@ pub fn server_multipart_ref_fields_are_parsed_test() {
   )
   |> should.be_true()
 }
+
+// --- Server cookie parameter end-to-end tests ---
+
+pub fn server_cookie_param_generates_cookie_lookup_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /dashboard:
+    get:
+      operationId: getDashboard
+      parameters:
+        - name: session_id
+          in: cookie
+          required: true
+          schema:
+            type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Router must contain the cookie_lookup helper function
+  string.contains(content, "fn cookie_lookup(")
+  |> should.be_true()
+  // Must use cookie_lookup for the session_id parameter
+  string.contains(content, "cookie_lookup(headers, \"session_id\")")
+  |> should.be_true()
+  // Must import gleam/uri for percent-decoding
+  string.contains(content, "gleam/uri")
+  |> should.be_true()
+}
+
+pub fn server_cookie_param_optional_string_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /prefs:
+    get:
+      operationId: getPrefs
+      parameters:
+        - name: theme
+          in: cookie
+          required: false
+          schema:
+            type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Optional cookie should use Some/None pattern
+  string.contains(content, "cookie_lookup(headers, \"theme\")")
+  |> should.be_true()
+  string.contains(content, "Some(v)")
+  |> should.be_true()
+}
+
+pub fn server_cookie_param_integer_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /dashboard:
+    get:
+      operationId: getDashboard
+      parameters:
+        - name: page_size
+          in: cookie
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Integer cookie should use int.parse
+  string.contains(content, "cookie_lookup(headers, \"page_size\")")
+  |> should.be_true()
+  string.contains(content, "int.parse")
+  |> should.be_true()
+}
+
+pub fn server_cookie_param_boolean_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /dashboard:
+    get:
+      operationId: getDashboard
+      parameters:
+        - name: dark_mode
+          in: cookie
+          required: true
+          schema:
+            type: boolean
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Boolean cookie should use case-insensitive bool parsing
+  string.contains(content, "cookie_lookup(headers, \"dark_mode\")")
+  |> should.be_true()
+  string.contains(content, "string.lowercase")
+  |> should.be_true()
+}
+
+pub fn server_cookie_param_float_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /dashboard:
+    get:
+      operationId: getDashboard
+      parameters:
+        - name: zoom_level
+          in: cookie
+          required: true
+          schema:
+            type: number
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Float cookie should use float.parse
+  string.contains(content, "cookie_lookup(headers, \"zoom_level\")")
+  |> should.be_true()
+  string.contains(content, "float.parse")
+  |> should.be_true()
+}
