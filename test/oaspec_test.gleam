@@ -7790,3 +7790,66 @@ pub fn oss_openapi_gen_petstore_server_generates_client_test() {
   // which is correctly rejected.
   list.length(blocking) |> should.not_equal(0)
 }
+
+// --- OSS fixture batch 5: kiota specs (MIT License, Copyright Microsoft) ---
+
+pub fn oss_kiota_discriminator_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_discriminator.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+pub fn oss_kiota_discriminator_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_discriminator.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) -> {
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+    }
+  }
+}
+
+pub fn oss_kiota_derived_types_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_derived_types.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+pub fn oss_kiota_derived_types_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_derived_types.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) -> {
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+    }
+  }
+}
+
+pub fn oss_kiota_multi_security_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_multi_security.yaml")
+  // Security is at operation level, not top-level
+  let assert Some(components) = spec.components
+  dict.size(components.security_schemes) |> should.not_equal(0)
+}
+
+pub fn oss_kiota_multi_security_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kiota_multi_security.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) -> {
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+    }
+  }
+}
