@@ -69,6 +69,7 @@ pub fn hoist(spec: OpenApiSpec) -> OpenApiSpec {
             request_bodies: dict.new(),
             responses: dict.new(),
             security_schemes: dict.new(),
+            path_items: dict.new(),
           ))
       }
   }

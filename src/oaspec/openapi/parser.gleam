@@ -147,11 +147,17 @@ fn parse_paths(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(path) -> {
-            use path_item <- result.try(parse_path_item(
-              value_node,
-              path,
-              components,
-            ))
+            // Check for $ref first — resolve from components.pathItems
+            use path_item <- result.try(
+              case
+                yay.extract_optional_string(value_node, "$ref")
+                |> result.unwrap(None)
+              {
+                Some(ref_str) ->
+                  resolve_path_item_ref(ref_str, components)
+                None -> parse_path_item(value_node, path, components)
+              },
+            )
             Ok(dict.insert(acc, path, path_item))
           }
           _ -> Ok(acc)
@@ -710,6 +716,7 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
   use request_bodies <- result.try(parse_request_bodies_map(components_node))
   use responses <- result.try(parse_responses_map(components_node))
   use security_schemes <- result.try(parse_security_schemes_map(components_node))
+  use path_items <- result.try(parse_path_items_map(components_node))
 
   Ok(Components(
     schemas:,
@@ -717,6 +724,7 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
     request_bodies:,
     responses:,
     security_schemes:,
+    path_items:,
   ))
 }
 
@@ -1082,6 +1090,60 @@ fn parse_security_schemes_map(
       })
     }
     _ -> Ok(dict.new())
+  }
+}
+
+/// Parse the pathItems map from components.
+fn parse_path_items_map(
+  components_node: yay.Node,
+) -> Result(Dict(String, PathItem), ParseError) {
+  case yay.select_sugar(from: components_node, selector: "pathItems") {
+    Ok(yay.NodeMap(entries)) -> {
+      list.try_fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, value_node) = entry
+        case key_node {
+          yay.NodeStr(name) -> {
+            use path_item <- result.try(parse_path_item(
+              value_node,
+              "components.pathItems." <> name,
+              None,
+            ))
+            Ok(dict.insert(acc, name, path_item))
+          }
+          _ -> Ok(acc)
+        }
+      })
+    }
+    _ -> Ok(dict.new())
+  }
+}
+
+/// Resolve a $ref for a path item by looking it up in components.pathItems.
+fn resolve_path_item_ref(
+  ref_str: String,
+  components: Option(Components),
+) -> Result(PathItem, ParseError) {
+  let ref_name =
+    ref_str
+    |> string.split("/")
+    |> list.last
+    |> result.unwrap("unknown")
+
+  case components {
+    Some(comps) ->
+      case dict.get(comps.path_items, ref_name) {
+        Ok(path_item) -> Ok(path_item)
+        Error(_) ->
+          Error(InvalidValue(
+            path: "pathItem.$ref",
+            detail: "Unresolved pathItem reference: " <> ref_str,
+          ))
+      }
+    None ->
+      Error(InvalidValue(
+        path: "pathItem.$ref",
+        detail: "No components to resolve reference: " <> ref_str,
+      ))
   }
 }
 

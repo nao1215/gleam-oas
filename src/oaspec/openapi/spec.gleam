@@ -32,6 +32,7 @@ pub type Components {
     request_bodies: Dict(String, RequestBody),
     responses: Dict(String, Response),
     security_schemes: Dict(String, SecurityScheme),
+    path_items: Dict(String, PathItem),
   )
 }
 

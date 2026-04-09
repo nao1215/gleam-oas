@@ -3620,6 +3620,36 @@ components:
   |> should.be_true()
 }
 
+// --- PathItem.$ref tests ---
+
+/// PathItem.$ref must resolve to the referenced PathItem from components.pathItems.
+pub fn path_item_ref_resolves_test() {
+  let yaml =
+    "
+openapi: 3.1.0
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /health:
+    $ref: '#/components/pathItems/HealthCheck'
+components:
+  pathItems:
+    HealthCheck:
+      get:
+        operationId: healthCheck
+        responses:
+          '200':
+            description: OK
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  // /health path must exist with a get operation
+  let assert Ok(path_item) = dict.get(spec.paths, "/health")
+  let assert Some(get_op) = path_item.get
+  get_op.operation_id
+  |> should.equal(Some("healthCheck"))
+}
+
 // --- Unresolved $ref validation tests ---
 
 /// A $ref pointing to a non-existent schema must be caught by validation.
