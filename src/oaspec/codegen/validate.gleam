@@ -253,7 +253,7 @@ fn validate_server_deep_object_param(
       dict.to_list(properties)
       |> list.flat_map(fn(entry) {
         let #(prop_name, prop_ref) = entry
-        case deep_object_server_leaf_supported(prop_ref) {
+        case deep_object_server_leaf_supported(prop_ref, ctx) {
           True -> []
           False -> [
             ValidationError(
@@ -269,7 +269,10 @@ fn validate_server_deep_object_param(
   }
 }
 
-fn deep_object_server_leaf_supported(schema_ref: SchemaRef) -> Bool {
+fn deep_object_server_leaf_supported(
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> Bool {
   case schema_ref {
     Inline(StringSchema(..))
     | Inline(IntegerSchema(..))
@@ -279,6 +282,18 @@ fn deep_object_server_leaf_supported(schema_ref: SchemaRef) -> Bool {
     | Inline(ArraySchema(items: Inline(IntegerSchema(..)), ..))
     | Inline(ArraySchema(items: Inline(NumberSchema(..)), ..))
     | Inline(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
+    Reference(..) ->
+      case resolve_schema_object(Some(schema_ref), ctx) {
+        Some(StringSchema(..))
+        | Some(IntegerSchema(..))
+        | Some(NumberSchema(..))
+        | Some(BooleanSchema(..))
+        | Some(ArraySchema(items: Inline(StringSchema(..)), ..))
+        | Some(ArraySchema(items: Inline(IntegerSchema(..)), ..))
+        | Some(ArraySchema(items: Inline(NumberSchema(..)), ..))
+        | Some(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
+        _ -> False
+      }
     _ -> False
   }
 }

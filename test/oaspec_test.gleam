@@ -6994,3 +6994,111 @@ components:
   string.contains(content, "import api/types")
   |> should.be_true()
 }
+
+// --- deepObject referenced enum/alias leaf tests ---
+
+pub fn validate_deep_object_referenced_enum_leaf_accepted_test() {
+  // deepObject properties that reference a string enum should be accepted
+  // since enums are effectively strings at the wire level.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: filter
+          in: query
+          required: true
+          style: deepObject
+          schema:
+            type: object
+            properties:
+              status:
+                $ref: '#/components/schemas/Status'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Status:
+      type: string
+      enum: [active, inactive]
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Server,
+    )
+  let ctx = context.new(spec, cfg)
+  let errors = validate.validate(ctx)
+  let deep_object_errors =
+    list.filter(errors, fn(e) {
+      string.contains(e.detail, "deepObject")
+    })
+  // Should have NO deepObject errors for referenced enum leaf
+  list.length(deep_object_errors)
+  |> should.equal(0)
+}
+
+pub fn validate_deep_object_referenced_primitive_alias_accepted_test() {
+  // deepObject properties that reference a primitive alias (e.g., string)
+  // should be accepted since they resolve to simple scalar types.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: filter
+          in: query
+          required: true
+          style: deepObject
+          schema:
+            type: object
+            properties:
+              id:
+                $ref: '#/components/schemas/UUID'
+              count:
+                $ref: '#/components/schemas/PositiveInt'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+    PositiveInt:
+      type: integer
+      minimum: 1
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Server,
+    )
+  let ctx = context.new(spec, cfg)
+  let errors = validate.validate(ctx)
+  let deep_object_errors =
+    list.filter(errors, fn(e) {
+      string.contains(e.detail, "deepObject")
+    })
+  list.length(deep_object_errors)
+  |> should.equal(0)
+}
