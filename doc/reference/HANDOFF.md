@@ -9,6 +9,8 @@ meaningful slice of work lands.
 
 ## Recent Commits
 
+- `e8ae2fa` `Percent-decode generated server cookie values`
+- `3b685aa` `Import list for generated cookie router helpers`
 - `c5635a0` `Support cookie parameters in server codegen`
 - `6099b65` `Format validation mode filtering changes`
 - `eba31f8` `Underscore unused server route arguments`
@@ -26,7 +28,8 @@ meaningful slice of work lands.
 - `PathItem.$ref` parsing already exists in
   `src/oaspec/openapi/parser.gleam`; `README.md` has been corrected to match.
 - Server cookie parameters are now generated via Cookie-header lookup in
-  `src/oaspec/codegen/server.gleam`.
+  `src/oaspec/codegen/server.gleam`, including percent-decoding of cookie
+  values and required imports for the generated helper.
 - Structured server parameters and non-JSON server request bodies still need a
   larger request parsing refactor.
 
@@ -50,6 +53,11 @@ For the full local workflow:
 ```sh
 env PATH="$HOME/.local/share/mise/shims:/home/nao/.local/share/mise/installs/gleam/1.15.2:/home/nao/.local/share/mise/installs/erlang/28.4.1/bin:$HOME/.local/bin:$PATH" just all
 ```
+
+Latest known good local checks from this branch:
+
+- `gleam test` -> `197 passed, no failures`
+- `gleam build --warnings-as-errors` -> pass
 
 ## Constraints
 
