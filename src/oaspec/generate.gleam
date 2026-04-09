@@ -41,9 +41,10 @@ pub fn generate(
   let ctx = context.new(spec, cfg)
 
   // Validate spec for unsupported features
-  let validation_errors = validate.validate(ctx)
-  case list.is_empty(validation_errors) {
-    False -> Error(ValidationErrors(errors: validation_errors))
+  let validation_issues = validate.validate(ctx)
+  let blocking_errors = validate.errors_only(validation_issues)
+  case list.is_empty(blocking_errors) {
+    False -> Error(ValidationErrors(errors: blocking_errors))
     True -> {
       let files = generate_all_files(ctx)
       Ok(GenerationSummary(files:, spec_title:))

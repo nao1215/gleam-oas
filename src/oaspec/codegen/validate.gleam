@@ -5,6 +5,7 @@ import gleam/regexp
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
+import oaspec/config
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -14,9 +15,27 @@ import oaspec/openapi/schema.{
 import oaspec/openapi/spec
 import oaspec/util/content_type
 
-/// A validation error representing an unsupported OpenAPI feature.
+/// Severity level for validation issues.
+pub type Severity {
+  SeverityError
+  SeverityWarning
+}
+
+/// Target indicating which generation mode the issue applies to.
+pub type Target {
+  TargetBoth
+  TargetClient
+  TargetServer
+}
+
+/// A validation issue representing an unsupported or noteworthy OpenAPI feature.
 pub type ValidationError {
-  UnsupportedFeature(path: String, detail: String)
+  ValidationError(
+    path: String,
+    detail: String,
+    severity: Severity,
+    target: Target,
+  )
 }
 
 /// Validate the parsed spec for unsupported patterns.
@@ -27,15 +46,27 @@ pub fn validate(ctx: Context) -> List(ValidationError) {
   let op_errors = validate_operations(ctx)
   let schema_errors = validate_component_schemas(ctx)
   let security_errors = validate_security_schemes(ctx)
-  list.flatten([op_errors, schema_errors, security_errors])
+  let preserved_warnings = validate_preserved_but_unused(ctx)
+  list.flatten([op_errors, schema_errors, security_errors, preserved_warnings])
+}
+
+/// Filter to only errors (not warnings).
+pub fn errors_only(issues: List(ValidationError)) -> List(ValidationError) {
+  list.filter(issues, fn(e) { e.severity == SeverityError })
+}
+
+/// Filter to only warnings (not errors).
+pub fn warnings_only(issues: List(ValidationError)) -> List(ValidationError) {
+  list.filter(issues, fn(e) { e.severity == SeverityWarning })
 }
 
 /// Convert a validation error to a human-readable string.
 pub fn error_to_string(error: ValidationError) -> String {
-  case error {
-    UnsupportedFeature(path:, detail:) ->
-      "Unsupported feature at " <> path <> ": " <> detail
+  let prefix = case error.severity {
+    SeverityError -> "Error"
+    SeverityWarning -> "Warning"
   }
+  prefix <> " at " <> error.path <> ": " <> error.detail
 }
 
 /// Validate all operations for unsupported patterns.
@@ -72,7 +103,9 @@ fn validate_path_template_params(
     case list.contains(path_param_names, name) {
       True -> Error(Nil)
       False ->
-        Ok(UnsupportedFeature(
+        Ok(ValidationError(
+          severity: SeverityError,
+          target: TargetBoth,
           path: op_id <> ".path",
           detail: "Path template parameter '{"
             <> name
@@ -111,7 +144,9 @@ fn validate_parameters(
       | Some(spec.LabelStyle)
       | Some(spec.SpaceDelimitedStyle)
       | Some(spec.PipeDelimitedStyle) -> [
-        UnsupportedFeature(
+        ValidationError(
+          severity: SeverityError,
+          target: TargetBoth,
           path: path,
           detail: "Parameter style is not supported. Supported styles: form, deepObject, simple.",
         ),
@@ -122,7 +157,9 @@ fn validate_parameters(
     // We don't support the content-based parameter serialization.
     let content_errors = case p.schema {
       None -> [
-        UnsupportedFeature(
+        ValidationError(
+          severity: SeverityError,
+          target: TargetBoth,
           path: path,
           detail: "Parameters using 'content' instead of 'schema' are not supported.",
         ),
@@ -159,7 +196,9 @@ fn validate_complex_param_schema(
             | Some(AllOfSchema(..))
             | Some(OneOfSchema(..))
             | Some(AnyOfSchema(..)) -> [
-              UnsupportedFeature(
+              ValidationError(
+                severity: SeverityError,
+                target: TargetBoth,
                 path: path,
                 detail: "Complex schema (object/oneOf/allOf/anyOf) parameters require style: deepObject. Without it, the parameter cannot be serialized.",
               ),
@@ -186,7 +225,9 @@ fn validate_deep_object_no_nested_objects(
           | Some(AllOfSchema(..))
           | Some(OneOfSchema(..))
           | Some(AnyOfSchema(..)) -> [
-            UnsupportedFeature(
+            ValidationError(
+              severity: SeverityError,
+              target: TargetBoth,
               path: path <> "." <> prop_name,
               detail: "Nested object properties in deepObject parameters are not supported. Only one level of object nesting is supported (e.g., filter[name]=value).",
             ),
@@ -230,7 +271,9 @@ fn validate_request_body(
       let content_type_errors = case unsupported {
         [] -> []
         [media_type, ..] -> [
-          UnsupportedFeature(
+          ValidationError(
+            severity: SeverityError,
+            target: TargetBoth,
             path: op_id <> ".requestBody",
             detail: "Content type '"
               <> media_type
@@ -282,7 +325,9 @@ fn validate_multipart_request_body_fields(
             case multipart_field_is_stringifiable(field_schema, ctx) {
               True -> []
               False -> [
-                UnsupportedFeature(
+                ValidationError(
+                  severity: SeverityError,
+                  target: TargetBoth,
                   path: op_id <> ".requestBody.multipart." <> field_name,
                   detail: "multipart/form-data fields must be string, integer, number, boolean, binary, or string enums.",
                 ),
@@ -290,7 +335,9 @@ fn validate_multipart_request_body_fields(
             }
           })
         Some(_) -> [
-          UnsupportedFeature(
+          ValidationError(
+            severity: SeverityError,
+            target: TargetBoth,
             path: op_id <> ".requestBody",
             detail: "multipart/form-data request bodies must use an object schema.",
           ),
@@ -313,7 +360,9 @@ fn validate_form_urlencoded_schema(
       case resolve_schema_object(media_type.schema, ctx) {
         Some(ObjectSchema(..)) -> []
         Some(_) -> [
-          UnsupportedFeature(
+          ValidationError(
+            severity: SeverityError,
+            target: TargetBoth,
             path: op_id <> ".requestBody",
             detail: "application/x-www-form-urlencoded request bodies must use an object schema.",
           ),
@@ -354,7 +403,9 @@ fn validate_responses(
       {
         True -> []
         False -> [
-          UnsupportedFeature(
+          ValidationError(
+            severity: SeverityError,
+            target: TargetBoth,
             path: path,
             detail: "Response content type '"
               <> media_type_name
@@ -399,7 +450,9 @@ fn validate_schema_ref_recursive(
       // Detect external refs (not starting with #/) before resolution
       case string.starts_with(ref, "#/") {
         False -> [
-          UnsupportedFeature(
+          ValidationError(
+            severity: SeverityError,
+            target: TargetBoth,
             path: path,
             detail: "External $ref '"
               <> ref
@@ -410,7 +463,9 @@ fn validate_schema_ref_recursive(
           case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
             Ok(_) -> []
             Error(_) -> [
-              UnsupportedFeature(
+              ValidationError(
+                severity: SeverityError,
+                target: TargetBoth,
                 path: path,
                 detail: "Unresolved schema reference: '"
                   <> ref
@@ -491,4 +546,71 @@ fn validate_schema_recursive(
 /// and OpenID Connect.
 fn validate_security_schemes(_ctx: Context) -> List(ValidationError) {
   []
+}
+
+/// Check for AST fields that are parsed but not used by codegen, emitting
+/// warnings so users are aware their spec contains features we preserve but
+/// do not generate code for.
+fn validate_preserved_but_unused(ctx: Context) -> List(ValidationError) {
+  let webhook_warnings = case dict.is_empty(ctx.spec.webhooks) {
+    True -> []
+    False -> [
+      ValidationError(
+        severity: SeverityWarning,
+        target: TargetBoth,
+        path: "webhooks",
+        detail: "Webhooks are parsed but not used by code generation.",
+      ),
+    ]
+  }
+  let operations = type_gen.collect_operations(ctx)
+  let response_warnings =
+    list.flat_map(operations, fn(op) {
+      let #(op_id, operation, _path, _method) = op
+      let entries = dict.to_list(operation.responses)
+      list.flat_map(entries, fn(entry) {
+        let #(status_code, response) = entry
+        let base_path = op_id <> ".responses." <> status_code
+        let header_warnings = case dict.is_empty(response.headers) {
+          True -> []
+          False -> [
+            ValidationError(
+              severity: SeverityWarning,
+              target: TargetBoth,
+              path: base_path <> ".headers",
+              detail: "Response headers are parsed but not used by code generation.",
+            ),
+          ]
+        }
+        let link_warnings = case dict.is_empty(response.links) {
+          True -> []
+          False -> [
+            ValidationError(
+              severity: SeverityWarning,
+              target: TargetBoth,
+              path: base_path <> ".links",
+              detail: "Response links are parsed but not used by code generation.",
+            ),
+          ]
+        }
+        let content_entries = dict.to_list(response.content)
+        let encoding_warnings =
+          list.flat_map(content_entries, fn(ce) {
+            let #(media_type_name, media_type) = ce
+            case dict.is_empty(media_type.encoding) {
+              True -> []
+              False -> [
+                ValidationError(
+                  severity: SeverityWarning,
+                  target: TargetBoth,
+                  path: base_path <> "." <> media_type_name <> ".encoding",
+                  detail: "MediaType encoding is parsed but not used by code generation.",
+                ),
+              ]
+            }
+          })
+        list.flatten([header_warnings, link_warnings, encoding_warnings])
+      })
+    })
+  list.flatten([webhook_warnings, response_warnings])
 }

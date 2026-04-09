@@ -3386,7 +3386,7 @@ paths:
       ),
     )
   let errors = validate.validate(ctx)
-  let assert [validate.UnsupportedFeature(detail: msg, ..)] = errors
+  let assert [validate.ValidationError(detail: msg, ..)] = errors
   // Error message must mention form-urlencoded as a supported type
   string.contains(msg, "form-urlencoded")
   |> should.be_true()
@@ -3428,7 +3428,7 @@ paths:
       ),
     )
   let errors = validate.validate(ctx)
-  let assert [validate.UnsupportedFeature(detail: msg, ..)] = errors
+  let assert [validate.ValidationError(detail: msg, ..)] = errors
   // Error message must mention XML as a supported type
   string.contains(msg, "xml")
   |> should.be_true()
@@ -4662,4 +4662,231 @@ paths: {}
   tag.description |> should.equal(Some("User operations"))
   let assert Some(ext) = parsed.external_docs
   ext.url |> should.equal("https://docs.example.com")
+}
+
+// --- Bug verification tests ---
+
+/// Bug 1: Optional deepObject + array leaf.
+/// When a deepObject parameter is optional (required: false) AND has an array
+/// leaf property, it must NOT produce uri.percent_encode(v) where v is the
+/// whole list. It should iterate the list items instead.
+pub fn bug1_optional_deep_object_array_leaf_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          required: false
+          schema:
+            type: object
+            properties:
+              tags:
+                type: array
+                items: { type: string }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  // The bug: optional deepObject with array leaf calls percent_encode on the
+  // whole list variable (e.g. obj.tags) instead of iterating items.
+  // We check that the generated code uses list.fold to iterate array items
+  // rather than directly encoding the list.
+  // If this assertion fails, the bug exists.
+  let has_list_fold_for_tags = string.contains(content, "list.fold(")
+  let has_direct_encode_of_tags =
+    string.contains(content, "uri.percent_encode(obj.tags)")
+  // Should iterate items (list.fold), not encode list directly
+  has_list_fold_for_tags
+  |> should.be_true()
+  has_direct_encode_of_tags
+  |> should.be_false()
+}
+
+/// Bug 2: form-urlencoded $ref array property.
+/// When a form body has a $ref that resolves to an array schema, it must NOT
+/// produce uri.percent_encode(body.tags) where body.tags is a List.
+/// It should iterate the list items with list.fold instead.
+pub fn bug2_form_urlencoded_ref_array_property_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /submit:
+    post:
+      operationId: submitForm
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  $ref: '#/components/schemas/TagList'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    TagList:
+      type: array
+      items: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  // The bug: $ref to array schema is not detected as array, so it treats the
+  // list as a scalar and calls percent_encode(body.tags) directly.
+  // Should use list.fold to iterate items instead.
+  let has_list_fold = string.contains(content, "list.fold(body.tags")
+  let has_direct_encode =
+    string.contains(content, "uri.percent_encode(body.tags)")
+  // Should iterate items, not encode list directly
+  has_list_fold
+  |> should.be_true()
+  has_direct_encode
+  |> should.be_false()
+}
+
+/// Bug 3: $ref array query parameter missing gleam/list import.
+/// When a query parameter has a schema that $refs to an array type, the
+/// generated code uses list.fold but the import for gleam/list may be missing.
+pub fn bug3_ref_array_query_param_import_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      parameters:
+        - name: tags
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema:
+            $ref: '#/components/schemas/TagList'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    TagList:
+      type: array
+      items: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+
+  // The bug: list.fold is used in generated code but gleam/list may not be
+  // imported because the import check only looks for Inline(ArraySchema)
+  // not Reference that resolves to ArraySchema.
+  let uses_list_module =
+    string.contains(content, "list.fold")
+    || string.contains(content, "list.map")
+  let imports_list = string.contains(content, "import gleam/list")
+  // If the code uses list.fold/list.map, it MUST import gleam/list
+  case uses_list_module {
+    True -> imports_list |> should.be_true()
+    False -> Nil
+  }
+}
+
+// --- Structured capability: warnings don't block generation ---
+pub fn capability_warnings_dont_block_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Rate-Limit:
+              description: Rate limit
+              schema: { type: integer }
+          links:
+            next:
+              operationId: getItems
+webhooks:
+  newItem:
+    post:
+      operationId: onNewItem
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  // Generation must succeed even with warnings
+  let result = generate.generate(spec, cfg)
+  should.be_ok(result)
+  // But validation issues should include warnings
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = context.new(spec, cfg)
+  let issues = validate.validate(ctx)
+  let warnings = validate.warnings_only(issues)
+  { warnings != [] }
+  |> should.be_true()
 }
