@@ -14,6 +14,8 @@ integration_test/client_test/
 integration_test/complex_test/
 integration_test/secure_test/
 integration_test/primitive_test/
+integration_test/form_test/
+integration_test/multipart_test/
 /oaspec
 test_output_client/
 doc/reference/libopenapi/

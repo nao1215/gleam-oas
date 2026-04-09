@@ -6879,3 +6879,71 @@ paths:
   string.contains(content, "float.parse")
   |> should.be_true()
 }
+
+// --- Response types import conditional test ---
+
+pub fn response_types_omits_types_import_when_no_body_test() {
+  // When all responses have no body, response_types.gleam should not
+  // import the types module (avoids unused import warning).
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        '200': { description: ok }
+        '500': { description: error }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = types.generate(ctx)
+  let assert Ok(resp_file) =
+    list.find(files, fn(f) { f.path == "response_types.gleam" })
+  let content = resp_file.content
+  // Should NOT import types module when no response body references it
+  string.contains(content, "import api/types")
+  |> should.be_false()
+}
+
+pub fn response_types_includes_types_import_when_ref_body_test() {
+  // When a response has a $ref body, types import is needed.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = types.generate(ctx)
+  let assert Ok(resp_file) =
+    list.find(files, fn(f) { f.path == "response_types.gleam" })
+  let content = resp_file.content
+  // Should import types module for $ref response bodies
+  string.contains(content, "import api/types")
+  |> should.be_true()
+}
