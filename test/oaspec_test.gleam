@@ -3620,6 +3620,76 @@ components:
   |> should.be_true()
 }
 
+// --- Unresolved $ref validation tests ---
+
+/// A $ref pointing to a non-existent schema must be caught by validation.
+pub fn unresolved_ref_detected_by_validator_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Missing'
+components:
+  schemas: {}
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  // Must report at least one error for unresolved reference
+  list.is_empty(errors)
+  |> should.be_false()
+}
+
+/// A $ref pointing to an existing schema must pass validation.
+pub fn resolved_ref_passes_validator_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+components:
+  schemas:
+    Item:
+      type: object
+      properties:
+        name:
+          type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  list.is_empty(errors)
+  |> should.be_true()
+}
+
 // --- Security AND wildcard tests ---
 
 /// Security AND with 3 schemes must generate correct wildcard pattern.

@@ -46,7 +46,7 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
       validate_path_template_params(op_id, path, operation.parameters)
     let param_errors = validate_parameters(op_id, operation.parameters, ctx)
     let body_errors = validate_request_body(op_id, operation.request_body, ctx)
-    let response_errors = validate_responses(op_id, operation.responses)
+    let response_errors = validate_responses(op_id, operation.responses, ctx)
     list.flatten([path_errors, param_errors, body_errors, response_errors])
   })
 }
@@ -222,7 +222,11 @@ fn validate_request_body(
           let #(_media_type, media_type) = entry
           case media_type.schema {
             Some(schema_ref) ->
-              validate_schema_ref_recursive(op_id <> ".requestBody", schema_ref)
+              validate_schema_ref_recursive(
+                op_id <> ".requestBody",
+                schema_ref,
+                ctx,
+              )
             None -> []
           }
         })
@@ -311,6 +315,7 @@ fn multipart_field_is_stringifiable(schema_ref: SchemaRef, ctx: Context) -> Bool
 fn validate_responses(
   op_id: String,
   responses: dict.Dict(String, spec.Response),
+  ctx: Context,
 ) -> List(ValidationError) {
   let entries = dict.to_list(responses)
   list.flat_map(entries, fn(entry) {
@@ -335,7 +340,8 @@ fn validate_responses(
         ]
       }
       let schema_errors = case media_type.schema {
-        Some(schema_ref) -> validate_schema_ref_recursive(path, schema_ref)
+        Some(schema_ref) ->
+          validate_schema_ref_recursive(path, schema_ref, ctx)
         None -> []
       }
       list.append(content_type_errors, schema_errors)
@@ -351,18 +357,31 @@ fn validate_component_schemas(ctx: Context) -> List(ValidationError) {
   }
   list.flat_map(schemas, fn(entry) {
     let #(name, schema_ref) = entry
-    validate_schema_ref_recursive("components.schemas." <> name, schema_ref)
+    validate_schema_ref_recursive("components.schemas." <> name, schema_ref, ctx)
   })
 }
 
 /// Recursively validate a SchemaRef at any depth.
+/// References are checked for resolvability against the spec's components.
 fn validate_schema_ref_recursive(
   path: String,
   schema_ref: SchemaRef,
+  ctx: Context,
 ) -> List(ValidationError) {
   case schema_ref {
-    Reference(_) -> []
-    Inline(schema_obj) -> validate_schema_recursive(path, schema_obj)
+    Reference(ref) ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(_) -> []
+        Error(_) -> [
+          UnsupportedFeature(
+            path: path,
+            detail: "Unresolved schema reference: '"
+              <> ref
+              <> "'. The referenced schema does not exist in components.",
+          ),
+        ]
+      }
+    Inline(schema_obj) -> validate_schema_recursive(path, schema_obj, ctx)
   }
 }
 
@@ -370,6 +389,7 @@ fn validate_schema_ref_recursive(
 fn validate_schema_recursive(
   path: String,
   schema_obj: SchemaObject,
+  ctx: Context,
 ) -> List(ValidationError) {
   case schema_obj {
     ObjectSchema(
@@ -384,7 +404,11 @@ fn validate_schema_recursive(
       // Recurse into typed additionalProperties schema
       let typed_ap_errors = case additional_properties {
         Some(ap_ref) ->
-          validate_schema_ref_recursive(path <> ".additionalProperties", ap_ref)
+          validate_schema_ref_recursive(
+            path <> ".additionalProperties",
+            ap_ref,
+            ctx,
+          )
         None -> []
       }
       // Recurse into properties
@@ -393,7 +417,7 @@ fn validate_schema_recursive(
         |> list.flat_map(fn(entry) {
           let #(prop_name, prop_ref) = entry
           let prop_path = path <> "." <> prop_name
-          validate_schema_ref_recursive(prop_path, prop_ref)
+          validate_schema_ref_recursive(prop_path, prop_ref, ctx)
         })
       list.flatten([
         ap_errors,
@@ -403,21 +427,21 @@ fn validate_schema_recursive(
     }
 
     ArraySchema(items:, ..) -> {
-      validate_schema_ref_recursive(path <> ".items", items)
+      validate_schema_ref_recursive(path <> ".items", items, ctx)
     }
 
     OneOfSchema(schemas:, ..) ->
       list.flat_map(schemas, fn(s_ref) {
-        validate_schema_ref_recursive(path <> ".oneOf", s_ref)
+        validate_schema_ref_recursive(path <> ".oneOf", s_ref, ctx)
       })
     AnyOfSchema(schemas:, ..) ->
       list.flat_map(schemas, fn(s_ref) {
-        validate_schema_ref_recursive(path <> ".anyOf", s_ref)
+        validate_schema_ref_recursive(path <> ".anyOf", s_ref, ctx)
       })
 
     AllOfSchema(schemas:, ..) ->
       list.flat_map(schemas, fn(s_ref) {
-        validate_schema_ref_recursive(path <> ".allOf", s_ref)
+        validate_schema_ref_recursive(path <> ".allOf", s_ref, ctx)
       })
 
     _ -> []
