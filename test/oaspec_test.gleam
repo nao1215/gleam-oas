@@ -2483,6 +2483,186 @@ paths:
   |> should.be_true()
 }
 
+// --- Array alias (TagList) must generate decoder and encoder ---
+pub fn array_alias_decoder_encoder_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /tags:
+    get:
+      operationId: getTags
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagList'
+components:
+  schemas:
+    TagList:
+      type: array
+      items: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = decoders.generate(ctx)
+  let assert [decode_file, _encode_file] = files
+  // Must generate tag_list_decoder() function
+  string.contains(decode_file.content, "tag_list_decoder")
+  |> should.be_true()
+}
+
+// --- deepObject array leaf must not produce uri.percent_encode on List ---
+pub fn deep_object_array_leaf_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          required: true
+          schema:
+            type: object
+            required: [tags]
+            properties:
+              tags:
+                type: array
+                items: { type: string }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  // Must NOT produce uri.percent_encode(filter.tags) — that's a type error
+  // (filter.tags is List(String), not String)
+  string.contains(client_file.content, "uri.percent_encode(filter.tags)")
+  |> should.be_false()
+}
+
+// --- form-urlencoded nested object must not produce uri.percent_encode on record ---
+pub fn form_urlencoded_nested_object_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /submit:
+    post:
+      operationId: submitForm
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [meta]
+              properties:
+                meta:
+                  type: object
+                  properties:
+                    name: { type: string }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  // Must NOT produce uri.percent_encode(body.meta) — that's a type error
+  // (body.meta is a record/object, not String)
+  string.contains(client_file.content, "uri.percent_encode(body.meta)")
+  |> should.be_false()
+}
+
+// --- HEAD operation must not be silently dropped ---
+pub fn head_operation_not_silently_dropped_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /ping:
+    head:
+      operationId: headPing
+      responses:
+        '200': { description: ok }
+"
+  let result = parser.parse_string(yaml)
+  case result {
+    Ok(spec) -> {
+      // If parse succeeds, there must be some way to know HEAD was present.
+      // Currently PathItem has no head field, so it silently drops it.
+      // After fix: either head is in the AST, or parser returns an error.
+      let assert Ok(path_item) = dict.get(spec.paths, "/ping")
+      // At minimum, the path should have at least one operation
+      let has_any_op =
+        option.is_some(path_item.get)
+        || option.is_some(path_item.post)
+        || option.is_some(path_item.put)
+        || option.is_some(path_item.delete)
+        || option.is_some(path_item.patch)
+      // HEAD was the only operation — if no ops exist, it was silently dropped
+      has_any_op
+      |> should.be_true()
+    }
+    Error(_) -> {
+      // Error is acceptable — means we don't silently drop
+      should.be_ok(Ok(Nil))
+    }
+  }
+}
+
+// --- OpenAPI 3.1 type: [string, integer] must not silently take first type ---
+pub fn openapi_31_multi_type_union_test() {
+  let yaml =
+    "
+openapi: 3.1.0
+info: { title: T, version: 1.0.0 }
+paths:
+  /value:
+    get:
+      operationId: getValue
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    StringOrInt:
+      type: [string, integer]
+"
+  let result = parser.parse_string(yaml)
+  case result {
+    Ok(spec) -> {
+      let spec = hoist.hoist(spec)
+      let ctx = make_ctx_from_spec(spec)
+      let files = types.generate(ctx)
+      let assert [types_file, ..] = files
+      // Must NOT generate just "pub type StringOrInt = String"
+      // (that would silently drop the integer variant)
+      // Should either be a union type or a validation error
+      string.contains(types_file.content, "pub type StringOrInt = String")
+      |> should.be_false()
+    }
+    Error(_) -> {
+      // Error is also acceptable
+      should.be_ok(Ok(Nil))
+    }
+  }
+}
+
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
   case string.contains(haystack, needle) {
     True -> {
