@@ -2,7 +2,6 @@ import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
-import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
@@ -96,15 +95,50 @@ fn extract_path_template_names(path: String) -> List(String) {
   })
 }
 
-/// Validate parameters for unsupported patterns.
-/// deepObject style, array parameters, complex schema parameters, and optional
-/// path parameters are all supported now.
+/// Validate parameters for unsupported serialization styles.
+/// Supported: form (default), deepObject (query+object), exploded array.
+/// Unsupported: matrix, label, simple, spaceDelimited, pipeDelimited.
 fn validate_parameters(
-  _op_id: String,
-  _params: List(spec.Parameter),
+  op_id: String,
+  params: List(spec.Parameter),
   _ctx: Context,
 ) -> List(ValidationError) {
-  []
+  list.flat_map(params, fn(p) {
+    let path = op_id <> ".parameters." <> p.name
+    let style_errors = case p.style {
+      Some("matrix") | Some("label") | Some("spaceDelimited")
+      | Some("pipeDelimited") ->
+        [
+          UnsupportedFeature(
+            path: path,
+            detail: "Parameter style '"
+              <> option_to_string(p.style)
+              <> "' is not supported. Supported styles: form, deepObject, simple.",
+          ),
+        ]
+      _ -> []
+    }
+    // Parameter.schema is None when Parameter.content is used instead.
+    // We don't support the content-based parameter serialization.
+    let content_errors = case p.schema {
+      None ->
+        [
+          UnsupportedFeature(
+            path: path,
+            detail: "Parameters using 'content' instead of 'schema' are not supported.",
+          ),
+        ]
+      _ -> []
+    }
+    list.append(style_errors, content_errors)
+  })
+}
+
+fn option_to_string(opt: Option(String)) -> String {
+  case opt {
+    Some(s) -> s
+    None -> ""
+  }
 }
 
 fn resolve_schema_object(
