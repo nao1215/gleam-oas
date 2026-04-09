@@ -9,6 +9,8 @@ meaningful slice of work lands.
 
 ## Recent Commits
 
+- `40f4908` `Support referenced server request body fields`
+- `265e2a3` `Refresh full support progress after multipart support`
 - `57ffccb` `Support server multipart request bodies`
 - `799c347` `Refresh full support progress after nested form support`
 - `b9b2c01` `Support nested server form-urlencoded bodies`
@@ -46,18 +48,17 @@ meaningful slice of work lands.
 - Server `application/x-www-form-urlencoded` bodies are supported when they
   are the sole request content type and their object fields are inline
   primitive scalars/arrays, including one level of nested object fields with
-  inline primitive leaves.
+  inline primitive leaves. Referenced primitive field schemas now work within
+  that same one-level nesting boundary.
 - Server `multipart/form-data` bodies are supported when they are the sole
-  request content type and their object fields are inline primitive scalars.
-  The generated parser preserves raw field text instead of trimming multipart
-  values.
+  request content type and their object fields are primitive scalars,
+  including referenced primitive scalar fields. The generated parser preserves
+  raw field text instead of trimming multipart values.
 
 ## Next Concrete Tasks
 
-1. Expand form-urlencoded support to referenced primitive field schemas and
-   deeper nesting if the generated request-body types can safely represent
-   them.
-2. Expand multipart support beyond inline primitive scalar fields while
+1. Expand form-urlencoded support beyond one level of object nesting.
+2. Expand multipart support beyond primitive scalar fields while
    preserving raw value text and avoiding lossy trimming.
 3. Revisit multi-content server responses and response-header emission.
 4. Add dedicated integration fixtures for non-JSON server request bodies.
@@ -78,7 +79,7 @@ env PATH="$HOME/.local/share/mise/shims:/home/nao/.local/share/mise/installs/gle
 
 Latest known good local checks from this branch:
 
-- `gleam test` -> `209 passed, no failures`
+- `gleam test` -> `213 passed, no failures`
 - `gleam build --warnings-as-errors` -> pass
 - `just all` -> pass
 

@@ -160,14 +160,17 @@ Definition of done:
   bodies whose fields are inline primitive scalars / inline primitive arrays
 - [x] form-urlencoded support expanded to one level of nested object fields
   with inline primitive leaves
+- [x] form-urlencoded support expanded to referenced primitive field schemas,
+  including referenced primitive-array fields and referenced primitive nested
+  leaves within the existing one-level object nesting limit
 - [x] multipart request parsing implemented for sole-content object bodies
   whose fields are inline primitive scalars
+- [x] multipart support expanded to referenced primitive scalar fields
 - [x] server validation relaxed for multipart within the implemented boundary
-- [ ] form-urlencoded support expanded to referenced primitive field schemas
-  and deeper nesting
 - [ ] integration fixtures for both content types
 - [ ] multipart support expanded beyond inline primitive scalar fields without
   corrupting raw field values or file payload text
+- [ ] form-urlencoded support expanded beyond one level of object nesting
 
 ### Phase D: response fidelity
 
@@ -196,3 +199,7 @@ Definition of done:
   scalar fields. The generated parser intentionally preserves raw field text
   instead of trimming multipart values, so future extensions must keep that
   behavior intact.
+- Server request-body parsing now resolves referenced primitive field schemas
+  for form-urlencoded and multipart code generation. If deeper nesting is
+  added later, keep the parser and validator limits aligned so `mode=server`
+  never accepts shapes the router cannot construct.
