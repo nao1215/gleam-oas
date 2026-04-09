@@ -53,7 +53,23 @@ fn generate_client(ctx: Context) -> String {
       })
     })
 
+  // Check if any operation has a form-urlencoded request body
+  let has_form_urlencoded =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      case operation.request_body {
+        Some(rb) ->
+          list.any(dict.to_list(rb.content), fn(ce) {
+            let #(key, _) = ce
+            key == "application/x-www-form-urlencoded"
+          })
+        _ -> False
+      }
+    })
+
   let needs_list =
+    has_form_urlencoded
+    ||
     has_multi_content_response
     || list.any(all_params, fn(p) {
       case p.schema {
@@ -110,9 +126,10 @@ fn generate_client(ctx: Context) -> String {
 
   // string module needed for path/query/cookie parameter handling,
   // security query apiKey, multipart/form-data body building,
-  // and multi-content-type response dispatch
+  // form-urlencoded body building, and multi-content-type response dispatch
   let needs_string =
     has_multi_content_response
+    || has_form_urlencoded
     || list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       !list.is_empty(operation.parameters)
@@ -226,9 +243,10 @@ fn generate_client(ctx: Context) -> String {
     False -> imports
   }
 
-  // uri module needed for percent-encoding parameter values
+  // uri module needed for percent-encoding parameter values and form-urlencoded bodies
   let needs_uri =
-    list.any(operations, fn(op) {
+    has_form_urlencoded
+    || list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       !list.is_empty(operation.parameters)
     })
@@ -1381,6 +1399,35 @@ fn multipart_field_to_string_fn(
   }
 }
 
+/// Convert an array field's items to a string expression for form-urlencoded encoding.
+/// Returns an expression that converts `item` to a String.
+fn form_array_item_to_string(
+  field_schema: schema.SchemaRef,
+  ctx: Context,
+) -> String {
+  case field_schema {
+    Inline(schema.ArraySchema(items:, ..)) ->
+      case items {
+        Inline(schema.IntegerSchema(..)) -> "int.to_string(item)"
+        Inline(schema.NumberSchema(..)) -> "float.to_string(item)"
+        Inline(schema.BooleanSchema(..)) -> "bool.to_string(item)"
+        Inline(schema.StringSchema(..)) -> "item"
+        Reference(ref:) as sr ->
+          case resolver.resolve_schema_ref(sr, ctx.spec) {
+            Ok(schema.StringSchema(enum_values:, ..)) if enum_values != [] -> {
+              let name = resolver.ref_to_name(ref)
+              "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(item)"
+            }
+            Ok(schema.IntegerSchema(..)) -> "int.to_string(item)"
+            Ok(schema.NumberSchema(..)) -> "float.to_string(item)"
+            _ -> "string.inspect(item)"
+          }
+        _ -> "string.inspect(item)"
+      }
+    _ -> "string.inspect(item)"
+  }
+}
+
 /// Generate application/x-www-form-urlencoded body encoding in the client function.
 fn generate_form_urlencoded_body(
   sb: se.StringBuilder,
@@ -1415,36 +1462,83 @@ fn generate_form_urlencoded_body(
       let #(field_name, field_schema) = prop
       let gleam_field = naming.to_snake_case(field_name)
       let is_required = list.contains(required_fields, field_name)
-      let to_str = multipart_field_to_string_fn(field_schema, ctx)
-      case is_required {
-        True -> {
-          let value_expr = case to_str {
-            "" -> "body." <> gleam_field
-            fn_name -> fn_name <> "(body." <> gleam_field <> ")"
+      let is_array = case field_schema {
+        Inline(schema.ArraySchema(..)) -> True
+        _ -> False
+      }
+      case is_array {
+        True ->
+          // Arrays: repeat the key for each element (tags=a&tags=b)
+          case is_required {
+            True ->
+              sb
+              |> se.indent(
+                1,
+                "let form_parts = list.fold(body."
+                <> gleam_field
+                <> ", form_parts, fn(acc, item) {",
+              )
+              |> se.indent(
+                2,
+                "[\""
+                <> field_name
+                <> "=\" <> uri.percent_encode("
+                <> form_array_item_to_string(field_schema, ctx)
+                <> "), ..acc]",
+              )
+              |> se.indent(1, "})")
+            False ->
+              sb
+              |> se.indent(1, "let form_parts = case body." <> gleam_field <> " {")
+              |> se.indent(
+                2,
+                "Some(items) -> list.fold(items, form_parts, fn(acc, item) {",
+              )
+              |> se.indent(
+                3,
+                "[\""
+                <> field_name
+                <> "=\" <> uri.percent_encode("
+                <> form_array_item_to_string(field_schema, ctx)
+                <> "), ..acc]",
+              )
+              |> se.indent(2, "})")
+              |> se.indent(2, "None -> form_parts")
+              |> se.indent(1, "}")
           }
-          sb
-          |> se.indent(
-            1,
-            "let form_parts = [\""
-              <> field_name
-              <> "=\" <> uri.percent_encode("
-              <> value_expr
-              <> "), ..form_parts]",
-          )
+        False -> {
+          let to_str = multipart_field_to_string_fn(field_schema, ctx)
+          case is_required {
+            True -> {
+              let value_expr = case to_str {
+                "" -> "body." <> gleam_field
+                fn_name -> fn_name <> "(body." <> gleam_field <> ")"
+              }
+              sb
+              |> se.indent(
+                1,
+                "let form_parts = [\""
+                  <> field_name
+                  <> "=\" <> uri.percent_encode("
+                  <> value_expr
+                  <> "), ..form_parts]",
+              )
+            }
+            False ->
+              sb
+              |> se.indent(1, "let form_parts = case body." <> gleam_field <> " {")
+              |> se.indent(
+                2,
+                "Some(v) -> [\""
+                  <> field_name
+                  <> "=\" <> uri.percent_encode("
+                  <> { case to_str { "" -> "v" fn_name -> fn_name <> "(v)" } }
+                  <> "), ..form_parts]",
+              )
+              |> se.indent(2, "None -> form_parts")
+              |> se.indent(1, "}")
+          }
         }
-        False ->
-          sb
-          |> se.indent(1, "let form_parts = case body." <> gleam_field <> " {")
-          |> se.indent(
-            2,
-            "Some(v) -> [\""
-              <> field_name
-              <> "=\" <> uri.percent_encode("
-              <> { case to_str { "" -> "v" fn_name -> fn_name <> "(v)" } }
-              <> "), ..form_parts]",
-          )
-          |> se.indent(2, "None -> form_parts")
-          |> se.indent(1, "}")
       }
     })
 
