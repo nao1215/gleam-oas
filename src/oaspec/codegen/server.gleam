@@ -121,10 +121,7 @@ fn generate_callback_handlers(
         <> naming.to_snake_case(url_expression_to_suffix(url_expression))
       sb
       |> se.doc_comment(
-        "Callback handler stub for "
-        <> callback_name
-        <> " on "
-        <> op_id,
+        "Callback handler stub for " <> callback_name <> " on " <> op_id,
       )
       |> se.doc_comment("URL: " <> url_expression)
       |> se.line("pub fn " <> fn_name <> "() -> String {")

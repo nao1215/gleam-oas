@@ -155,7 +155,8 @@ fn generate_inline_enums_from_properties(
         let deduped_variants = dedup.dedup_enum_variants(enum_values)
         let sb =
           list.index_fold(enum_values, sb, fn(sb, value, idx) {
-            let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
+            let variant_suffix =
+              list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
             let variant_name =
               naming.schema_to_type_name(type_name) <> variant_suffix
             sb |> se.indent(1, variant_name)
@@ -219,7 +220,8 @@ fn generate_schema_type(
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
+          let field_name =
+            list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           let field_type =
             schema_ref_to_type_with_inline_enum(
               prop_ref,
@@ -273,7 +275,8 @@ fn generate_schema_type(
       let deduped_variants = dedup.dedup_enum_variants(enum_values)
       let sb =
         list.index_fold(enum_values, sb, fn(sb, value, idx) {
-          let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
+          let variant_suffix =
+            list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
           let variant_name =
             naming.schema_to_type_name(type_name) <> variant_suffix
           sb |> se.indent(1, variant_name)

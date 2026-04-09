@@ -47,6 +47,29 @@ fn generate_guards(ctx: Context) -> String {
     True -> ["gleam/list", ..imports]
     False -> imports
   }
+  // Import types module when composite validators reference named types
+  let needs_types =
+    list.any(schemas, fn(entry) {
+      let #(name, schema_ref) = entry
+      let guard_calls = collect_guard_calls(name, schema_ref, ctx)
+      case list.is_empty(guard_calls) {
+        True -> False
+        False -> {
+          let resolved = case schema_ref {
+            Inline(s) -> Ok(s)
+            Reference(_) -> resolver.resolve_schema_ref(schema_ref, ctx.spec)
+          }
+          case resolved {
+            Ok(ObjectSchema(..)) | Ok(AllOfSchema(..)) -> True
+            _ -> False
+          }
+        }
+      }
+    })
+  let imports = case needs_types {
+    True -> [ctx.config.package <> "/types", ..imports]
+    False -> imports
+  }
 
   let sb =
     se.file_header(context.version)
@@ -565,10 +588,10 @@ fn generate_composite_validator(
       let gleam_type = composite_validator_type(name, schema_ref, ctx)
       let sb =
         sb
+        |> se.doc_comment("Validate all constraints for " <> type_name <> ".")
         |> se.doc_comment(
-          "Validate all constraints for " <> type_name <> ".",
+          "Auto-calls all field validators and collects errors.",
         )
-        |> se.doc_comment("Auto-calls all field validators and collects errors.")
         |> se.line(
           "pub fn "
           <> fn_name
@@ -583,7 +606,10 @@ fn generate_composite_validator(
         list.fold(guard_calls, sb, fn(sb, call) {
           let #(guard_fn, accessor) = call
           sb
-          |> se.indent(1, "let errors = case " <> guard_fn <> "(" <> accessor <> ") {")
+          |> se.indent(
+            1,
+            "let errors = case " <> guard_fn <> "(" <> accessor <> ") {",
+          )
           |> se.indent(2, "Ok(_) -> errors")
           |> se.indent(2, "Error(msg) -> [msg, ..errors]")
           |> se.indent(1, "}")

@@ -1217,11 +1217,13 @@ fn parse_callback_object(
           let #(key_node, path_item_node) = entry
           case key_node {
             yay.NodeStr(url_expression) ->
-              case parse_path_item(
-                path_item_node,
-                context <> ".callbacks",
-                components,
-              ) {
+              case
+                parse_path_item(
+                  path_item_node,
+                  context <> ".callbacks",
+                  components,
+                )
+              {
                 Ok(path_item) -> Ok(#(url_expression, path_item))
                 Error(_) -> Error(Nil)
               }
@@ -1238,10 +1240,7 @@ fn parse_callback_object(
       }
     }
     _ ->
-      Error(MissingField(
-        path: context <> ".callbacks",
-        field: "url expression",
-      ))
+      Error(MissingField(path: context <> ".callbacks", field: "url expression"))
   }
 }
 

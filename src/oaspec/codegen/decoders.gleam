@@ -294,7 +294,8 @@ fn generate_decoder(
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
+          let field_name =
+            list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           let is_required = list.contains(required, prop_name)
           let field_decoder =
             schema_ref_to_decoder(prop_ref, name, prop_name, ctx)
@@ -428,7 +429,8 @@ fn generate_decoder(
       let param_names =
         list.index_map(props, fn(entry, idx) {
           let #(prop_name, _) = entry
-          let field_name = list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
+          let field_name =
+            list_at_or(deduped_names, idx, naming.to_snake_case(prop_name))
           field_name <> ": " <> field_name
         })
 
@@ -525,7 +527,8 @@ fn generate_decoder(
       let deduped_variants = dedup.dedup_enum_variants(enum_values)
       let sb =
         list.index_fold(enum_values, sb, fn(sb, value, idx) {
-          let variant_suffix = list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
+          let variant_suffix =
+            list_at_or(deduped_variants, idx, naming.to_pascal_case(value))
           let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(
@@ -535,16 +538,18 @@ fn generate_decoder(
         })
 
       // Unknown enum values → decode failure, not silent fallback
-      let first_variant_suffix = list_at_or(deduped_variants, 0, case enum_values {
-        [first, ..] -> naming.to_pascal_case(first)
-        [] -> "Unknown"
-      })
+      let first_variant_suffix =
+        list_at_or(deduped_variants, 0, case enum_values {
+          [first, ..] -> naming.to_pascal_case(first)
+          [] -> "Unknown"
+        })
       let sb =
         sb
         |> se.indent(
           2,
           "_ -> decode.failure(types."
-            <> naming.schema_to_type_name(type_name) <> first_variant_suffix
+            <> naming.schema_to_type_name(type_name)
+            <> first_variant_suffix
             <> ", \""
             <> type_name
             <> "\")",
@@ -859,10 +864,10 @@ fn generate_oneof_decoder(
               |> se.indent(
                 1,
                 "decode.failure(types."
-                <> type_name
-                <> ", \""
-                <> type_name
-                <> "\")",
+                  <> type_name
+                  <> ", \""
+                  <> type_name
+                  <> "\")",
               )
             [first, ..rest] -> {
               let first_variant_type = naming.schema_to_type_name(first)
@@ -872,11 +877,11 @@ fn generate_oneof_decoder(
                 |> se.indent(
                   1,
                   "decode.one_of("
-                  <> first_decoder
-                  <> " |> decode.map(types."
-                  <> type_name
-                  <> first_variant_type
-                  <> "), [",
+                    <> first_decoder
+                    <> " |> decode.map(types."
+                    <> type_name
+                    <> first_variant_type
+                    <> "), [",
                 )
               let sb =
                 list.fold(rest, sb, fn(sb, ref_name) {
@@ -886,10 +891,10 @@ fn generate_oneof_decoder(
                   |> se.indent(
                     2,
                     decoder
-                    <> " |> decode.map(types."
-                    <> type_name
-                    <> variant_type
-                    <> "),",
+                      <> " |> decode.map(types."
+                      <> type_name
+                      <> variant_type
+                      <> "),",
                   )
                 })
               sb |> se.indent(1, "])")
@@ -1198,7 +1203,12 @@ fn generate_encoder(
       let sb =
         list.index_fold(props, sb, fn(sb, entry, idx) {
           let #(prop_name, prop_ref) = entry
-          let field_name = list_at_or(encoder_deduped_names, idx, naming.to_snake_case(prop_name))
+          let field_name =
+            list_at_or(
+              encoder_deduped_names,
+              idx,
+              naming.to_snake_case(prop_name),
+            )
           let is_required = list.contains(required, prop_name)
           let trailing = case idx == list.length(props) - 1 {
             True -> ""
@@ -1311,7 +1321,8 @@ fn generate_encoder(
 
       let sb =
         list.index_fold(enum_values, sb, fn(sb, value, idx) {
-          let variant_suffix = list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
+          let variant_suffix =
+            list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
           let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(2, "types." <> variant <> " -> \"" <> value <> "\"")
@@ -1353,7 +1364,8 @@ fn generate_encoder(
 
       let sb =
         list.index_fold(enum_values, sb, fn(sb, value, idx) {
-          let variant_suffix = list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
+          let variant_suffix =
+            list_at_or(enc_deduped_variants, idx, naming.to_pascal_case(value))
           let variant = naming.schema_to_type_name(type_name) <> variant_suffix
           sb
           |> se.indent(2, "types." <> variant <> " -> \"" <> value <> "\"")

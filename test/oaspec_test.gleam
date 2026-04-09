@@ -727,9 +727,7 @@ pub fn dedup_resolves_duplicate_operation_id_test() {
   let errors = validate.validate(ctx)
   // No duplicate operationId errors since dedup resolved them
   let error_strings = list.map(errors, validate.error_to_string)
-  list.any(error_strings, fn(s) {
-    string.contains(s, "Duplicate operationId")
-  })
+  list.any(error_strings, fn(s) { string.contains(s, "Duplicate operationId") })
   |> should.be_false()
 }
 
@@ -1865,7 +1863,6 @@ components:
   string.contains(extended_block, "additional_properties:")
   |> should.be_true()
 }
-
 
 // --- Finding: dedup must not corrupt JSON wire names ---
 // When two properties produce the same snake_case (e.g. "petId" and "pet_id"),

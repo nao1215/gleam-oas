@@ -50,12 +50,14 @@ fn dedup_operation_ids(spec: OpenApiSpec) -> OpenApiSpec {
 
   // Build mapping: index -> final operationId
   // If function name was deduped, derive the operationId from the deduped function name
-  let indexed_ops =
-    list.index_map(all_ops, fn(op, idx) { #(idx, op) })
+  let indexed_ops = list.index_map(all_ops, fn(op, idx) { #(idx, op) })
   let id_map =
     list.index_fold(indexed_ops, dict.new(), fn(acc, entry, _) {
       let #(idx, #(path, method, _op)) = entry
-      let final_id = case list_at(deduped_ids, idx), list_at(deduped_fn_names, idx) {
+      let final_id = case
+        list_at(deduped_ids, idx),
+        list_at(deduped_fn_names, idx)
+      {
         Some(raw_id), Some(fn_name) -> {
           // If function name differs from snake_case of raw_id, use the deduped fn name
           let expected_fn = naming.operation_to_function_name(raw_id)
@@ -120,9 +122,7 @@ fn collect_all_operations(
   spec: OpenApiSpec,
 ) -> List(#(String, String, Operation)) {
   let paths =
-    list.sort(dict.to_list(spec.paths), fn(a, b) {
-      string.compare(a.0, b.0)
-    })
+    list.sort(dict.to_list(spec.paths), fn(a, b) { string.compare(a.0, b.0) })
   list.flat_map(paths, fn(entry) {
     let #(path, item) = entry
     let ops = [
@@ -206,7 +206,6 @@ fn dedup_schema_object(schema_obj: SchemaObject) -> SchemaObject {
     // Do NOT rename enum values — they are JSON wire values.
     // Gleam variant deduplication is handled at codegen time via
     // dedup_enum_variants/1.
-
     OneOfSchema(description:, schemas:, discriminator:) ->
       OneOfSchema(
         description:,
@@ -221,9 +220,7 @@ fn dedup_schema_object(schema_obj: SchemaObject) -> SchemaObject {
 /// Given a list of original property names (JSON wire names), return a list
 /// of deduped snake_case Gleam field names. The returned list is parallel
 /// to the input: result[i] is the Gleam name for input[i].
-pub fn dedup_property_names(
-  prop_names: List(String),
-) -> List(String) {
+pub fn dedup_property_names(prop_names: List(String)) -> List(String) {
   let snake_names = list.map(prop_names, naming.to_snake_case)
   deduplicate_strings(snake_names)
 }
@@ -231,9 +228,7 @@ pub fn dedup_property_names(
 /// Given a list of original enum values (JSON wire values), return a list
 /// of deduped PascalCase Gleam variant suffixes. The returned list is
 /// parallel to the input.
-pub fn dedup_enum_variants(
-  enum_values: List(String),
-) -> List(String) {
+pub fn dedup_enum_variants(enum_values: List(String)) -> List(String) {
   let pascal_names = list.map(enum_values, naming.to_pascal_case)
   deduplicate_strings(pascal_names)
 }

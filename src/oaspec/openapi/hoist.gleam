@@ -197,8 +197,7 @@ fn hoist_schema_ref_always(
     Reference(_) -> #(schema_ref, state)
     Inline(schema_obj) -> {
       let base_name =
-        naming.to_pascal_case(name_prefix)
-        <> naming.to_pascal_case(name_suffix)
+        naming.to_pascal_case(name_prefix) <> naming.to_pascal_case(name_suffix)
       let #(hoisted_obj, state) =
         hoist_within_schema(schema_obj, base_name, state)
       let #(unique_name, state) = make_unique_name(base_name, state)

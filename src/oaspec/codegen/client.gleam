@@ -69,8 +69,7 @@ fn generate_client(ctx: Context) -> String {
 
   let needs_list =
     has_form_urlencoded
-    ||
-    has_multi_content_response
+    || has_multi_content_response
     || list.any(all_params, fn(p) {
       case p.schema {
         Some(Inline(schema.ArraySchema(..))) -> True
@@ -857,10 +856,7 @@ fn generate_single_content_response(
   ctx: Context,
 ) -> se.StringBuilder {
   case media_type_name {
-    "text/plain"
-    | "application/xml"
-    | "text/xml"
-    | "application/octet-stream" ->
+    "text/plain" | "application/xml" | "text/xml" | "application/octet-stream" ->
       case media_type.schema {
         Some(_) ->
           sb
@@ -885,22 +881,14 @@ fn generate_single_content_response(
       case media_type.schema {
         Some(schema_ref) -> {
           let decode_expr =
-            get_response_decode_expr(
-              schema_ref,
-              op_id,
-              status_code,
-              ctx,
-            )
+            get_response_decode_expr(schema_ref, op_id, status_code, ctx)
           sb
           |> se.indent(
             4,
             http.status_code_to_int_pattern(status_code) <> " -> {",
           )
           |> se.indent(5, "case " <> decode_expr <> " {")
-          |> se.indent(
-            6,
-            "Ok(decoded) -> Ok(" <> variant_name <> "(decoded))",
-          )
+          |> se.indent(6, "Ok(decoded) -> Ok(" <> variant_name <> "(decoded))")
           |> se.indent(
             6,
             "Error(_) -> Error(DecodeError(detail: \"Failed to decode response body\"))",
@@ -933,10 +921,7 @@ fn generate_multi_content_response(
 ) -> se.StringBuilder {
   let sb =
     sb
-    |> se.indent(
-      4,
-      http.status_code_to_int_pattern(status_code) <> " -> {",
-    )
+    |> se.indent(4, http.status_code_to_int_pattern(status_code) <> " -> {")
     |> se.indent(
       5,
       "let content_type = list.find(resp.headers, fn(h) { h.0 == \"content-type\" })",
@@ -960,16 +945,10 @@ fn generate_multi_content_response(
           case media_type.schema {
             Some(_) ->
               sb
-              |> se.indent(
-                7,
-                "Ok(" <> variant_name <> "(resp.body))",
-              )
+              |> se.indent(7, "Ok(" <> variant_name <> "(resp.body))")
             _ ->
               sb
-              |> se.indent(
-                7,
-                "Ok(" <> variant_name <> ")",
-              )
+              |> se.indent(7, "Ok(" <> variant_name <> ")")
           }
         _ ->
           case media_type.schema {
@@ -990,10 +969,7 @@ fn generate_multi_content_response(
             }
             _ ->
               sb
-              |> se.indent(
-                7,
-                "Ok(" <> variant_name <> ")",
-              )
+              |> se.indent(7, "Ok(" <> variant_name <> ")")
           }
       }
     })
@@ -1001,10 +977,7 @@ fn generate_multi_content_response(
   // Default: try first content type's approach as fallback
   let sb =
     sb
-    |> se.indent(
-      6,
-      "_ ->",
-    )
+    |> se.indent(6, "_ ->")
   let sb = case content_entries {
     [#(first_ct, first_mt), ..] ->
       case first_ct {
@@ -1015,8 +988,7 @@ fn generate_multi_content_response(
           case first_mt.schema {
             Some(_) ->
               sb |> se.indent(7, "Ok(" <> variant_name <> "(resp.body))")
-            _ ->
-              sb |> se.indent(7, "Ok(" <> variant_name <> ")")
+            _ -> sb |> se.indent(7, "Ok(" <> variant_name <> ")")
           }
         _ ->
           case first_mt.schema {
@@ -1035,8 +1007,7 @@ fn generate_multi_content_response(
               )
               |> se.indent(7, "}")
             }
-            _ ->
-              sb |> se.indent(7, "Ok(" <> variant_name <> ")")
+            _ -> sb |> se.indent(7, "Ok(" <> variant_name <> ")")
           }
       }
     _ -> sb |> se.indent(7, "Ok(" <> variant_name <> ")")
@@ -1416,7 +1387,9 @@ fn form_array_item_to_string(
           case resolver.resolve_schema_ref(sr, ctx.spec) {
             Ok(schema.StringSchema(enum_values:, ..)) if enum_values != [] -> {
               let name = resolver.ref_to_name(ref)
-              "encode.encode_" <> naming.to_snake_case(name) <> "_to_string(item)"
+              "encode.encode_"
+              <> naming.to_snake_case(name)
+              <> "_to_string(item)"
             }
             Ok(schema.IntegerSchema(..)) -> "int.to_string(item)"
             Ok(schema.NumberSchema(..)) -> "float.to_string(item)"
@@ -1475,21 +1448,24 @@ fn generate_form_urlencoded_body(
               |> se.indent(
                 1,
                 "let form_parts = list.fold(body."
-                <> gleam_field
-                <> ", form_parts, fn(acc, item) {",
+                  <> gleam_field
+                  <> ", form_parts, fn(acc, item) {",
               )
               |> se.indent(
                 2,
                 "[\""
-                <> field_name
-                <> "=\" <> uri.percent_encode("
-                <> form_array_item_to_string(field_schema, ctx)
-                <> "), ..acc]",
+                  <> field_name
+                  <> "=\" <> uri.percent_encode("
+                  <> form_array_item_to_string(field_schema, ctx)
+                  <> "), ..acc]",
               )
               |> se.indent(1, "})")
             False ->
               sb
-              |> se.indent(1, "let form_parts = case body." <> gleam_field <> " {")
+              |> se.indent(
+                1,
+                "let form_parts = case body." <> gleam_field <> " {",
+              )
               |> se.indent(
                 2,
                 "Some(items) -> list.fold(items, form_parts, fn(acc, item) {",
@@ -1497,10 +1473,10 @@ fn generate_form_urlencoded_body(
               |> se.indent(
                 3,
                 "[\""
-                <> field_name
-                <> "=\" <> uri.percent_encode("
-                <> form_array_item_to_string(field_schema, ctx)
-                <> "), ..acc]",
+                  <> field_name
+                  <> "=\" <> uri.percent_encode("
+                  <> form_array_item_to_string(field_schema, ctx)
+                  <> "), ..acc]",
               )
               |> se.indent(2, "})")
               |> se.indent(2, "None -> form_parts")
@@ -1526,13 +1502,21 @@ fn generate_form_urlencoded_body(
             }
             False ->
               sb
-              |> se.indent(1, "let form_parts = case body." <> gleam_field <> " {")
+              |> se.indent(
+                1,
+                "let form_parts = case body." <> gleam_field <> " {",
+              )
               |> se.indent(
                 2,
                 "Some(v) -> [\""
                   <> field_name
                   <> "=\" <> uri.percent_encode("
-                  <> { case to_str { "" -> "v" fn_name -> fn_name <> "(v)" } }
+                  <> {
+                  case to_str {
+                    "" -> "v"
+                    fn_name -> fn_name <> "(v)"
+                  }
+                }
                   <> "), ..form_parts]",
               )
               |> se.indent(2, "None -> form_parts")
@@ -1543,10 +1527,7 @@ fn generate_form_urlencoded_body(
     })
 
   sb
-  |> se.indent(
-    1,
-    "let body_str = string.join(form_parts, \"&\")",
-  )
+  |> se.indent(1, "let body_str = string.join(form_parts, \"&\")")
   |> se.indent(
     1,
     "let req = request.set_header(req, \"content-type\", \"application/x-www-form-urlencoded\")",
@@ -1693,11 +1674,17 @@ fn generate_deep_object_query_param(
             )
           False ->
             sb
+            |> se.indent(1, "let query_parts = case " <> accessor <> " {")
             |> se.indent(
-              1,
-              "let query_parts = case " <> accessor <> " {",
+              2,
+              "Some(v) -> [\""
+                <> param.name
+                <> "["
+                <> prop_name
+                <> "]=\" <> uri.percent_encode("
+                <> schema_ref_to_string_expr(prop_ref, "v", ctx)
+                <> "), ..query_parts]",
             )
-            |> se.indent(2, "Some(v) -> [\"" <> param.name <> "[" <> prop_name <> "]=\" <> uri.percent_encode(" <> schema_ref_to_string_expr(prop_ref, "v", ctx) <> "), ..query_parts]")
             |> se.indent(2, "None -> query_parts")
             |> se.indent(1, "}")
         }
@@ -1729,11 +1716,17 @@ fn generate_deep_object_query_param(
               )
             False ->
               sb
+              |> se.indent(3, "let qp = case " <> accessor <> " {")
               |> se.indent(
-                3,
-                "let qp = case " <> accessor <> " {",
+                4,
+                "Some(v) -> [\""
+                  <> param.name
+                  <> "["
+                  <> prop_name
+                  <> "]=\" <> uri.percent_encode("
+                  <> schema_ref_to_string_expr(prop_ref, "v", ctx)
+                  <> "), ..qp]",
               )
-              |> se.indent(4, "Some(v) -> [\"" <> param.name <> "[" <> prop_name <> "]=\" <> uri.percent_encode(" <> schema_ref_to_string_expr(prop_ref, "v", ctx) <> "), ..qp]")
               |> se.indent(4, "None -> qp")
               |> se.indent(3, "}")
           }
