@@ -7987,3 +7987,76 @@ pub fn oss_oapi_codegen_head_digit_operation_id_parses_test() {
   let paths = dict.to_list(spec.paths)
   list.length(paths) |> should.not_equal(0)
 }
+
+// --- OSS fixture batch: openapi-generator bug specs (Apache 2.0) ---
+
+pub fn oss_openapi_gen_issue_11897_array_of_string_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_11897.yaml")
+  let paths = dict.to_list(spec.paths)
+  list.length(paths) |> should.not_equal(0)
+}
+
+pub fn oss_openapi_gen_issue_11897_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_11897.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) ->
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+  }
+}
+
+pub fn oss_openapi_gen_issue_14731_discriminator_mapping_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_14731.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+pub fn oss_openapi_gen_issue_1666_optional_body_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_1666.yaml")
+  let paths = dict.to_list(spec.paths)
+  list.length(paths) |> should.not_equal(0)
+}
+
+pub fn oss_openapi_gen_issue_1666_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_1666.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) ->
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+  }
+}
+
+pub fn oss_openapi_gen_recursion_bug_4650_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_recursion_bug_4650.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+pub fn oss_openapi_gen_issue_18516_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_18516.yaml")
+  let paths = dict.to_list(spec.paths)
+  list.length(paths) |> should.not_equal(0)
+}
+
+pub fn oss_openapi_gen_issue_18516_generates_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_issue_18516.yaml")
+  let ctx = make_ctx_from_spec(spec)
+  let result = generate.generate(spec, ctx.config)
+  case result {
+    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
+    Error(generate.ValidationErrors(errors:)) ->
+      list.length(validate.errors_only(errors)) |> should.equal(0)
+  }
+}
