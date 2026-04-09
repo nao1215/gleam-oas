@@ -730,7 +730,23 @@ fn generate_client_function(
   }
   let sb = case effective_security {
     [] -> sb
-    alternatives -> generate_security_or_chain(sb, ctx, alternatives, 1)
+    alternatives -> {
+      // Emit scope comments for each security alternative
+      let sb =
+        list.fold(alternatives, sb, fn(sb, alt) {
+          let all_scopes = list.flat_map(alt.schemes, fn(s) { s.scopes })
+          case all_scopes {
+            [] -> sb
+            scopes ->
+              sb
+              |> se.indent(
+                1,
+                "// Required scopes: " <> string.join(scopes, ", "),
+              )
+          }
+        })
+      generate_security_or_chain(sb, ctx, alternatives, 1)
+    }
   }
 
   // Send request and decode response into typed variant

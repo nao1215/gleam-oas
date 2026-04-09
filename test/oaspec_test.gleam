@@ -3959,6 +3959,60 @@ components:
   |> should.be_true()
 }
 
+// --- Security scopes comment tests ---
+
+/// Security scopes should appear as comments in generated client code.
+pub fn security_scopes_appear_as_comments_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        '200':
+          description: ok
+      security:
+        - OAuth2:
+            - read:pets
+            - write:pets
+components:
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://example.com
+          scopes:
+            read:pets: Read pets
+            write:pets: Write pets
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  let content = client_file.content
+  // The generated code must include scope information in comments
+  string.contains(content, "read:pets")
+  |> should.be_true()
+}
+
 // --- allowReserved parameter tests ---
 
 /// Query parameter with allowReserved: true must NOT be percent-encoded.
