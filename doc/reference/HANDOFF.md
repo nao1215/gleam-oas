@@ -9,7 +9,12 @@ meaningful slice of work lands.
 
 ## Recent Commits
 
+- `57ffccb` `Support server multipart request bodies`
+- `799c347` `Refresh full support progress after nested form support`
+- `b9b2c01` `Support nested server form-urlencoded bodies`
+- `b21a50f` `Refresh full support progress after form-urlencoded support`
 - `dfa01bc` `Support server form-urlencoded request bodies`
+- `d01cf0b` `Refresh full support progress after deepObject support`
 - `ae524e4` `Support server deepObject query parameters`
 - `91bd911` `Support primitive query arrays in server codegen`
 - `e8ae2fa` `Percent-decode generated server cookie values`
@@ -42,18 +47,20 @@ meaningful slice of work lands.
   are the sole request content type and their object fields are inline
   primitive scalars/arrays, including one level of nested object fields with
   inline primitive leaves.
-- Multipart request parsing remains the largest missing request-body gap.
+- Server `multipart/form-data` bodies are supported when they are the sole
+  request content type and their object fields are inline primitive scalars.
+  The generated parser preserves raw field text instead of trimming multipart
+  values.
 
 ## Next Concrete Tasks
 
-1. Add fixtures and failing tests for server `multipart/form-data` request
-   bodies.
-2. Implement typed multipart request parsing in
-   `src/oaspec/codegen/server.gleam`.
-3. Expand form-urlencoded support to referenced primitive field schemas and
+1. Expand form-urlencoded support to referenced primitive field schemas and
    deeper nesting if the generated request-body types can safely represent
    them.
-4. Revisit multi-content server responses and response-header emission.
+2. Expand multipart support beyond inline primitive scalar fields while
+   preserving raw value text and avoiding lossy trimming.
+3. Revisit multi-content server responses and response-header emission.
+4. Add dedicated integration fixtures for non-JSON server request bodies.
 
 ## Verification Commands
 
@@ -71,7 +78,7 @@ env PATH="$HOME/.local/share/mise/shims:/home/nao/.local/share/mise/installs/gle
 
 Latest known good local checks from this branch:
 
-- `gleam test` -> `207 passed, no failures`
+- `gleam test` -> `209 passed, no failures`
 - `gleam build --warnings-as-errors` -> pass
 - `just all` -> pass
 

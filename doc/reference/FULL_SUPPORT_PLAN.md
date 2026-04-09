@@ -160,11 +160,14 @@ Definition of done:
   bodies whose fields are inline primitive scalars / inline primitive arrays
 - [x] form-urlencoded support expanded to one level of nested object fields
   with inline primitive leaves
+- [x] multipart request parsing implemented for sole-content object bodies
+  whose fields are inline primitive scalars
+- [x] server validation relaxed for multipart within the implemented boundary
 - [ ] form-urlencoded support expanded to referenced primitive field schemas
   and deeper nesting
-- [ ] multipart request parsing
 - [ ] integration fixtures for both content types
-- [ ] server validation relaxed for multipart once implemented
+- [ ] multipart support expanded beyond inline primitive scalar fields without
+  corrupting raw field values or file payload text
 
 ### Phase D: response fidelity
 
@@ -189,3 +192,7 @@ Definition of done:
 - The generated server route signature is now
   `Dict(String, List(String))` for query values; new parsing features should
   build on that multimap rather than collapsing back to a single string.
+- Multipart request parsing now exists for flat object bodies with primitive
+  scalar fields. The generated parser intentionally preserves raw field text
+  instead of trimming multipart values, so future extensions must keep that
+  behavior intact.
