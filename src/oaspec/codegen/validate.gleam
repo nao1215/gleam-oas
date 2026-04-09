@@ -5,6 +5,7 @@ import gleam/regexp
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/types as type_gen
+import oaspec/config
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -299,11 +300,17 @@ fn validate_request_body(
         validate_multipart_request_body_fields(op_id, rb.content, ctx)
       let form_urlencoded_errors =
         validate_form_urlencoded_schema(op_id, rb.content, ctx)
+      // Server router only handles application/json bodies with typed decoding.
+      // Non-JSON content types (multipart/form-data, x-www-form-urlencoded) are
+      // passed as raw String, which breaks the typed request body contract.
+      let server_body_errors =
+        validate_server_request_body_content_types(op_id, content_keys, ctx)
       list.flatten([
         content_type_errors,
         schema_errors,
         multipart_field_errors,
         form_urlencoded_errors,
+        server_body_errors,
       ])
     }
   }
@@ -369,6 +376,38 @@ fn validate_form_urlencoded_schema(
         None -> []
       }
     Error(_) -> []
+  }
+}
+
+/// Validate that request body content types are supported for server codegen.
+/// Server router only handles application/json with typed decode; other types
+/// that pass the general is_supported_request check (multipart/form-data,
+/// application/x-www-form-urlencoded) are passed as raw String which breaks
+/// the typed body contract.
+fn validate_server_request_body_content_types(
+  op_id: String,
+  content_keys: List(String),
+  ctx: Context,
+) -> List(ValidationError) {
+  case ctx.config.mode {
+    config.Client -> []
+    _ -> {
+      let non_json_but_supported =
+        list.filter(content_keys, fn(key) {
+          key != "application/json"
+          && content_type.is_supported_request(content_type.from_string(key))
+        })
+      list.map(non_json_but_supported, fn(media_type) {
+        ValidationError(
+          severity: SeverityError,
+          target: TargetServer,
+          path: op_id <> ".requestBody",
+          detail: "Content type '"
+            <> media_type
+            <> "' is not supported for server code generation. Server router only supports application/json request bodies with typed decoding.",
+        )
+      })
+    }
   }
 }
 

@@ -588,7 +588,10 @@ components:
 pub fn validate_accepts_multipart_form_data_test() {
   let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
   let errors = validate.validate(ctx)
-  let error_strings = list.map(errors, validate.error_to_string)
+  // Filter out server-targeted errors; multipart is valid for client codegen
+  let client_errors =
+    list.filter(errors, fn(e) { e.target != validate.TargetServer })
+  let error_strings = list.map(client_errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "multipart/form-data") })
   |> should.be_false()
 }
@@ -5582,6 +5585,119 @@ paths:
   // Must accept "true"/"True" as True via case-insensitive comparison
   string.contains(content, "string.lowercase")
   |> should.be_true()
+}
+
+pub fn validate_non_json_request_body_unsupported_for_server_test() {
+  // Server router only properly handles application/json request bodies.
+  // multipart/form-data and application/x-www-form-urlencoded should produce
+  // a server-targeted validation error since the router passes them as raw String.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /upload:
+    post:
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "not supported for server")
+    })
+  // Should have at least one server-targeted error for non-JSON body
+  list.length(server_errors)
+  |> should.not_equal(0)
+}
+
+pub fn validate_form_urlencoded_body_unsupported_for_server_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "not supported for server")
+    })
+  list.length(server_errors)
+  |> should.not_equal(0)
+}
+
+pub fn validate_json_request_body_ok_for_server_test() {
+  // application/json body should NOT produce a server-targeted error
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    post:
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '201': { description: created }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "not supported for server")
+    })
+  list.length(server_errors)
+  |> should.equal(0)
 }
 
 pub fn server_header_param_name_lowercased_test() {
