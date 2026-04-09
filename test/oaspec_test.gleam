@@ -3213,6 +3213,95 @@ pub fn status_code_suffix_range_test() {
   |> should.equal("Status4xx")
 }
 
+// --- Complex parameter schema validation tests ---
+
+/// Object schema query parameter without deepObject style must be rejected.
+pub fn object_query_param_without_deep_object_rejected_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let errors = validate.validate(ctx)
+  // Must report error for object param without deepObject style
+  list.is_empty(errors)
+  |> should.be_false()
+}
+
+/// Object schema query parameter WITH deepObject style must pass.
+pub fn object_query_param_with_deep_object_passes_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx =
+    context.new(
+      spec,
+      config.Config(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+      ),
+    )
+  let errors = validate.validate(ctx)
+  list.is_empty(errors)
+  |> should.be_true()
+}
+
 // --- validate error message accuracy tests ---
 
 /// Validation error for unsupported request content type must list

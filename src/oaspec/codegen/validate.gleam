@@ -101,7 +101,7 @@ fn extract_path_template_names(path: String) -> List(String) {
 fn validate_parameters(
   op_id: String,
   params: List(spec.Parameter),
-  _ctx: Context,
+  ctx: Context,
 ) -> List(ValidationError) {
   list.flat_map(params, fn(p) {
     let path = op_id <> ".parameters." <> p.name
@@ -130,8 +130,43 @@ fn validate_parameters(
       ]
       _ -> []
     }
-    list.append(style_errors, content_errors)
+    // Object/complex schemas in query/header/cookie params require deepObject
+    // style. Without it, codegen cannot stringify the value and falls through
+    // to raw variable name, producing invalid generated code.
+    let complex_schema_errors =
+      validate_complex_param_schema(path, p, ctx)
+    list.flatten([style_errors, content_errors, complex_schema_errors])
   })
+}
+
+/// Check if a parameter has a complex schema (object, oneOf, allOf, anyOf)
+/// that is not handled by deepObject style.
+fn validate_complex_param_schema(
+  path: String,
+  param: spec.Parameter,
+  ctx: Context,
+) -> List(ValidationError) {
+  // deepObject + query with object schema is supported
+  case param.style {
+    Some("deepObject") -> []
+    _ ->
+      case param.in_ {
+        spec.InPath -> []
+        _ ->
+          case resolve_schema_object(param.schema, ctx) {
+            Some(ObjectSchema(..))
+            | Some(AllOfSchema(..))
+            | Some(OneOfSchema(..))
+            | Some(AnyOfSchema(..)) -> [
+              UnsupportedFeature(
+                path: path,
+                detail: "Complex schema (object/oneOf/allOf/anyOf) parameters require style: deepObject. Without it, the parameter cannot be serialized.",
+              ),
+            ]
+            _ -> []
+          }
+      }
+  }
 }
 
 fn option_to_string(opt: Option(String)) -> String {
