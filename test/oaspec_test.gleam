@@ -2315,7 +2315,7 @@ paths:
   |> should.be_true()
 }
 
-// --- Finding: security OR alternatives must all be applied ---
+// --- Finding: security OR alternatives must pick one, not apply all ---
 pub fn security_or_alternatives_test() {
   let yaml =
     "
@@ -2348,19 +2348,39 @@ security:
   let files = client_gen.generate(ctx)
   let assert [client_file] = files
   let content = client_file.content
-  // Both security schemes must be applied in generated code,
-  // not just the first alternative.
+  // Both security schemes must be present in the ClientConfig type
   string.contains(content, "api_key_auth")
   |> should.be_true()
   string.contains(content, "bearer_auth")
   |> should.be_true()
-  // bearer_auth must actually be used in the request function body
-  // (not just in the ClientConfig type definition).
-  // Find the get_secure function and check bearer_auth appears inside it.
+  // The generated code must NOT apply both schemes unconditionally.
+  // OpenAPI security is OR — the client should try the first alternative
+  // that has credentials set, not send all credentials at once.
+  // The generated code must contain a nested/chained pattern that falls
+  // through to the next alternative when the first has None.
   let assert Ok(fn_start) = find_substring_index(content, "pub fn get_secure(")
   let fn_body = string.drop_start(content, fn_start)
+  // Both schemes should be referenced in the function body
+  string.contains(fn_body, "api_key_auth")
+  |> should.be_true()
   string.contains(fn_body, "bearer_auth")
   |> should.be_true()
+  // The None branch of api_key_auth must fall through to bearer_auth,
+  // not just `None -> req`. This verifies OR semantics.
+  // Count how many "None -> req" appear — with OR semantics, only the
+  // last alternative should have "None -> req". With the old broken code,
+  // each scheme independently had "None -> req".
+  let fn_end = case find_substring_index(fn_body, "\n}\n") {
+    Ok(i) -> string.slice(fn_body, 0, i)
+    Error(_) -> fn_body
+  }
+  let none_req_count =
+    string.split(fn_end, "None -> req")
+    |> list.length()
+  // With 2 OR alternatives, there should be exactly 1 "None -> req" (at the end),
+  // not 2 (one per scheme). Count is split segments, so 2 means 1 occurrence.
+  none_req_count
+  |> should.equal(2)
 }
 
 // --- Finding 2: OpenAPI 3.1 type: [string, 'null'] must parse as nullable string ---

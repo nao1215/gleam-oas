@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/types as type_gen
@@ -718,128 +718,19 @@ fn generate_client_function(
     }
   }
 
-  // Apply security schemes.
+  // Apply security schemes with proper OR semantics.
   // OpenAPI security is OR of alternatives; each alternative is AND of
-  // schemes. We collect ALL unique scheme refs across all alternatives
-  // and apply them. Each scheme is guarded by Option, so callers provide
-  // whichever credentials they have — unused ones stay None.
-  let effective_security = option.unwrap(operation.security, [])
-  let all_scheme_refs =
-    list.flat_map(effective_security, fn(alt) { alt.schemes })
-  // Deduplicate by scheme name, keeping first occurrence
-  let #(_, unique_schemes_rev) =
-    list.fold(all_scheme_refs, #([], []), fn(acc, sr) {
-      let #(seen, result) = acc
-      case list.contains(seen, sr.scheme_name) {
-        True -> acc
-        False -> #([sr.scheme_name, ..seen], [sr, ..result])
-      }
-    })
-  let all_unique_schemes = list.reverse(unique_schemes_rev)
-  let sb =
-    list.fold(all_unique_schemes, sb, fn(sb, sec_ref) {
-      let field_name = naming.to_snake_case(sec_ref.scheme_name)
-      // Look up the scheme definition
-      case ctx.spec.components {
-        Some(components) ->
-          case dict.get(components.security_schemes, sec_ref.scheme_name) {
-            Ok(spec.ApiKeyScheme(name: header_name, in_: "header")) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(
-                2,
-                "Some(key) -> request.set_header(req, \""
-                  <> string.lowercase(header_name)
-                  <> "\", key)",
-              )
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            Ok(spec.ApiKeyScheme(name: query_name, in_: "query")) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(2, "Some(key) -> {")
-              |> se.indent(
-                3,
-                "let sep = case string.contains(req.path, \"?\") {",
-              )
-              |> se.indent(4, "True -> \"&\"")
-              |> se.indent(4, "False -> \"?\"")
-              |> se.indent(3, "}")
-              |> se.indent(
-                3,
-                "request.Request(..req, path: req.path <> sep <> \""
-                  <> query_name
-                  <> "=\" <> key)",
-              )
-              |> se.indent(2, "}")
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            Ok(spec.ApiKeyScheme(name: cookie_name, in_: "cookie")) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(2, "Some(value) -> {")
-              |> se.indent(
-                3,
-                "let existing = list.key_find(req.headers, \"cookie\") |> result.unwrap(\"\")",
-              )
-              |> se.indent(
-                3,
-                "let cookie_val = \"" <> cookie_name <> "=\" <> value",
-              )
-              |> se.indent(3, "let new_cookie = case existing {")
-              |> se.indent(4, "\"\" -> cookie_val")
-              |> se.indent(4, "_ -> existing <> \"; \" <> cookie_val")
-              |> se.indent(3, "}")
-              |> se.indent(3, "request.set_header(req, \"cookie\", new_cookie)")
-              |> se.indent(2, "}")
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            Ok(spec.HttpScheme(scheme: "basic", ..)) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(
-                2,
-                "Some(token) -> request.set_header(req, \"authorization\", \"Basic \" <> token)",
-              )
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            Ok(spec.HttpScheme(scheme: "digest", ..)) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(
-                2,
-                "Some(token) -> request.set_header(req, \"authorization\", \"Digest \" <> token)",
-              )
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            Ok(spec.HttpScheme(scheme: "bearer", ..))
-            | Ok(spec.OAuth2Scheme(..))
-            | Ok(spec.OpenIdConnectScheme(..)) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(
-                2,
-                "Some(token) -> request.set_header(req, \"authorization\", \"Bearer \" <> token)",
-              )
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            // Other HTTP schemes (hoba, negotiate, mutual, etc.) use the scheme name as prefix
-            Ok(spec.HttpScheme(scheme: scheme_name, ..)) ->
-              sb
-              |> se.indent(1, "let req = case config." <> field_name <> " {")
-              |> se.indent(
-                2,
-                "Some(token) -> request.set_header(req, \"authorization\", \""
-                  <> capitalize_first(scheme_name)
-                  <> " \" <> token)",
-              )
-              |> se.indent(2, "None -> req")
-              |> se.indent(1, "}")
-            _ -> sb
-          }
-        _ -> sb
-      }
-    })
+  // schemes. The generated code tries each alternative in order and
+  // applies only the first one whose credentials are all present.
+  let effective_security = case operation.security {
+    Some(sec) -> sec
+    None -> ctx.spec.security
+  }
+  let sb = case effective_security {
+    [] -> sb
+    alternatives ->
+      generate_security_or_chain(sb, ctx, alternatives, 1)
+  }
 
   // Send request and decode response into typed variant
   let sb =
@@ -2197,5 +2088,362 @@ fn capitalize_first(s: String) -> String {
   case string.pop_grapheme(s) {
     Ok(#(first, rest)) -> string.uppercase(first) <> rest
     Error(_) -> s
+  }
+}
+
+/// Generate a chain of OR alternatives for security requirements.
+/// Each alternative is tried in order; the first one with all credentials
+/// present is applied. If none match, req is returned unchanged.
+fn generate_security_or_chain(
+  sb: se.StringBuilder,
+  ctx: Context,
+  alternatives: List(spec.SecurityRequirement),
+  base_indent: Int,
+) -> se.StringBuilder {
+  case alternatives {
+    [] -> sb
+    [alt] ->
+      // Last (or only) alternative: None branch falls through to req
+      generate_security_alternative(sb, ctx, alt.schemes, base_indent, "req")
+    [alt, ..rest] -> {
+      // For this alternative, the None/fallback branch tries the next alternative
+      // We generate a nested structure where the fallback is the next alternative
+      case alt.schemes {
+        [] -> generate_security_or_chain(sb, ctx, rest, base_indent)
+        [single_scheme] -> {
+          let field_name = naming.to_snake_case(single_scheme.scheme_name)
+          let sb =
+            sb
+            |> se.indent(
+              base_indent,
+              "let req = case config." <> field_name <> " {",
+            )
+          let sb =
+            generate_scheme_some_branch(
+              sb,
+              ctx,
+              single_scheme,
+              base_indent + 1,
+            )
+          let sb =
+            sb
+            |> se.indent(base_indent + 1, "None -> {")
+          let sb =
+            generate_security_or_chain(sb, ctx, rest, base_indent + 2)
+          sb
+          |> se.indent(base_indent + 2, "req")
+          |> se.indent(base_indent + 1, "}")
+          |> se.indent(base_indent, "}")
+        }
+        schemes -> {
+          // AND alternative with multiple schemes: tuple match
+          let fields =
+            list.map(schemes, fn(s) {
+              "config." <> naming.to_snake_case(s.scheme_name)
+            })
+          let sb =
+            sb
+            |> se.indent(
+              base_indent,
+              "let req = case "
+                <> string.join(fields, ", ")
+                <> " {",
+            )
+          // Some, Some, ... branch — apply all schemes
+          let some_patterns =
+            list.map(schemes, fn(s) {
+              "Some(" <> naming.to_snake_case(s.scheme_name) <> "_val)"
+            })
+          let sb =
+            sb
+            |> se.indent(
+              base_indent + 1,
+              string.join(some_patterns, ", ") <> " -> {",
+            )
+          let sb =
+            list.fold(schemes, sb, fn(sb, scheme_ref) {
+              generate_scheme_apply(
+                sb,
+                ctx,
+                scheme_ref,
+                naming.to_snake_case(scheme_ref.scheme_name) <> "_val",
+                base_indent + 2,
+              )
+            })
+          let sb =
+            sb
+            |> se.indent(base_indent + 2, "req")
+            |> se.indent(base_indent + 1, "}")
+          // Wildcard branch — try next alternative
+          let sb =
+            sb
+            |> se.indent(base_indent + 1, "_, _ -> {")
+          let sb =
+            generate_security_or_chain(sb, ctx, rest, base_indent + 2)
+          sb
+          |> se.indent(base_indent + 2, "req")
+          |> se.indent(base_indent + 1, "}")
+          |> se.indent(base_indent, "}")
+        }
+      }
+    }
+  }
+}
+
+/// Generate a single security alternative (last in chain, None -> req).
+fn generate_security_alternative(
+  sb: se.StringBuilder,
+  ctx: Context,
+  schemes: List(spec.SecuritySchemeRef),
+  base_indent: Int,
+  fallback: String,
+) -> se.StringBuilder {
+  case schemes {
+    [] -> sb
+    [single_scheme] -> {
+      let field_name = naming.to_snake_case(single_scheme.scheme_name)
+      let sb =
+        sb
+        |> se.indent(
+          base_indent,
+          "let req = case config." <> field_name <> " {",
+        )
+      let sb =
+        generate_scheme_some_branch(sb, ctx, single_scheme, base_indent + 1)
+      sb
+      |> se.indent(base_indent + 1, "None -> " <> fallback)
+      |> se.indent(base_indent, "}")
+    }
+    schemes -> {
+      // AND: tuple match
+      let fields =
+        list.map(schemes, fn(s) {
+          "config." <> naming.to_snake_case(s.scheme_name)
+        })
+      let sb =
+        sb
+        |> se.indent(
+          base_indent,
+          "let req = case " <> string.join(fields, ", ") <> " {",
+        )
+      let some_patterns =
+        list.map(schemes, fn(s) {
+          "Some(" <> naming.to_snake_case(s.scheme_name) <> "_val)"
+        })
+      let sb =
+        sb
+        |> se.indent(
+          base_indent + 1,
+          string.join(some_patterns, ", ") <> " -> {",
+        )
+      let sb =
+        list.fold(schemes, sb, fn(sb, scheme_ref) {
+          generate_scheme_apply(
+            sb,
+            ctx,
+            scheme_ref,
+            naming.to_snake_case(scheme_ref.scheme_name) <> "_val",
+            base_indent + 2,
+          )
+        })
+      let sb =
+        sb
+        |> se.indent(base_indent + 2, "req")
+        |> se.indent(base_indent + 1, "}")
+      // Wildcard
+      let wildcard =
+        list.map(schemes, fn(_) { "_" })
+        |> string.join(", ")
+      sb
+      |> se.indent(base_indent + 1, wildcard <> " -> " <> fallback)
+      |> se.indent(base_indent, "}")
+    }
+  }
+}
+
+/// Generate the Some branch for a single scheme (the apply-credential line).
+fn generate_scheme_some_branch(
+  sb: se.StringBuilder,
+  ctx: Context,
+  scheme_ref: spec.SecuritySchemeRef,
+  indent: Int,
+) -> se.StringBuilder {
+  case ctx.spec.components {
+    Some(components) ->
+      case dict.get(components.security_schemes, scheme_ref.scheme_name) {
+        Ok(spec.ApiKeyScheme(name: header_name, in_: "header")) ->
+          sb
+          |> se.indent(
+            indent,
+            "Some(key) -> request.set_header(req, \""
+              <> string.lowercase(header_name)
+              <> "\", key)",
+          )
+        Ok(spec.ApiKeyScheme(name: query_name, in_: "query")) ->
+          sb
+          |> se.indent(indent, "Some(key) -> {")
+          |> se.indent(
+            indent + 1,
+            "let sep = case string.contains(req.path, \"?\") {",
+          )
+          |> se.indent(indent + 2, "True -> \"&\"")
+          |> se.indent(indent + 2, "False -> \"?\"")
+          |> se.indent(indent + 1, "}")
+          |> se.indent(
+            indent + 1,
+            "request.Request(..req, path: req.path <> sep <> \""
+              <> query_name
+              <> "=\" <> key)",
+          )
+          |> se.indent(indent, "}")
+        Ok(spec.ApiKeyScheme(name: cookie_name, in_: "cookie")) ->
+          sb
+          |> se.indent(indent, "Some(value) -> {")
+          |> se.indent(
+            indent + 1,
+            "let existing = list.key_find(req.headers, \"cookie\") |> result.unwrap(\"\")",
+          )
+          |> se.indent(
+            indent + 1,
+            "let cookie_val = \"" <> cookie_name <> "=\" <> value",
+          )
+          |> se.indent(indent + 1, "let new_cookie = case existing {")
+          |> se.indent(indent + 2, "\"\" -> cookie_val")
+          |> se.indent(indent + 2, "_ -> existing <> \"; \" <> cookie_val")
+          |> se.indent(indent + 1, "}")
+          |> se.indent(
+            indent + 1,
+            "request.set_header(req, \"cookie\", new_cookie)",
+          )
+          |> se.indent(indent, "}")
+        Ok(spec.HttpScheme(scheme: "basic", ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "Some(token) -> request.set_header(req, \"authorization\", \"Basic \" <> token)",
+          )
+        Ok(spec.HttpScheme(scheme: "digest", ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "Some(token) -> request.set_header(req, \"authorization\", \"Digest \" <> token)",
+          )
+        Ok(spec.HttpScheme(scheme: "bearer", ..))
+        | Ok(spec.OAuth2Scheme(..))
+        | Ok(spec.OpenIdConnectScheme(..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "Some(token) -> request.set_header(req, \"authorization\", \"Bearer \" <> token)",
+          )
+        Ok(spec.HttpScheme(scheme: scheme_name, ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "Some(token) -> request.set_header(req, \"authorization\", \""
+              <> capitalize_first(scheme_name)
+              <> " \" <> token)",
+          )
+        _ -> sb
+      }
+    _ -> sb
+  }
+}
+
+/// Generate scheme application using a known value variable (for AND tuple matches).
+fn generate_scheme_apply(
+  sb: se.StringBuilder,
+  ctx: Context,
+  scheme_ref: spec.SecuritySchemeRef,
+  val_var: String,
+  indent: Int,
+) -> se.StringBuilder {
+  case ctx.spec.components {
+    Some(components) ->
+      case dict.get(components.security_schemes, scheme_ref.scheme_name) {
+        Ok(spec.ApiKeyScheme(name: header_name, in_: "header")) ->
+          sb
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \""
+              <> string.lowercase(header_name)
+              <> "\", "
+              <> val_var
+              <> ")",
+          )
+        Ok(spec.ApiKeyScheme(name: query_name, in_: "query")) ->
+          sb
+          |> se.indent(
+            indent,
+            "let sep = case string.contains(req.path, \"?\") {",
+          )
+          |> se.indent(indent + 1, "True -> \"&\"")
+          |> se.indent(indent + 1, "False -> \"?\"")
+          |> se.indent(indent, "}")
+          |> se.indent(
+            indent,
+            "let req = request.Request(..req, path: req.path <> sep <> \""
+              <> query_name
+              <> "=\" <> "
+              <> val_var
+              <> ")",
+          )
+        Ok(spec.ApiKeyScheme(name: cookie_name, in_: "cookie")) ->
+          sb
+          |> se.indent(
+            indent,
+            "let existing = list.key_find(req.headers, \"cookie\") |> result.unwrap(\"\")",
+          )
+          |> se.indent(
+            indent,
+            "let cookie_val = \"" <> cookie_name <> "=\" <> " <> val_var,
+          )
+          |> se.indent(indent, "let new_cookie = case existing {")
+          |> se.indent(indent + 1, "\"\" -> cookie_val")
+          |> se.indent(indent + 1, "_ -> existing <> \"; \" <> cookie_val")
+          |> se.indent(indent, "}")
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \"cookie\", new_cookie)",
+          )
+        Ok(spec.HttpScheme(scheme: "basic", ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \"authorization\", \"Basic \" <> "
+              <> val_var
+              <> ")",
+          )
+        Ok(spec.HttpScheme(scheme: "digest", ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \"authorization\", \"Digest \" <> "
+              <> val_var
+              <> ")",
+          )
+        Ok(spec.HttpScheme(scheme: "bearer", ..))
+        | Ok(spec.OAuth2Scheme(..))
+        | Ok(spec.OpenIdConnectScheme(..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \"authorization\", \"Bearer \" <> "
+              <> val_var
+              <> ")",
+          )
+        Ok(spec.HttpScheme(scheme: scheme_name, ..)) ->
+          sb
+          |> se.indent(
+            indent,
+            "let req = request.set_header(req, \"authorization\", \""
+              <> capitalize_first(scheme_name)
+              <> " \" <> "
+              <> val_var
+              <> ")",
+          )
+        _ -> sb
+      }
+    _ -> sb
   }
 }
