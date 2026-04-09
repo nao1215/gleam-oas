@@ -66,10 +66,8 @@ pub fn filter_by_mode(
   mode: config.GenerateMode,
 ) -> List(ValidationError) {
   case mode {
-    config.Client ->
-      list.filter(issues, fn(e) { e.target != TargetServer })
-    config.Server ->
-      list.filter(issues, fn(e) { e.target != TargetClient })
+    config.Client -> list.filter(issues, fn(e) { e.target != TargetServer })
+    config.Server -> list.filter(issues, fn(e) { e.target != TargetClient })
     config.Both -> issues
   }
 }
@@ -208,7 +206,8 @@ fn validate_server_structured_param(
       let schema_obj = resolve_schema_object(param.schema, ctx)
       let array_errors = case param.in_, schema_obj {
         spec.InQuery, Some(ArraySchema(..))
-        | spec.InHeader, Some(ArraySchema(..)) -> [
+        | spec.InHeader, Some(ArraySchema(..))
+        -> [
           ValidationError(
             severity: SeverityError,
             target: TargetServer,
