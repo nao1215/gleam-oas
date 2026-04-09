@@ -447,7 +447,8 @@ fn generate_request_construction(
           }
         }
         spec.InHeader -> {
-          let key = param.name
+          // HTTP headers are case-insensitive; client sends lowercase names.
+          let key = string.lowercase(param.name)
           case param.required {
             True -> header_required_expr(key, param)
             False -> header_optional_expr(key, param)

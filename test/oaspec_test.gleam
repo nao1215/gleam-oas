@@ -5584,6 +5584,73 @@ paths:
   |> should.be_true()
 }
 
+pub fn server_header_param_name_lowercased_test() {
+  // Server codegen must lowercase header parameter names in dict.get calls
+  // to match client behavior (which lowercases header names).
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Must use lowercased header name "x-request-id" not "X-Request-ID"
+  string.contains(content, "\"x-request-id\"")
+  |> should.be_true()
+  // Must NOT contain the original casing in dict.get
+  string.contains(content, "\"X-Request-ID\"")
+  |> should.be_false()
+}
+
+pub fn server_optional_header_param_name_lowercased_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: X-Trace-Id
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+  // Must use lowercased header name
+  string.contains(content, "\"x-trace-id\"")
+  |> should.be_true()
+}
+
 pub fn server_bool_optional_query_param_case_insensitive_test() {
   let yaml =
     "
