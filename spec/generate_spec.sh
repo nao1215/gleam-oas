@@ -384,8 +384,8 @@ Describe 'oaspec generate'
 
     # Request types reference merged allOf type
 
-    It 'request types reference merged allOf body type'
-      The contents of file "$TEST_OUTPUT_DIR/api/request_types.gleam" should include 'body: types.PostSearchRequest'
+    It 'request types reference merged allOf body type (optional since required defaults to false)'
+      The contents of file "$TEST_OUTPUT_DIR/api/request_types.gleam" should include 'body: Option(types.PostSearchRequest)'
     End
   End
 End

@@ -626,11 +626,17 @@ pub fn schema_to_gleam_type(schema: SchemaObject, _ctx: Context) -> String {
 fn generate_request_types(ctx: Context) -> String {
   let operations = collect_operations(ctx)
 
-  // Only import Option if any operation has optional parameters
+  // Only import Option if any operation has optional parameters or optional body
   let needs_option =
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(p) { !p.required })
+      let has_optional_params =
+        list.any(operation.parameters, fn(p) { !p.required })
+      let has_optional_body = case operation.request_body {
+        Some(rb) -> !rb.required
+        _ -> False
+      }
+      has_optional_params || has_optional_body
     })
 
   // Check if types module is needed ($ref params or non-primitive body)
