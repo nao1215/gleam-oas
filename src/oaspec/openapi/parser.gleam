@@ -941,9 +941,16 @@ fn parse_parameters_map(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Parse inline parameter (no $ref resolution needed at component level)
-            use param <- result.try(parse_parameter(value_node, None))
-            Ok(dict.insert(acc, name, param))
+            // Skip $ref aliases at component definition level —
+            // they reference sibling entries and cannot be resolved during
+            // component parsing (components are not yet fully built).
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(_)) -> Ok(acc)
+              _ -> {
+                use param <- result.try(parse_parameter(value_node, None))
+                Ok(dict.insert(acc, name, param))
+              }
+            }
           }
           _ -> Ok(acc)
         }
@@ -963,11 +970,17 @@ fn parse_request_bodies_map(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            use rb <- result.try(parse_request_body(
-              value_node,
-              "components.requestBodies." <> name,
-            ))
-            Ok(dict.insert(acc, name, rb))
+            // Skip $ref aliases at component definition level
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(_)) -> Ok(acc)
+              _ -> {
+                use rb <- result.try(parse_request_body(
+                  value_node,
+                  "components.requestBodies." <> name,
+                ))
+                Ok(dict.insert(acc, name, rb))
+              }
+            }
           }
           _ -> Ok(acc)
         }
@@ -987,9 +1000,14 @@ fn parse_responses_map(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Parse inline response (no $ref resolution at component level)
-            use resp <- result.try(parse_response(value_node, None))
-            Ok(dict.insert(acc, name, resp))
+            // Skip $ref aliases at component definition level
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(_)) -> Ok(acc)
+              _ -> {
+                use resp <- result.try(parse_response(value_node, None))
+                Ok(dict.insert(acc, name, resp))
+              }
+            }
           }
           _ -> Ok(acc)
         }
@@ -1381,8 +1399,14 @@ fn parse_security_schemes_map(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            use scheme <- result.try(parse_security_scheme(value_node))
-            Ok(dict.insert(acc, name, scheme))
+            // Skip $ref aliases at component definition level
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(_)) -> Ok(acc)
+              _ -> {
+                use scheme <- result.try(parse_security_scheme(value_node))
+                Ok(dict.insert(acc, name, scheme))
+              }
+            }
           }
           _ -> Ok(acc)
         }
