@@ -9,6 +9,7 @@ meaningful slice of work lands.
 
 ## Recent Commits
 
+- `c5635a0` `Support cookie parameters in server codegen`
 - `6099b65` `Format validation mode filtering changes`
 - `eba31f8` `Underscore unused server route arguments`
 - `236ea0d` `Update shellspec for client-only broken spec generation`
@@ -23,19 +24,18 @@ meaningful slice of work lands.
 ## Important Current Findings
 
 - `PathItem.$ref` parsing already exists in
-  `src/oaspec/openapi/parser.gleam`, but `README.md` still lists it as
-  unsupported.
-- Server cookie parameters are still rejected by validation and emitted as TODO
-  placeholders in `src/oaspec/codegen/server.gleam`.
+  `src/oaspec/openapi/parser.gleam`; `README.md` has been corrected to match.
+- Server cookie parameters are now generated via Cookie-header lookup in
+  `src/oaspec/codegen/server.gleam`.
 - Structured server parameters and non-JSON server request bodies still need a
   larger request parsing refactor.
 
 ## Next Concrete Tasks
 
 1. Add failing tests for server cookie parameter support.
-2. Implement cookie parsing in generated server router code.
-3. Remove the server-only validation rejection for cookie parameters.
-4. Update README support claims to match reality after each slice.
+2. Build repeated-query support for server array parameters.
+3. Build server deepObject parsing on top of the same request parsing layer.
+4. Rework server non-JSON request-body parsing.
 
 ## Verification Commands
 

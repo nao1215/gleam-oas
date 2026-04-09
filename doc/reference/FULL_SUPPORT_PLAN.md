@@ -139,9 +139,9 @@ Definition of done:
 
 ### Phase A: correctness and drift
 
-- [ ] roadmap and handoff docs committed
+- [x] roadmap and handoff docs committed
 - [ ] README support table corrected
-- [ ] server cookie parameters supported
+- [x] server cookie parameters supported
 - [ ] tests cover server cookie parsing end-to-end
 
 ### Phase B: server structured parameters

@@ -183,7 +183,7 @@ pub fn retry(max_retries: Int) -> Middleware(req, res)
 - `multipart/form-data` request bodies with boundary-based encoding for string/integer/number/boolean/binary/string-enum fields (optional fields handled)
 - allOf in request body (property merging from `$ref` + inline objects)
 - Responses with status codes, `$ref` responses from `components.responses`
-- `$ref` resolution for parameters, requestBodies, responses, schemas
+- `$ref` resolution for pathItems, parameters, requestBodies, responses, schemas
 - Component schemas: types, decoders, encoders
 - Primitive component schemas (string, integer, number, boolean): type alias, decoder, encoder
 - String enums with unknown-value rejection
@@ -253,7 +253,6 @@ The AST now parses and preserves all standard OpenAPI 3.x fields (lossless parse
 
 The following features are **not supported** at all:
 
-- `PathItem.$ref` (path-level `$ref`)
 - OpenAPI 3.1 / JSON Schema 2020-12 advanced features (`$defs`, `prefixItems`, `if/then/else`, `dependentSchemas`, `$dynamicRef`, `contentMediaType`)
 - OpenAPI 3.1 multi-type unions (`type: [string, integer]`) — use `oneOf` instead
 - `xml` annotations
