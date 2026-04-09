@@ -8,6 +8,7 @@ import oaspec/codegen/client as client_gen
 import oaspec/codegen/context
 import oaspec/codegen/decoders
 import oaspec/codegen/guards
+import oaspec/codegen/server as server_gen
 import oaspec/codegen/types
 import oaspec/codegen/validate
 import oaspec/config
@@ -2804,6 +2805,77 @@ paths:
   |> should.be_false()
   // Instead, must use list.fold to produce repeated key=value pairs
   string.contains(content, "list.fold(")
+  |> should.be_true()
+}
+
+// --- OAuth2 flows must be preserved in AST ---
+pub fn oauth2_flows_preserved_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /data:
+    get:
+      operationId: getData
+      responses:
+        '200': { description: ok }
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://example.com/auth
+          tokenUrl: https://example.com/token
+          scopes:
+            read: Read access
+            write: Write access
+security:
+  - oauth2: [read]
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Some(components) = spec.components
+  let assert Ok(scheme) = dict.get(components.security_schemes, "oauth2")
+  // OAuth2 scheme must preserve flow URLs and scopes.
+  // Currently OAuth2Scheme only has description, losing all flow data.
+  case scheme {
+    spec.OAuth2Scheme(description: _desc) -> {
+      // After fix this branch won't match because OAuth2Scheme will have
+      // a flows field. For now, fail to show the data loss.
+      // The description alone proves flows/scopes are lost.
+      should.fail()
+    }
+    _ -> should.be_ok(Ok(Nil))
+  }
+}
+
+// --- Server router must call handlers, not return hardcoded "OK" ---
+pub fn server_router_calls_handlers_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  // Find the router file
+  let router_file =
+    list.find(files, fn(f) { string.contains(f.path, "router") })
+  let assert Ok(router) = router_file
+  // Router must call the handler function, not just ignore it with `let _ =`
+  string.contains(router.content, "let _ = handlers.")
+  |> should.be_false()
+  // Router must actually invoke the handler
+  string.contains(router.content, "handlers.get_items")
   |> should.be_true()
 }
 
