@@ -1,13 +1,8 @@
 import gleam/list
 import gleam/result
-import oaspec/codegen/client
 import oaspec/codegen/context.{type Context, type GeneratedFile}
-import oaspec/codegen/decoders
-import oaspec/codegen/guards
-import oaspec/codegen/middleware
-import oaspec/codegen/server
-import oaspec/codegen/types
 import oaspec/config.{Both, Client, Server}
+import oaspec/generate as gen
 import simplifile
 
 /// Errors that can occur during file writing.
@@ -21,23 +16,35 @@ pub fn generate_all(
   ctx: Context,
   on_write: fn(String) -> Nil,
 ) -> Result(List(String), WriteError) {
-  let shared_files = generate_shared(ctx)
-  let server_files = case ctx.config.mode {
-    Server | Both -> server.generate(ctx)
-    Client -> []
-  }
-  let client_files = case ctx.config.mode {
-    Client | Both -> client.generate(ctx)
-    Server -> []
-  }
+  let files = gen.generate_all_files(ctx)
+  write_all(files, ctx.config, on_write)
+}
 
-  let server_path = ctx.config.output_server
-  let client_path = ctx.config.output_client
+/// Write pre-generated files to disk based on configuration.
+pub fn write_all(
+  files: List(GeneratedFile),
+  cfg: config.Config,
+  on_write: fn(String) -> Nil,
+) -> Result(List(String), WriteError) {
+  // Separate shared files from server/client-specific ones by checking
+  // which modules are server-only (handlers, router) or client-only (client)
+  let server_only_paths = ["handlers.gleam", "router.gleam"]
+  let client_only_paths = ["client.gleam"]
+  let shared_files =
+    list.filter(files, fn(f) {
+      !list.contains(server_only_paths, f.path)
+      && !list.contains(client_only_paths, f.path)
+    })
+  let server_files =
+    list.filter(files, fn(f) { list.contains(server_only_paths, f.path) })
+  let client_files =
+    list.filter(files, fn(f) { list.contains(client_only_paths, f.path) })
 
-  // Write shared files to both directories as needed
+  let server_path = cfg.output_server
+  let client_path = cfg.output_client
   let written_files = []
 
-  use written_files <- result.try(case ctx.config.mode {
+  use written_files <- result.try(case cfg.mode {
     Server | Both -> {
       use _ <- result.try(ensure_directory(server_path))
       write_files(shared_files, server_path, written_files, on_write)
@@ -48,7 +55,7 @@ pub fn generate_all(
     Client -> Ok(written_files)
   })
 
-  use written_files <- result.try(case ctx.config.mode {
+  use written_files <- result.try(case cfg.mode {
     Client | Both -> {
       use _ <- result.try(ensure_directory(client_path))
       write_files(shared_files, client_path, written_files, on_write)
@@ -60,16 +67,6 @@ pub fn generate_all(
   })
 
   Ok(written_files)
-}
-
-/// Generate shared files (types, decoders, encoders, middleware).
-fn generate_shared(ctx: Context) -> List(GeneratedFile) {
-  let type_files = types.generate(ctx)
-  let decoder_files = decoders.generate(ctx)
-  let middleware_files = middleware.generate(ctx)
-  let guard_files = guards.generate(ctx)
-
-  list.flatten([type_files, decoder_files, middleware_files, guard_files])
 }
 
 /// Ensure a directory exists, creating it if necessary.

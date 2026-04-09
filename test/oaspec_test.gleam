@@ -11,6 +11,7 @@ import oaspec/codegen/guards
 import oaspec/codegen/types
 import oaspec/codegen/validate
 import oaspec/config
+import oaspec/generate
 import oaspec/openapi/dedup
 import oaspec/openapi/hoist
 import oaspec/openapi/parser
@@ -2445,6 +2446,41 @@ paths:
       should.be_ok(Ok(Nil))
     }
   }
+}
+
+// --- Finding 7: Pure generate function exists and returns Result ---
+pub fn pure_generate_pipeline_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
+  should.be_ok(result)
+  let assert Ok(summary) = result
+  // Should have generated files
+  { summary.files != [] }
+  |> should.be_true()
+  // Should include spec title
+  string.contains(summary.spec_title, "T")
+  |> should.be_true()
 }
 
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
