@@ -1,10 +1,11 @@
 import gleam/dict
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/types as type_gen
-import oaspec/openapi/schema.{Inline, Reference}
+import oaspec/openapi/resolver
+import oaspec/openapi/schema.{type SchemaRef, Inline, ObjectSchema, Reference}
 import oaspec/openapi/spec
 import oaspec/util/http
 import oaspec/util/naming
@@ -166,6 +167,11 @@ fn url_expression_to_suffix(url_expression: String) -> String {
 /// Generate a router module that dispatches requests.
 fn generate_router(ctx: Context) -> String {
   let operations = type_gen.collect_operations(ctx)
+  let has_deep_object =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      list.any(operation.parameters, fn(p) { is_deep_object_param(p, ctx) })
+    })
 
   // Determine which imports are needed based on operations
   let needs_dict =
@@ -182,12 +188,7 @@ fn generate_router(ctx: Context) -> String {
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
-        case p.schema {
-          Some(Inline(schema.IntegerSchema(..))) -> True
-          Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
-            True
-          _ -> False
-        }
+        query_schema_needs_int(p.schema) || deep_object_param_needs_int(p, ctx)
       })
     })
 
@@ -195,12 +196,8 @@ fn generate_router(ctx: Context) -> String {
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
-        case p.schema {
-          Some(Inline(schema.NumberSchema(..))) -> True
-          Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
-            True
-          _ -> False
-        }
+        query_schema_needs_float(p.schema)
+        || deep_object_param_needs_float(p, ctx)
       })
     })
 
@@ -208,12 +205,12 @@ fn generate_router(ctx: Context) -> String {
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
-        case p.in_, p.schema {
-          spec.InCookie, _ -> True
-          spec.InQuery, Some(Inline(schema.ArraySchema(..))) -> True
-          spec.InHeader, Some(Inline(schema.ArraySchema(..))) -> True
-          _, Some(Inline(schema.BooleanSchema(..))) -> True
-          _, _ -> False
+        case p.in_ {
+          spec.InCookie -> True
+          spec.InQuery | spec.InHeader ->
+            query_schema_needs_string(p.schema)
+            || deep_object_param_needs_string(p, ctx)
+          spec.InPath -> query_schema_needs_string(p.schema)
         }
       })
     })
@@ -226,6 +223,7 @@ fn generate_router(ctx: Context) -> String {
 
   let needs_list_import =
     needs_cookie_lookup
+    || has_deep_object
     || list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
@@ -243,11 +241,17 @@ fn generate_router(ctx: Context) -> String {
       let #(_, operation, _, _) = op
       let has_optional_params =
         list.any(operation.parameters, fn(p) { !p.required })
+      let has_optional_deep_object_fields =
+        list.any(operation.parameters, fn(p) {
+          deep_object_param_has_optional_fields(p, ctx)
+        })
       let has_optional_body = case operation.request_body {
         Some(rb) -> !rb.required
         None -> False
       }
-      has_optional_params || has_optional_body
+      has_optional_params
+      || has_optional_deep_object_fields
+      || has_optional_body
     })
 
   let needs_json =
@@ -341,6 +345,10 @@ fn generate_router(ctx: Context) -> String {
   }
 
   let pkg_imports = [ctx.config.package <> "/handlers"]
+  let pkg_imports = case has_deep_object {
+    True -> list.append(pkg_imports, [ctx.config.package <> "/types"])
+    False -> pkg_imports
+  }
   let pkg_imports = case needs_decode {
     True -> list.append(pkg_imports, [ctx.config.package <> "/decode"])
     False -> pkg_imports
@@ -375,6 +383,21 @@ fn generate_router(ctx: Context) -> String {
     )
     |> se.line("}")
     |> se.blank_line()
+
+  let sb = case has_deep_object {
+    True ->
+      sb
+      |> se.line(
+        "fn deep_object_present(query: Dict(String, List(String)), prefix: String, props: List(String)) -> Bool {",
+      )
+      |> se.indent(
+        1,
+        "list.any(props, fn(prop) { dict.has_key(query, prefix <> \"[\" <> prop <> \"]\") })",
+      )
+      |> se.line("}")
+      |> se.blank_line()
+    False -> sb
+  }
 
   // Generate route function
   let sb =
@@ -436,7 +459,9 @@ fn route_arg_name(name: String, used: Bool) -> String {
 fn generate_cookie_lookup(sb: se.StringBuilder) -> se.StringBuilder {
   sb
   |> se.doc_comment("Extract a cookie value from the Cookie header.")
-  |> se.line("fn cookie_lookup(headers: Dict(String, String), key: String) -> Result(String, Nil) {")
+  |> se.line(
+    "fn cookie_lookup(headers: Dict(String, String), key: String) -> Result(String, Nil) {",
+  )
   |> se.indent(1, "case dict.get(headers, \"cookie\") {")
   |> se.indent(2, "Ok(raw) ->")
   |> se.indent(3, "list.find_map(string.split(raw, \";\"), fn(part) {")
@@ -444,10 +469,7 @@ fn generate_cookie_lookup(sb: se.StringBuilder) -> se.StringBuilder {
   |> se.indent(4, "case string.split_once(trimmed, on: \"=\") {")
   |> se.indent(5, "Ok(#(cookie_key, cookie_value)) ->")
   |> se.indent(6, "case string.trim(cookie_key) == key {")
-  |> se.indent(
-    7,
-    "True -> uri.percent_decode(string.trim(cookie_value))",
-  )
+  |> se.indent(7, "True -> uri.percent_decode(string.trim(cookie_value))")
   |> se.indent(7, "False -> Error(Nil)")
   |> se.indent(6, "}")
   |> se.indent(5, "Error(_) -> Error(Nil)")
@@ -504,38 +526,9 @@ fn generate_request_construction(
   request_type_name: String,
   op_id: String,
   operation: spec.Operation,
-  path: String,
-  _ctx: Context,
+  _path: String,
+  ctx: Context,
 ) -> se.StringBuilder {
-  // Build path segment index map
-  let path_segments =
-    path
-    |> string.split("/")
-    |> list.filter(fn(s) { s != "" })
-
-  let path_param_indices =
-    list.index_map(path_segments, fn(seg, idx) { #(seg, idx) })
-    |> list.filter(fn(entry) {
-      let #(seg, _) = entry
-      is_path_param(seg)
-    })
-    |> list.map(fn(entry) {
-      let #(seg, idx) = entry
-      let name = extract_param_name(seg)
-      #(name, idx)
-    })
-
-  // Extract path parameters first
-  let sb =
-    list.fold(path_param_indices, sb, fn(sb, entry) {
-      let #(name, _idx) = entry
-      let var_name = naming.to_snake_case(name) <> "_param"
-      // The path pattern already binds path params as variables
-      // We just need to reference the bound variable from the pattern
-      let _ = var_name
-      sb
-    })
-
   // Build request constructor
   let sb =
     sb
@@ -553,9 +546,11 @@ fn generate_request_construction(
         }
         spec.InQuery -> {
           let key = param.name
-          case param.required {
-            True -> query_required_expr(key, param)
-            False -> query_optional_expr(key, param)
+          case is_deep_object_param(param, ctx), param.required {
+            True, True -> deep_object_required_expr(key, param, op_id, ctx)
+            True, False -> deep_object_optional_expr(key, param, op_id, ctx)
+            False, True -> query_required_expr(key, param)
+            False, False -> query_optional_expr(key, param)
           }
         }
         spec.InHeader -> {
@@ -608,10 +603,18 @@ fn param_parse_expr(var_name: String, param: spec.Parameter) -> String {
 
 /// Generate expression for a required query parameter.
 fn query_required_expr(key: String, param: spec.Parameter) -> String {
+  query_required_expr_with_schema(key, param.schema, param.explode)
+}
+
+fn query_required_expr_with_schema(
+  key: String,
+  schema_ref: Option(SchemaRef),
+  explode: Option(Bool),
+) -> String {
   let base = "{ let assert Ok([v, ..]) = dict.get(query, \"" <> key <> "\") v }"
-  case param.schema {
+  case schema_ref {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
@@ -622,7 +625,7 @@ fn query_required_expr(key: String, param: spec.Parameter) -> String {
           <> "\") list.map(vs, fn(item) { string.trim(item) }) }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
@@ -633,7 +636,7 @@ fn query_required_expr(key: String, param: spec.Parameter) -> String {
           <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
@@ -644,7 +647,7 @@ fn query_required_expr(key: String, param: spec.Parameter) -> String {
           <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n }) }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
@@ -678,9 +681,17 @@ fn query_required_expr(key: String, param: spec.Parameter) -> String {
 
 /// Generate expression for an optional query parameter.
 fn query_optional_expr(key: String, param: spec.Parameter) -> String {
-  case param.schema {
+  query_optional_expr_with_schema(key, param.schema, param.explode)
+}
+
+fn query_optional_expr_with_schema(
+  key: String,
+  schema_ref: Option(SchemaRef),
+  explode: Option(Bool),
+) -> String {
+  case schema_ref {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "case dict.get(query, \""
           <> key
@@ -691,7 +702,7 @@ fn query_optional_expr(key: String, param: spec.Parameter) -> String {
           <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "case dict.get(query, \""
           <> key
@@ -702,7 +713,7 @@ fn query_optional_expr(key: String, param: spec.Parameter) -> String {
           <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "case dict.get(query, \""
           <> key
@@ -713,7 +724,7 @@ fn query_optional_expr(key: String, param: spec.Parameter) -> String {
           <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n })) _ -> None }"
       }
     Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
-      case param.explode {
+      case explode {
         Some(False) ->
           "case dict.get(query, \""
           <> key
@@ -742,7 +753,197 @@ fn query_optional_expr(key: String, param: spec.Parameter) -> String {
       <> bool_parse_expr
       <> ") _ -> None }"
     _ ->
-      "case dict.get(query, \"" <> key <> "\") { Ok([v, ..]) -> Some(v) _ -> None }"
+      "case dict.get(query, \""
+      <> key
+      <> "\") { Ok([v, ..]) -> Some(v) _ -> None }"
+  }
+}
+
+type DeepObjectProperty {
+  DeepObjectProperty(
+    name: String,
+    field_name: String,
+    schema_ref: SchemaRef,
+    required: Bool,
+  )
+}
+
+fn is_deep_object_param(param: spec.Parameter, ctx: Context) -> Bool {
+  case param.in_, param.style, param.schema {
+    spec.InQuery, Some(spec.DeepObjectStyle), Some(Reference(..) as schema_ref) ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(ObjectSchema(..)) -> True
+        _ -> False
+      }
+    spec.InQuery, Some(spec.DeepObjectStyle), Some(Inline(ObjectSchema(..))) ->
+      True
+    _, _, _ -> False
+  }
+}
+
+fn deep_object_properties(
+  param: spec.Parameter,
+  ctx: Context,
+) -> List(DeepObjectProperty) {
+  let details = case param.schema {
+    Some(Reference(..) as schema_ref) ->
+      case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+        Ok(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
+        _ -> #(dict.new(), [])
+      }
+    Some(Inline(ObjectSchema(properties:, required:, ..))) -> #(
+      properties,
+      required,
+    )
+    _ -> #(dict.new(), [])
+  }
+  let #(properties, required_fields) = details
+  dict.to_list(properties)
+  |> list.map(fn(entry) {
+    let #(prop_name, prop_ref) = entry
+    DeepObjectProperty(
+      name: prop_name,
+      field_name: naming.to_snake_case(prop_name),
+      schema_ref: prop_ref,
+      required: list.contains(required_fields, prop_name),
+    )
+  })
+}
+
+fn deep_object_type_name(param: spec.Parameter, op_id: String) -> String {
+  case param.schema {
+    Some(Reference(name:, ..)) -> "types." <> naming.schema_to_type_name(name)
+    _ ->
+      "types."
+      <> naming.schema_to_type_name(op_id)
+      <> "Param"
+      <> naming.to_pascal_case(param.name)
+  }
+}
+
+fn deep_object_required_expr(
+  key: String,
+  param: spec.Parameter,
+  op_id: String,
+  ctx: Context,
+) -> String {
+  deep_object_constructor_expr(key, param, op_id, ctx)
+}
+
+fn deep_object_optional_expr(
+  key: String,
+  param: spec.Parameter,
+  op_id: String,
+  ctx: Context,
+) -> String {
+  let props = deep_object_properties(param, ctx)
+  let prop_names =
+    props
+    |> list.map(fn(prop) { "\"" <> prop.name <> "\"" })
+    |> string.join(", ")
+  "case deep_object_present(query, \""
+  <> key
+  <> "\", ["
+  <> prop_names
+  <> "]) { True -> Some("
+  <> deep_object_constructor_expr(key, param, op_id, ctx)
+  <> ") False -> None }"
+}
+
+fn deep_object_constructor_expr(
+  key: String,
+  param: spec.Parameter,
+  op_id: String,
+  ctx: Context,
+) -> String {
+  let fields =
+    deep_object_properties(param, ctx)
+    |> list.map(fn(prop) {
+      let prop_key = key <> "[" <> prop.name <> "]"
+      let value_expr = case prop.required {
+        True ->
+          query_required_expr_with_schema(
+            prop_key,
+            Some(prop.schema_ref),
+            Some(True),
+          )
+        False ->
+          query_optional_expr_with_schema(
+            prop_key,
+            Some(prop.schema_ref),
+            Some(True),
+          )
+      }
+      prop.field_name <> ": " <> value_expr
+    })
+    |> string.join(", ")
+  deep_object_type_name(param, op_id) <> "(" <> fields <> ")"
+}
+
+fn deep_object_param_has_optional_fields(
+  param: spec.Parameter,
+  ctx: Context,
+) -> Bool {
+  case is_deep_object_param(param, ctx) {
+    True ->
+      list.any(deep_object_properties(param, ctx), fn(prop) { !prop.required })
+    False -> False
+  }
+}
+
+fn deep_object_param_needs_string(param: spec.Parameter, ctx: Context) -> Bool {
+  case is_deep_object_param(param, ctx) {
+    True ->
+      list.any(deep_object_properties(param, ctx), fn(prop) {
+        query_schema_needs_string(Some(prop.schema_ref))
+      })
+    False -> False
+  }
+}
+
+fn deep_object_param_needs_int(param: spec.Parameter, ctx: Context) -> Bool {
+  case is_deep_object_param(param, ctx) {
+    True ->
+      list.any(deep_object_properties(param, ctx), fn(prop) {
+        query_schema_needs_int(Some(prop.schema_ref))
+      })
+    False -> False
+  }
+}
+
+fn deep_object_param_needs_float(param: spec.Parameter, ctx: Context) -> Bool {
+  case is_deep_object_param(param, ctx) {
+    True ->
+      list.any(deep_object_properties(param, ctx), fn(prop) {
+        query_schema_needs_float(Some(prop.schema_ref))
+      })
+    False -> False
+  }
+}
+
+fn query_schema_needs_string(schema_ref: Option(SchemaRef)) -> Bool {
+  case schema_ref {
+    Some(Inline(schema.ArraySchema(..))) -> True
+    Some(Inline(schema.BooleanSchema(..))) -> True
+    _ -> False
+  }
+}
+
+fn query_schema_needs_int(schema_ref: Option(SchemaRef)) -> Bool {
+  case schema_ref {
+    Some(Inline(schema.IntegerSchema(..))) -> True
+    Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
+      True
+    _ -> False
+  }
+}
+
+fn query_schema_needs_float(schema_ref: Option(SchemaRef)) -> Bool {
+  case schema_ref {
+    Some(Inline(schema.NumberSchema(..))) -> True
+    Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
+      True
+    _ -> False
   }
 }
 

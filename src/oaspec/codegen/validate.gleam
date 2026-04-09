@@ -208,8 +208,8 @@ fn validate_server_structured_param(
         spec.InQuery, Some(ArraySchema(items: Inline(StringSchema(..)), ..))
         | spec.InQuery, Some(ArraySchema(items: Inline(IntegerSchema(..)), ..))
         | spec.InQuery, Some(ArraySchema(items: Inline(NumberSchema(..)), ..))
-        | spec.InQuery, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..)) ->
-          []
+        | spec.InQuery, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..))
+        -> []
         spec.InQuery, Some(ArraySchema(..)) -> [
           ValidationError(
             severity: SeverityError,
@@ -221,8 +221,8 @@ fn validate_server_structured_param(
         spec.InHeader, Some(ArraySchema(items: Inline(StringSchema(..)), ..))
         | spec.InHeader, Some(ArraySchema(items: Inline(IntegerSchema(..)), ..))
         | spec.InHeader, Some(ArraySchema(items: Inline(NumberSchema(..)), ..))
-        | spec.InHeader, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..)) ->
-          []
+        | spec.InHeader, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..))
+        -> []
         spec.InHeader, Some(ArraySchema(..)) -> [
           ValidationError(
             severity: SeverityError,
@@ -233,19 +233,53 @@ fn validate_server_structured_param(
         ]
         _, _ -> []
       }
-      let deep_object_errors = case param.style {
-        Some(spec.DeepObjectStyle) -> [
-          ValidationError(
-            severity: SeverityError,
-            target: TargetServer,
-            path: path,
-            detail: "deepObject parameters are not supported for server code generation.",
-          ),
-        ]
-        _ -> []
-      }
+      let deep_object_errors =
+        validate_server_deep_object_param(path, param, ctx)
       list.flatten([array_errors, deep_object_errors])
     }
+  }
+}
+
+fn validate_server_deep_object_param(
+  path: String,
+  param: spec.Parameter,
+  ctx: Context,
+) -> List(ValidationError) {
+  case param.in_, param.style, resolve_schema_object(param.schema, ctx) {
+    spec.InQuery,
+      Some(spec.DeepObjectStyle),
+      Some(ObjectSchema(properties:, ..))
+    ->
+      dict.to_list(properties)
+      |> list.flat_map(fn(entry) {
+        let #(prop_name, prop_ref) = entry
+        case deep_object_server_leaf_supported(prop_ref) {
+          True -> []
+          False -> [
+            ValidationError(
+              severity: SeverityError,
+              target: TargetServer,
+              path: path <> "." <> prop_name,
+              detail: "deepObject properties are only supported for inline primitive scalars and inline primitive array leaves in server code generation.",
+            ),
+          ]
+        }
+      })
+    _, _, _ -> []
+  }
+}
+
+fn deep_object_server_leaf_supported(schema_ref: SchemaRef) -> Bool {
+  case schema_ref {
+    Inline(StringSchema(..))
+    | Inline(IntegerSchema(..))
+    | Inline(NumberSchema(..))
+    | Inline(BooleanSchema(..))
+    | Inline(ArraySchema(items: Inline(StringSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(IntegerSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(NumberSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
+    _ -> False
   }
 }
 

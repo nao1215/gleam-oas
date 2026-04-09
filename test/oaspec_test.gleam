@@ -3727,9 +3727,7 @@ paths:
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx = make_ctx_from_spec(spec)
-  let errors =
-    validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+  let errors = validate.validate(ctx)
   list.is_empty(errors)
   |> should.be_true()
 }
@@ -5881,40 +5879,16 @@ paths:
   |> should.equal(1)
 }
 
-pub fn validate_rejects_deep_object_params_for_server_codegen_test() {
-  let yaml =
-    "
-openapi: 3.0.3
-info:
-  title: Test
-  version: 1.0.0
-paths:
-  /search:
-    get:
-      operationId: searchItems
-      parameters:
-        - name: filter
-          in: query
-          style: deepObject
-          required: true
-          schema:
-            type: object
-            properties:
-              name:
-                type: string
-      responses:
-        '200': { description: ok }
-"
-  let assert Ok(spec) = parser.parse_string(yaml)
-  let ctx = make_ctx_from_spec(spec)
+pub fn validate_accepts_deep_object_params_for_server_codegen_test() {
+  let ctx = make_ctx("test/fixtures/server_deep_object_params.yaml")
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
       e.target == validate.TargetServer
-      && string.contains(e.detail, "deepObject parameters are not supported")
+      && string.contains(e.detail, "deepObject")
     })
   list.length(server_errors)
-  |> should.equal(1)
+  |> should.equal(0)
 }
 
 pub fn validate_rejects_path_complex_params_for_server_codegen_test() {
@@ -6228,11 +6202,20 @@ paths:
     list.find(files, fn(f) { f.path == "router.gleam" })
   let content = router_file.content
 
-  string.contains(content, "ratio: { let assert Ok([v, ..]) = dict.get(query, \"ratio\") let assert Ok(n) = float.parse(v) n },")
+  string.contains(
+    content,
+    "ratio: { let assert Ok([v, ..]) = dict.get(query, \"ratio\") let assert Ok(n) = float.parse(v) n },",
+  )
   |> should.be_true()
-  string.contains(content, "x_enabled: case dict.get(headers, \"x-enabled\") { Ok(v) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None },")
+  string.contains(
+    content,
+    "x_enabled: case dict.get(headers, \"x-enabled\") { Ok(v) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None },",
+  )
   |> should.be_true()
-  string.contains(content, "x_threshold: { let assert Ok(v) = dict.get(headers, \"x-threshold\") let assert Ok(n) = float.parse(v) n },")
+  string.contains(
+    content,
+    "x_threshold: { let assert Ok(v) = dict.get(headers, \"x-threshold\") let assert Ok(n) = float.parse(v) n },",
+  )
   |> should.be_true()
 }
 
@@ -6315,11 +6298,20 @@ paths:
 
   string.contains(content, "import gleam/list")
   |> should.be_true()
-  string.contains(content, "x_tags: { let assert Ok(v) = dict.get(headers, \"x-tags\") list.map(string.split(v, \",\"), fn(item) { string.trim(item) }) },")
+  string.contains(
+    content,
+    "x_tags: { let assert Ok(v) = dict.get(headers, \"x-tags\") list.map(string.split(v, \",\"), fn(item) { string.trim(item) }) },",
+  )
   |> should.be_true()
-  string.contains(content, "x_scores: case dict.get(headers, \"x-scores\") { Ok(v) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None },")
+  string.contains(
+    content,
+    "x_scores: case dict.get(headers, \"x-scores\") { Ok(v) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None },",
+  )
   |> should.be_true()
-  string.contains(content, "x_flags: { let assert Ok(v) = dict.get(headers, \"x-flags\") list.map(string.split(v, \",\"), fn(item) { let v = string.trim(item) case string.lowercase(v) { \"true\" -> True _ -> False } }) },")
+  string.contains(
+    content,
+    "x_flags: { let assert Ok(v) = dict.get(headers, \"x-flags\") list.map(string.split(v, \",\"), fn(item) { let v = string.trim(item) case string.lowercase(v) { \"true\" -> True _ -> False } }) },",
+  )
   |> should.be_true()
 }
 
@@ -6394,10 +6386,72 @@ paths:
     list.find(files, fn(f) { f.path == "router.gleam" })
   let content = router_file.content
 
-  string.contains(content, "pub fn route(method: String, path: List(String), query: Dict(String, List(String)), _headers: Dict(String, String), _body: String) -> ServerResponse")
+  string.contains(
+    content,
+    "pub fn route(method: String, path: List(String), query: Dict(String, List(String)), _headers: Dict(String, String), _body: String) -> ServerResponse",
+  )
   |> should.be_true()
-  string.contains(content, "tags: { let assert Ok(vs) = dict.get(query, \"tags\") list.map(vs, fn(item) { string.trim(item) }) },")
+  string.contains(
+    content,
+    "tags: { let assert Ok(vs) = dict.get(query, \"tags\") list.map(vs, fn(item) { string.trim(item) }) },",
+  )
   |> should.be_true()
-  string.contains(content, "scores: case dict.get(query, \"scores\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None },")
+  string.contains(
+    content,
+    "scores: case dict.get(query, \"scores\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None },",
+  )
+  |> should.be_true()
+}
+
+pub fn server_deep_object_params_are_parsed_test() {
+  let ctx = make_ctx("test/fixtures/server_deep_object_params.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+
+  string.contains(content, "import api/types")
+  |> should.be_true()
+  string.contains(
+    content,
+    "fn deep_object_present(query: Dict(String, List(String)), prefix: String, props: List(String)) -> Bool {",
+  )
+  |> should.be_true()
+  string.contains(content, "filter: types.SearchItemsParamFilter(")
+  |> should.be_true()
+  string.contains(
+    content,
+    "name: { let assert Ok([v, ..]) = dict.get(query, \"filter[name]\") v }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "active: case dict.get(query, \"filter[active]\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "ratio: case dict.get(query, \"filter[ratio]\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "scores: { let assert Ok(vs) = dict.get(query, \"filter[scores]\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "options: case deep_object_present(query, \"options\", [",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "tags: case dict.get(query, \"options[tags]\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "enabled: case dict.get(query, \"options[enabled]\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
   |> should.be_true()
 }
