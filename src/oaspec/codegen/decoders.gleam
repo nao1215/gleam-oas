@@ -627,81 +627,122 @@ fn generate_decoder(
     }
 
     // Primitive schemas: generate decoder/encoder wrappers
-    Inline(StringSchema(enum_values: [], ..)) -> {
+    // Nullable primitives use decode.optional / Option(T) types.
+    Inline(StringSchema(enum_values: [], nullable:, ..)) -> {
+      let #(gleam_type, decoder_expr) = case nullable {
+        True -> #("Option(String)", "decode.optional(decode.string)")
+        False -> #("String", "decode.string")
+      }
       let sb =
         sb
         |> se.line(
-          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(String) {",
+          "pub fn "
+          <> decoder_fn_name
+          <> "() -> decode.Decoder("
+          <> gleam_type
+          <> ") {",
         )
-        |> se.indent(1, "decode.string")
+        |> se.indent(1, decoder_expr)
         |> se.line("}")
         |> se.blank_line()
         |> se.line(
           "pub fn "
           <> fn_name
-          <> "(json_string: String) -> Result(String, json.DecodeError) {",
+          <> "(json_string: String) -> Result("
+          <> gleam_type
+          <> ", json.DecodeError) {",
         )
-        |> se.indent(1, "json.parse(json_string, decode.string)")
+        |> se.indent(1, "json.parse(json_string, " <> decoder_expr <> ")")
         |> se.line("}")
         |> se.blank_line()
       sb
     }
 
-    Inline(IntegerSchema(..)) -> {
+    Inline(IntegerSchema(nullable:, ..)) -> {
+      let #(gleam_type, decoder_expr) = case nullable {
+        True -> #("Option(Int)", "decode.optional(decode.int)")
+        False -> #("Int", "decode.int")
+      }
       let sb =
         sb
         |> se.line(
-          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Int) {",
+          "pub fn "
+          <> decoder_fn_name
+          <> "() -> decode.Decoder("
+          <> gleam_type
+          <> ") {",
         )
-        |> se.indent(1, "decode.int")
+        |> se.indent(1, decoder_expr)
         |> se.line("}")
         |> se.blank_line()
         |> se.line(
           "pub fn "
           <> fn_name
-          <> "(json_string: String) -> Result(Int, json.DecodeError) {",
+          <> "(json_string: String) -> Result("
+          <> gleam_type
+          <> ", json.DecodeError) {",
         )
-        |> se.indent(1, "json.parse(json_string, decode.int)")
+        |> se.indent(1, "json.parse(json_string, " <> decoder_expr <> ")")
         |> se.line("}")
         |> se.blank_line()
       sb
     }
 
-    Inline(NumberSchema(..)) -> {
+    Inline(NumberSchema(nullable:, ..)) -> {
+      let #(gleam_type, decoder_expr) = case nullable {
+        True -> #("Option(Float)", "decode.optional(decode.float)")
+        False -> #("Float", "decode.float")
+      }
       let sb =
         sb
         |> se.line(
-          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Float) {",
+          "pub fn "
+          <> decoder_fn_name
+          <> "() -> decode.Decoder("
+          <> gleam_type
+          <> ") {",
         )
-        |> se.indent(1, "decode.float")
+        |> se.indent(1, decoder_expr)
         |> se.line("}")
         |> se.blank_line()
         |> se.line(
           "pub fn "
           <> fn_name
-          <> "(json_string: String) -> Result(Float, json.DecodeError) {",
+          <> "(json_string: String) -> Result("
+          <> gleam_type
+          <> ", json.DecodeError) {",
         )
-        |> se.indent(1, "json.parse(json_string, decode.float)")
+        |> se.indent(1, "json.parse(json_string, " <> decoder_expr <> ")")
         |> se.line("}")
         |> se.blank_line()
       sb
     }
 
-    Inline(BooleanSchema(..)) -> {
+    Inline(BooleanSchema(nullable:, ..)) -> {
+      let #(gleam_type, decoder_expr) = case nullable {
+        True -> #("Option(Bool)", "decode.optional(decode.bool)")
+        False -> #("Bool", "decode.bool")
+      }
       let sb =
         sb
         |> se.line(
-          "pub fn " <> decoder_fn_name <> "() -> decode.Decoder(Bool) {",
+          "pub fn "
+          <> decoder_fn_name
+          <> "() -> decode.Decoder("
+          <> gleam_type
+          <> ") {",
         )
-        |> se.indent(1, "decode.bool")
+        |> se.indent(1, decoder_expr)
         |> se.line("}")
         |> se.blank_line()
         |> se.line(
           "pub fn "
           <> fn_name
-          <> "(json_string: String) -> Result(Bool, json.DecodeError) {",
+          <> "(json_string: String) -> Result("
+          <> gleam_type
+          <> ", json.DecodeError) {",
         )
-        |> se.indent(1, "json.parse(json_string, decode.bool)")
+        |> se.indent(1, "json.parse(json_string, " <> decoder_expr <> ")")
         |> se.line("}")
         |> se.blank_line()
       sb
@@ -1504,49 +1545,82 @@ fn generate_encoder(
     }
 
     // Primitive schemas: generate encoder wrappers
-    Inline(StringSchema(enum_values: [], ..)) -> {
+    // Nullable primitives use json.nullable / Option(T) types.
+    Inline(StringSchema(enum_values: [], nullable:, ..)) -> {
+      let #(gleam_type, json_expr) = case nullable {
+        True -> #("Option(String)", "json.nullable(value, json.string)")
+        False -> #("String", "json.string(value)")
+      }
       sb
-      |> se.line("pub fn " <> json_fn_name <> "(value: String) -> json.Json {")
-      |> se.indent(1, "json.string(value)")
+      |> se.line(
+        "pub fn " <> json_fn_name <> "(value: " <> gleam_type <> ") -> json.Json {",
+      )
+      |> se.indent(1, json_expr)
       |> se.line("}")
       |> se.blank_line()
-      |> se.line("pub fn " <> fn_name <> "(value: String) -> String {")
+      |> se.line(
+        "pub fn " <> fn_name <> "(value: " <> gleam_type <> ") -> String {",
+      )
       |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
       |> se.line("}")
       |> se.blank_line()
     }
 
-    Inline(IntegerSchema(..)) -> {
+    Inline(IntegerSchema(nullable:, ..)) -> {
+      let #(gleam_type, json_expr) = case nullable {
+        True -> #("Option(Int)", "json.nullable(value, json.int)")
+        False -> #("Int", "json.int(value)")
+      }
       sb
-      |> se.line("pub fn " <> json_fn_name <> "(value: Int) -> json.Json {")
-      |> se.indent(1, "json.int(value)")
+      |> se.line(
+        "pub fn " <> json_fn_name <> "(value: " <> gleam_type <> ") -> json.Json {",
+      )
+      |> se.indent(1, json_expr)
       |> se.line("}")
       |> se.blank_line()
-      |> se.line("pub fn " <> fn_name <> "(value: Int) -> String {")
+      |> se.line(
+        "pub fn " <> fn_name <> "(value: " <> gleam_type <> ") -> String {",
+      )
       |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
       |> se.line("}")
       |> se.blank_line()
     }
 
-    Inline(NumberSchema(..)) -> {
+    Inline(NumberSchema(nullable:, ..)) -> {
+      let #(gleam_type, json_expr) = case nullable {
+        True -> #("Option(Float)", "json.nullable(value, json.float)")
+        False -> #("Float", "json.float(value)")
+      }
       sb
-      |> se.line("pub fn " <> json_fn_name <> "(value: Float) -> json.Json {")
-      |> se.indent(1, "json.float(value)")
+      |> se.line(
+        "pub fn " <> json_fn_name <> "(value: " <> gleam_type <> ") -> json.Json {",
+      )
+      |> se.indent(1, json_expr)
       |> se.line("}")
       |> se.blank_line()
-      |> se.line("pub fn " <> fn_name <> "(value: Float) -> String {")
+      |> se.line(
+        "pub fn " <> fn_name <> "(value: " <> gleam_type <> ") -> String {",
+      )
       |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
       |> se.line("}")
       |> se.blank_line()
     }
 
-    Inline(BooleanSchema(..)) -> {
+    Inline(BooleanSchema(nullable:, ..)) -> {
+      let #(gleam_type, json_expr) = case nullable {
+        True -> #("Option(Bool)", "json.nullable(value, json.bool)")
+        False -> #("Bool", "json.bool(value)")
+      }
       sb
-      |> se.line("pub fn " <> json_fn_name <> "(value: Bool) -> json.Json {")
-      |> se.indent(1, "json.bool(value)")
+      |> se.line(
+        "pub fn " <> json_fn_name <> "(value: " <> gleam_type <> ") -> json.Json {",
+      )
+      |> se.indent(1, json_expr)
       |> se.line("}")
       |> se.blank_line()
-      |> se.line("pub fn " <> fn_name <> "(value: Bool) -> String {")
+      |> se.line(
+        "pub fn " <> fn_name <> "(value: " <> gleam_type <> ") -> String {",
+      )
       |> se.indent(1, json_fn_name <> "(value) |> json.to_string()")
       |> se.line("}")
       |> se.blank_line()

@@ -3213,6 +3213,50 @@ pub fn status_code_suffix_range_test() {
   |> should.equal("Status4xx")
 }
 
+// --- Nullable schema decoder/encoder tests ---
+
+/// A nullable primitive schema (type: [string, 'null']) must generate
+/// decoder using decode.optional and encoder using json.nullable.
+pub fn nullable_primitive_decoder_encoder_test() {
+  let yaml =
+    "
+openapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    MaybeName:
+      type: [string, 'null']
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = decoders.generate(ctx)
+  // Find the decode file
+  let assert Ok(decode_file) =
+    list.find(files, fn(f) { string.contains(f.path, "decode") })
+  let decode_content = decode_file.content
+  // The decoder must use decode.optional for nullable String
+  string.contains(decode_content, "decode.optional(decode.string)")
+  |> should.be_true()
+
+  // Find the encode file
+  let assert Ok(encode_file) =
+    list.find(files, fn(f) { string.contains(f.path, "encode") })
+  let encode_content = encode_file.content
+  // The encoder must use json.nullable for nullable String
+  string.contains(encode_content, "json.nullable(value, json.string)")
+  |> should.be_true()
+}
+
 fn find_substring_index(haystack: String, needle: String) -> Result(Int, Nil) {
   case string.contains(haystack, needle) {
     True -> {
