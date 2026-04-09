@@ -172,6 +172,11 @@ fn generate_router(ctx: Context) -> String {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) { is_deep_object_param(p, ctx) })
     })
+  let has_form_urlencoded_body =
+    list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      operation_uses_form_urlencoded_body(operation)
+    })
 
   // Determine which imports are needed based on operations
   let needs_dict =
@@ -190,6 +195,10 @@ fn generate_router(ctx: Context) -> String {
       list.any(operation.parameters, fn(p) {
         query_schema_needs_int(p.schema) || deep_object_param_needs_int(p, ctx)
       })
+      || case operation.request_body {
+        Some(rb) -> form_urlencoded_body_needs_int(rb, ctx)
+        None -> False
+      }
     })
 
   let needs_float =
@@ -199,10 +208,15 @@ fn generate_router(ctx: Context) -> String {
         query_schema_needs_float(p.schema)
         || deep_object_param_needs_float(p, ctx)
       })
+      || case operation.request_body {
+        Some(rb) -> form_urlencoded_body_needs_float(rb, ctx)
+        None -> False
+      }
     })
 
   let needs_string =
-    list.any(operations, fn(op) {
+    has_form_urlencoded_body
+    || list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
         case p.in_ {
@@ -213,6 +227,10 @@ fn generate_router(ctx: Context) -> String {
           spec.InPath -> query_schema_needs_string(p.schema)
         }
       })
+      || case operation.request_body {
+        Some(rb) -> form_urlencoded_body_needs_string(rb, ctx)
+        None -> False
+      }
     })
 
   let needs_cookie_lookup =
@@ -224,6 +242,7 @@ fn generate_router(ctx: Context) -> String {
   let needs_list_import =
     needs_cookie_lookup
     || has_deep_object
+    || has_form_urlencoded_body
     || list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       list.any(operation.parameters, fn(p) {
@@ -234,7 +253,7 @@ fn generate_router(ctx: Context) -> String {
         }
       })
     })
-  let needs_uri_import = needs_cookie_lookup
+  let needs_uri_import = needs_cookie_lookup || has_form_urlencoded_body
 
   let needs_option =
     list.any(operations, fn(op) {
@@ -245,12 +264,17 @@ fn generate_router(ctx: Context) -> String {
         list.any(operation.parameters, fn(p) {
           deep_object_param_has_optional_fields(p, ctx)
         })
+      let has_optional_form_urlencoded_fields = case operation.request_body {
+        Some(rb) -> form_urlencoded_body_has_optional_fields(rb, ctx)
+        None -> False
+      }
       let has_optional_body = case operation.request_body {
         Some(rb) -> !rb.required
         None -> False
       }
       has_optional_params
       || has_optional_deep_object_fields
+      || has_optional_form_urlencoded_fields
       || has_optional_body
     })
 
@@ -345,7 +369,7 @@ fn generate_router(ctx: Context) -> String {
   }
 
   let pkg_imports = [ctx.config.package <> "/handlers"]
-  let pkg_imports = case has_deep_object {
+  let pkg_imports = case has_deep_object || has_form_urlencoded_body {
     True -> list.append(pkg_imports, [ctx.config.package <> "/types"])
     False -> pkg_imports
   }
@@ -394,6 +418,58 @@ fn generate_router(ctx: Context) -> String {
         1,
         "list.any(props, fn(prop) { dict.has_key(query, prefix <> \"[\" <> prop <> \"]\") })",
       )
+      |> se.line("}")
+      |> se.blank_line()
+    False -> sb
+  }
+
+  let sb = case has_form_urlencoded_body {
+    True ->
+      sb
+      |> se.line("fn form_url_decode(value: String) -> String {")
+      |> se.indent(1, "let value = string.replace(value, \"+\", \" \")")
+      |> se.indent(
+        1,
+        "case uri.percent_decode(value) { Ok(decoded) -> decoded Error(_) -> value }",
+      )
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.line(
+        "fn parse_form_body(body: String) -> Dict(String, List(String)) {",
+      )
+      |> se.indent(
+        1,
+        "let parts = case body { \"\" -> [] _ -> string.split(body, \"&\") }",
+      )
+      |> se.indent(1, "list.fold(parts, dict.new(), fn(acc, part) {")
+      |> se.indent(2, "case part {")
+      |> se.indent(3, "\"\" -> acc")
+      |> se.indent(3, "_ ->")
+      |> se.indent(4, "case string.split_once(part, on: \"=\") {")
+      |> se.indent(5, "Ok(#(raw_key, raw_value)) -> {")
+      |> se.indent(6, "let key = form_url_decode(raw_key)")
+      |> se.indent(6, "let value = form_url_decode(raw_value)")
+      |> se.indent(6, "case dict.get(acc, key) {")
+      |> se.indent(
+        7,
+        "Ok(existing) -> dict.insert(acc, key, list.append(existing, [value]))",
+      )
+      |> se.indent(7, "Error(_) -> dict.insert(acc, key, [value])")
+      |> se.indent(6, "}")
+      |> se.indent(5, "}")
+      |> se.indent(5, "Error(_) -> {")
+      |> se.indent(6, "let key = form_url_decode(part)")
+      |> se.indent(6, "case dict.get(acc, key) {")
+      |> se.indent(
+        7,
+        "Ok(existing) -> dict.insert(acc, key, list.append(existing, [\"\"]))",
+      )
+      |> se.indent(7, "Error(_) -> dict.insert(acc, key, [\"\"])")
+      |> se.indent(6, "}")
+      |> se.indent(5, "}")
+      |> se.indent(4, "}")
+      |> se.indent(2, "}")
+      |> se.indent(1, "})")
       |> se.line("}")
       |> se.blank_line()
     False -> sb
@@ -529,6 +605,15 @@ fn generate_request_construction(
   _path: String,
   ctx: Context,
 ) -> se.StringBuilder {
+  let sb = case operation.request_body {
+    Some(rb) ->
+      case request_body_uses_form_urlencoded(rb) {
+        True -> sb |> se.indent(3, "let form_body = parse_form_body(body)")
+        False -> sb
+      }
+    _ -> sb
+  }
+
   // Build request constructor
   let sb =
     sb
@@ -575,7 +660,7 @@ fn generate_request_construction(
   // Add body field if present
   let sb = case operation.request_body {
     Some(rb) -> {
-      let body_expr = generate_body_decode_expr(rb, op_id)
+      let body_expr = generate_body_decode_expr(rb, op_id, ctx)
       sb |> se.indent(4, "body: " <> body_expr <> ",")
     }
     None -> sb
@@ -921,6 +1006,114 @@ fn deep_object_param_needs_float(param: spec.Parameter, ctx: Context) -> Bool {
   }
 }
 
+fn request_body_uses_form_urlencoded(rb: spec.RequestBody) -> Bool {
+  dict.has_key(rb.content, "application/x-www-form-urlencoded")
+}
+
+fn operation_uses_form_urlencoded_body(operation: spec.Operation) -> Bool {
+  case operation.request_body {
+    Some(rb) -> request_body_uses_form_urlencoded(rb)
+    None -> False
+  }
+}
+
+fn form_urlencoded_body_properties(
+  rb: spec.RequestBody,
+  ctx: Context,
+) -> List(DeepObjectProperty) {
+  case dict.get(rb.content, "application/x-www-form-urlencoded") {
+    Ok(media_type) -> {
+      let details = case media_type.schema {
+        Some(Reference(..) as schema_ref) ->
+          case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
+            Ok(ObjectSchema(properties:, required:, ..)) -> #(
+              properties,
+              required,
+            )
+            _ -> #(dict.new(), [])
+          }
+        Some(Inline(ObjectSchema(properties:, required:, ..))) -> #(
+          properties,
+          required,
+        )
+        _ -> #(dict.new(), [])
+      }
+      let #(properties, required_fields) = details
+      dict.to_list(properties)
+      |> list.map(fn(entry) {
+        let #(prop_name, prop_ref) = entry
+        DeepObjectProperty(
+          name: prop_name,
+          field_name: naming.to_snake_case(prop_name),
+          schema_ref: prop_ref,
+          required: list.contains(required_fields, prop_name),
+        )
+      })
+    }
+    Error(_) -> []
+  }
+}
+
+fn form_urlencoded_body_type_name(rb: spec.RequestBody, op_id: String) -> String {
+  case dict.get(rb.content, "application/x-www-form-urlencoded") {
+    Ok(media_type) ->
+      case media_type.schema {
+        Some(Reference(name:, ..)) ->
+          "types." <> naming.schema_to_type_name(name)
+        Some(Inline(ObjectSchema(..))) ->
+          "types." <> naming.schema_to_type_name(op_id) <> "RequestBody"
+        _ -> "String"
+      }
+    Error(_) -> "String"
+  }
+}
+
+fn form_urlencoded_body_constructor_expr(
+  rb: spec.RequestBody,
+  op_id: String,
+  ctx: Context,
+) -> String {
+  let fields =
+    form_urlencoded_body_properties(rb, ctx)
+    |> list.map(fn(prop) {
+      let value_expr = case prop.required {
+        True ->
+          form_body_required_expr_with_schema(prop.name, Some(prop.schema_ref))
+        False ->
+          form_body_optional_expr_with_schema(prop.name, Some(prop.schema_ref))
+      }
+      prop.field_name <> ": " <> value_expr
+    })
+    |> string.join(", ")
+  form_urlencoded_body_type_name(rb, op_id) <> "(" <> fields <> ")"
+}
+
+fn form_urlencoded_body_has_optional_fields(
+  rb: spec.RequestBody,
+  ctx: Context,
+) -> Bool {
+  list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) { !prop.required })
+}
+
+fn form_urlencoded_body_needs_string(rb: spec.RequestBody, ctx: Context) -> Bool {
+  request_body_uses_form_urlencoded(rb)
+  && list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
+    query_schema_needs_string(Some(prop.schema_ref))
+  })
+}
+
+fn form_urlencoded_body_needs_int(rb: spec.RequestBody, ctx: Context) -> Bool {
+  list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
+    query_schema_needs_int(Some(prop.schema_ref))
+  })
+}
+
+fn form_urlencoded_body_needs_float(rb: spec.RequestBody, ctx: Context) -> Bool {
+  list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
+    query_schema_needs_float(Some(prop.schema_ref))
+  })
+}
+
 fn query_schema_needs_string(schema_ref: Option(SchemaRef)) -> Bool {
   case schema_ref {
     Some(Inline(schema.ArraySchema(..))) -> True
@@ -944,6 +1137,93 @@ fn query_schema_needs_float(schema_ref: Option(SchemaRef)) -> Bool {
     Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
       True
     _ -> False
+  }
+}
+
+fn form_body_required_expr_with_schema(
+  key: String,
+  schema_ref: Option(SchemaRef),
+) -> String {
+  let base =
+    "{ let assert Ok([v, ..]) = dict.get(form_body, \"" <> key <> "\") v }"
+  case schema_ref {
+    Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
+      "{ let assert Ok(vs) = dict.get(form_body, \""
+      <> key
+      <> "\") list.map(vs, fn(item) { string.trim(item) }) }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
+      "{ let assert Ok(vs) = dict.get(form_body, \""
+      <> key
+      <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
+      "{ let assert Ok(vs) = dict.get(form_body, \""
+      <> key
+      <> "\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n }) }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
+      "{ let assert Ok(vs) = dict.get(form_body, \""
+      <> key
+      <> "\") list.map(vs, fn(item) { let v = string.trim(item) "
+      <> bool_parse_expr
+      <> " }) }"
+    Some(Inline(schema.IntegerSchema(..))) ->
+      "{ let assert Ok([v, ..]) = dict.get(form_body, \""
+      <> key
+      <> "\") let assert Ok(n) = int.parse(v) n }"
+    Some(Inline(schema.NumberSchema(..))) ->
+      "{ let assert Ok([v, ..]) = dict.get(form_body, \""
+      <> key
+      <> "\") let assert Ok(n) = float.parse(v) n }"
+    Some(Inline(schema.BooleanSchema(..))) ->
+      "{ let assert Ok([v, ..]) = dict.get(form_body, \""
+      <> key
+      <> "\") "
+      <> bool_parse_expr
+      <> " }"
+    _ -> base
+  }
+}
+
+fn form_body_optional_expr_with_schema(
+  key: String,
+  schema_ref: Option(SchemaRef),
+) -> String {
+  case schema_ref {
+    Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.NumberSchema(..)), ..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n })) _ -> None }"
+    Some(Inline(schema.ArraySchema(items: Inline(schema.BooleanSchema(..)), ..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok(vs) -> Some(list.map(vs, fn(item) { let v = string.trim(item) "
+      <> bool_parse_expr
+      <> " })) _ -> None }"
+    Some(Inline(schema.IntegerSchema(..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok([v, ..]) -> { case int.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
+    Some(Inline(schema.NumberSchema(..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }"
+    Some(Inline(schema.BooleanSchema(..))) ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok([v, ..]) -> Some("
+      <> bool_parse_expr
+      <> ") _ -> None }"
+    _ ->
+      "case dict.get(form_body, \""
+      <> key
+      <> "\") { Ok([v, ..]) -> Some(v) _ -> None }"
   }
 }
 
@@ -1072,7 +1352,11 @@ fn cookie_optional_expr(key: String, param: spec.Parameter) -> String {
 }
 
 /// Generate the body decode expression for a request body.
-fn generate_body_decode_expr(rb: spec.RequestBody, op_id: String) -> String {
+fn generate_body_decode_expr(
+  rb: spec.RequestBody,
+  op_id: String,
+  ctx: Context,
+) -> String {
   let content_entries = dict.to_list(rb.content)
   case content_entries {
     [#("application/json", media_type)] -> {
@@ -1090,6 +1374,13 @@ fn generate_body_decode_expr(rb: spec.RequestBody, op_id: String) -> String {
           "case body { \"\" -> None _ -> { case "
           <> decode_fn
           <> " { Ok(decoded) -> Some(decoded) _ -> None } } }"
+      }
+    }
+    [#("application/x-www-form-urlencoded", _media_type)] -> {
+      let body_expr = form_urlencoded_body_constructor_expr(rb, op_id, ctx)
+      case rb.required {
+        True -> body_expr
+        False -> "case body { \"\" -> None _ -> Some(" <> body_expr <> ") }"
       }
     }
     _ -> {

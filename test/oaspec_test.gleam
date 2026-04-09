@@ -5655,10 +5655,11 @@ paths:
             schema:
               type: object
               properties:
-                username:
-                  type: string
-                password:
-                  type: string
+                profile:
+                  type: object
+                  properties:
+                    username:
+                      type: string
       responses:
         '200': { description: ok }
 "
@@ -5668,7 +5669,10 @@ paths:
   let server_errors =
     list.filter(errors, fn(e) {
       e.target == validate.TargetServer
-      && string.contains(e.detail, "not supported for server")
+      && string.contains(
+        e.detail,
+        "application/x-www-form-urlencoded server request bodies only support",
+      )
     })
   list.length(server_errors)
   |> should.not_equal(0)
@@ -6452,6 +6456,65 @@ pub fn server_deep_object_params_are_parsed_test() {
   string.contains(
     content,
     "enabled: case dict.get(query, \"options[enabled]\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+}
+
+pub fn validate_accepts_form_urlencoded_body_for_server_codegen_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_body.yaml")
+  let errors = validate.validate(ctx)
+  let server_errors =
+    list.filter(errors, fn(e) {
+      e.target == validate.TargetServer
+      && string.contains(e.detail, "application/x-www-form-urlencoded")
+    })
+  list.length(server_errors)
+  |> should.equal(0)
+}
+
+pub fn server_form_urlencoded_body_is_parsed_test() {
+  let ctx = make_ctx("test/fixtures/server_form_urlencoded_body.yaml")
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+  let content = router_file.content
+
+  string.contains(content, "import api/types")
+  |> should.be_true()
+  string.contains(content, "fn form_url_decode(value: String) -> String {")
+  |> should.be_true()
+  string.contains(
+    content,
+    "fn parse_form_body(body: String) -> Dict(String, List(String)) {",
+  )
+  |> should.be_true()
+  string.contains(content, "let form_body = parse_form_body(body)")
+  |> should.be_true()
+  string.contains(content, "body: types.SubmitFormRequest(")
+  |> should.be_true()
+  string.contains(
+    content,
+    "name: { let assert Ok([v, ..]) = dict.get(form_body, \"name\") v }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "active: case dict.get(form_body, \"active\") { Ok([v, ..]) -> Some(case string.lowercase(v) { \"true\" -> True _ -> False }) _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "ratio: case dict.get(form_body, \"ratio\") { Ok([v, ..]) -> { case float.parse(v) { Ok(n) -> Some(n) _ -> None } } _ -> None }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "scores: { let assert Ok(vs) = dict.get(form_body, \"scores\") list.map(vs, fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }",
+  )
+  |> should.be_true()
+  string.contains(
+    content,
+    "tags: case dict.get(form_body, \"tags\") { Ok(vs) -> Some(list.map(vs, fn(item) { string.trim(item) })) _ -> None }",
   )
   |> should.be_true()
 }

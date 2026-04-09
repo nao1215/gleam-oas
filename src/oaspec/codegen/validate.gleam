@@ -431,6 +431,13 @@ fn validate_request_body(
         validate_multipart_request_body_fields(op_id, rb.content, ctx)
       let form_urlencoded_errors =
         validate_form_urlencoded_schema(op_id, rb.content, ctx)
+      let server_form_urlencoded_errors =
+        validate_server_form_urlencoded_request_body(
+          op_id,
+          rb.content,
+          content_keys,
+          ctx,
+        )
       // Server router only handles application/json bodies with typed decoding.
       // Non-JSON content types (multipart/form-data, x-www-form-urlencoded) are
       // passed as raw String, which breaks the typed request body contract.
@@ -441,6 +448,7 @@ fn validate_request_body(
         schema_errors,
         multipart_field_errors,
         form_urlencoded_errors,
+        server_form_urlencoded_errors,
         server_body_errors,
       ])
     }
@@ -515,6 +523,56 @@ fn validate_form_urlencoded_schema(
 /// that pass the general is_supported_request check (multipart/form-data,
 /// application/x-www-form-urlencoded) are passed as raw String which breaks
 /// the typed body contract.
+fn validate_server_form_urlencoded_request_body(
+  op_id: String,
+  content: dict.Dict(String, spec.MediaType),
+  content_keys: List(String),
+  ctx: Context,
+) -> List(ValidationError) {
+  case ctx.config.mode {
+    config.Client -> []
+    _ ->
+      case dict.get(content, "application/x-www-form-urlencoded") {
+        Ok(media_type) -> {
+          let content_type_errors = case list.length(content_keys) > 1 {
+            True -> [
+              ValidationError(
+                severity: SeverityError,
+                target: TargetServer,
+                path: op_id <> ".requestBody",
+                detail: "application/x-www-form-urlencoded request bodies are only supported as the sole request content type for server code generation.",
+              ),
+            ]
+            False -> []
+          }
+          let field_errors = case
+            resolve_schema_object(media_type.schema, ctx)
+          {
+            Some(ObjectSchema(properties:, ..)) ->
+              dict.to_list(properties)
+              |> list.flat_map(fn(entry) {
+                let #(field_name, field_schema) = entry
+                case form_urlencoded_server_field_supported(field_schema) {
+                  True -> []
+                  False -> [
+                    ValidationError(
+                      severity: SeverityError,
+                      target: TargetServer,
+                      path: op_id <> ".requestBody.form." <> field_name,
+                      detail: "application/x-www-form-urlencoded server request bodies only support inline primitive scalars and inline primitive array fields.",
+                    ),
+                  ]
+                }
+              })
+            _ -> []
+          }
+          list.append(content_type_errors, field_errors)
+        }
+        Error(_) -> []
+      }
+  }
+}
+
 fn validate_server_request_body_content_types(
   op_id: String,
   content_keys: List(String),
@@ -526,6 +584,7 @@ fn validate_server_request_body_content_types(
       let non_json_but_supported =
         list.filter(content_keys, fn(key) {
           key != "application/json"
+          && key != "application/x-www-form-urlencoded"
           && content_type.is_supported_request(content_type.from_string(key))
         })
       list.map(non_json_but_supported, fn(media_type) {
@@ -539,6 +598,20 @@ fn validate_server_request_body_content_types(
         )
       })
     }
+  }
+}
+
+fn form_urlencoded_server_field_supported(schema_ref: SchemaRef) -> Bool {
+  case schema_ref {
+    Inline(StringSchema(..))
+    | Inline(IntegerSchema(..))
+    | Inline(NumberSchema(..))
+    | Inline(BooleanSchema(..))
+    | Inline(ArraySchema(items: Inline(StringSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(IntegerSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(NumberSchema(..)), ..))
+    | Inline(ArraySchema(items: Inline(BooleanSchema(..)), ..)) -> True
+    _ -> False
   }
 }
 
