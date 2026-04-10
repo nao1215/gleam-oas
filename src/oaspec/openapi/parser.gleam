@@ -515,7 +515,10 @@ fn parse_parameter(
       use param_schema <- result.try(
         case yay.select_sugar(from: node, selector: "schema") {
           Ok(schema_node) -> {
-            use sr <- result.try(parse_schema_ref(schema_node))
+            use sr <- result.try(parse_schema_ref(
+              schema_node,
+              "parameter.schema",
+            ))
             Ok(Some(sr))
           }
           _ -> Ok(None)
@@ -773,7 +776,10 @@ fn parse_required_content(
             use mt_schema <- result.try(
               case yay.select_sugar(from: value_node, selector: "schema") {
                 Ok(schema_node) -> {
-                  use sr <- result.try(parse_schema_ref(schema_node))
+                  use sr <- result.try(parse_schema_ref(
+                    schema_node,
+                    context <> ".schema",
+                  ))
                   Ok(Some(sr))
                 }
                 _ -> Ok(None)
@@ -806,7 +812,7 @@ fn parse_required_content(
 /// Parse content map (media type -> schema).
 fn parse_content(
   node: yay.Node,
-  _context: String,
+  context: String,
 ) -> Result(Dict(String, MediaType), ParseError) {
   case yay.select_sugar(from: node, selector: "content") {
     Ok(yay.NodeMap(entries)) -> {
@@ -817,7 +823,10 @@ fn parse_content(
             use mt_schema <- result.try(
               case yay.select_sugar(from: value_node, selector: "schema") {
                 Ok(schema_node) -> {
-                  use sr <- result.try(parse_schema_ref(schema_node))
+                  use sr <- result.try(parse_schema_ref(
+                    schema_node,
+                    context <> ".schema",
+                  ))
                   Ok(Some(sr))
                 }
                 _ -> Ok(None)
@@ -946,7 +955,10 @@ fn parse_schemas_map(
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            use schema_ref <- result.try(parse_schema_ref(value_node))
+            use schema_ref <- result.try(parse_schema_ref(
+              value_node,
+              "components.schemas." <> name,
+            ))
             Ok(dict.insert(acc, name, schema_ref))
           }
           _ -> Ok(acc)
@@ -1044,18 +1056,24 @@ fn parse_responses_map(
 }
 
 /// Parse a schema reference (either $ref or inline schema).
-pub fn parse_schema_ref(node: yay.Node) -> Result(SchemaRef, ParseError) {
+pub fn parse_schema_ref(
+  node: yay.Node,
+  path: String,
+) -> Result(SchemaRef, ParseError) {
   case yay.extract_optional_string(node, "$ref") {
     Ok(Some(ref)) -> Ok(schema.make_reference(ref))
     _ -> {
-      use schema_obj <- result.try(parse_schema_object(node))
+      use schema_obj <- result.try(parse_schema_object(node, path))
       Ok(Inline(schema_obj))
     }
   }
 }
 
 /// Parse a schema object.
-pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
+pub fn parse_schema_object(
+  node: yay.Node,
+  path: String,
+) -> Result(SchemaObject, ParseError) {
   let nullable =
     yay.extract_optional_bool(node, "nullable")
     |> result.unwrap(None)
@@ -1104,18 +1122,22 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
       example:,
     )
 
-  use _ <- result.try(check_unsupported_schema_keywords(node))
+  use _ <- result.try(check_unsupported_schema_keywords(node, path))
 
   // Check for composition keywords first
   case yay.select_sugar(from: node, selector: "allOf") {
     Ok(yay.NodeSeq(items)) -> {
-      use schemas <- result.try(list.try_map(items, parse_schema_ref))
+      use schemas <- result.try(
+        list.try_map(items, parse_schema_ref(_, path <> ".allOf")),
+      )
       Ok(AllOfSchema(metadata:, schemas:))
     }
     _ ->
       case yay.select_sugar(from: node, selector: "oneOf") {
         Ok(yay.NodeSeq(items)) -> {
-          use schemas <- result.try(list.try_map(items, parse_schema_ref))
+          use schemas <- result.try(
+            list.try_map(items, parse_schema_ref(_, path <> ".oneOf")),
+          )
           use discriminator <- result.try(
             case yay.select_sugar(from: node, selector: "discriminator") {
               Ok(_) -> {
@@ -1130,7 +1152,9 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
         _ ->
           case yay.select_sugar(from: node, selector: "anyOf") {
             Ok(yay.NodeSeq(items)) -> {
-              use schemas <- result.try(list.try_map(items, parse_schema_ref))
+              use schemas <- result.try(
+                list.try_map(items, parse_schema_ref(_, path <> ".anyOf")),
+              )
               use discriminator <- result.try(
                 case yay.select_sugar(from: node, selector: "discriminator") {
                   Ok(_) -> {
@@ -1142,7 +1166,7 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
               )
               Ok(AnyOfSchema(metadata:, schemas:, discriminator:))
             }
-            _ -> parse_typed_schema(node, metadata)
+            _ -> parse_typed_schema(node, metadata, path)
           }
       }
   }
@@ -1150,7 +1174,10 @@ pub fn parse_schema_object(node: yay.Node) -> Result(SchemaObject, ParseError) {
 
 /// Check for unsupported JSON Schema 2020-12 keywords and return an error
 /// if any are found.
-fn check_unsupported_schema_keywords(node: yay.Node) -> Result(Nil, ParseError) {
+fn check_unsupported_schema_keywords(
+  node: yay.Node,
+  path: String,
+) -> Result(Nil, ParseError) {
   let unsupported_keywords = [
     "const", "$defs", "prefixItems", "if", "then", "else", "dependentSchemas",
     "unevaluatedProperties", "unevaluatedItems", "contentEncoding",
@@ -1167,7 +1194,7 @@ fn check_unsupported_schema_keywords(node: yay.Node) -> Result(Nil, ParseError) 
     [] -> Ok(Nil)
     keywords ->
       Error(InvalidValue(
-        path: "schema",
+        path: path,
         detail: "Unsupported JSON Schema keyword '"
           <> string.join(keywords, "', '")
           <> "' found. This keyword is not supported for code generation. Remove it or model the constraint differently.",
@@ -1179,6 +1206,7 @@ fn check_unsupported_schema_keywords(node: yay.Node) -> Result(Nil, ParseError) 
 fn parse_typed_schema(
   node: yay.Node,
   metadata: schema.SchemaMetadata,
+  path: String,
 ) -> Result(SchemaObject, ParseError) {
   // OpenAPI 3.1 allows type to be an array, e.g. type: [string, 'null'].
   // Extract the primary type and detect nullable from the array form.
@@ -1214,7 +1242,7 @@ fn parse_typed_schema(
             ))
           _ ->
             Error(InvalidValue(
-              path: "schema.type",
+              path: path <> ".type",
               detail: "Multi-type unions (type: ["
                 <> string.join(non_null_types, ", ")
                 <> "]) are not supported; use oneOf instead",
@@ -1316,8 +1344,8 @@ fn parse_typed_schema(
     "array" -> {
       use items <- result.try(
         case yay.select_sugar(from: node, selector: "items") {
-          Ok(items_node) -> parse_schema_ref(items_node)
-          _ -> Error(MissingField(path: "schema(type=array)", field: "items"))
+          Ok(items_node) -> parse_schema_ref(items_node, path <> ".items")
+          _ -> Error(MissingField(path: path, field: "items"))
         },
       )
       let min_items =
@@ -1332,7 +1360,7 @@ fn parse_typed_schema(
     }
 
     "object" -> {
-      use properties <- result.try(parse_properties(node))
+      use properties <- result.try(parse_properties(node, path))
       let required = case yay.extract_string_list(node, "required") {
         Ok(r) -> r
         _ -> []
@@ -1342,7 +1370,10 @@ fn parse_typed_schema(
           Ok(yay.NodeBool(True)) -> Ok(#(None, True))
           Ok(yay.NodeBool(False)) -> Ok(#(None, False))
           Ok(ap_node) -> {
-            use sr <- result.try(parse_schema_ref(ap_node))
+            use sr <- result.try(parse_schema_ref(
+              ap_node,
+              path <> ".additionalProperties",
+            ))
             Ok(#(Some(sr), False))
           }
           _ -> Ok(#(None, False))
@@ -1367,7 +1398,7 @@ fn parse_typed_schema(
 
     unrecognized ->
       Error(InvalidValue(
-        path: "schema.type",
+        path: path <> ".type",
         detail: "Unrecognized schema type '"
           <> unrecognized
           <> "'. Supported types: string, integer, number, boolean, array, object.",
@@ -1378,15 +1409,19 @@ fn parse_typed_schema(
 /// Parse properties map from an object schema.
 fn parse_properties(
   node: yay.Node,
+  path: String,
 ) -> Result(Dict(String, SchemaRef), ParseError) {
   case yay.select_sugar(from: node, selector: "properties") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            use schema_ref <- result.try(parse_schema_ref(value_node))
-            Ok(dict.insert(acc, name, schema_ref))
+          yay.NodeStr(prop_name) -> {
+            use schema_ref <- result.try(parse_schema_ref(
+              value_node,
+              path <> "." <> prop_name,
+            ))
+            Ok(dict.insert(acc, prop_name, schema_ref))
           }
           _ -> Ok(acc)
         }
@@ -1965,7 +2000,7 @@ fn parse_content_map(node: yay.Node) -> Dict(String, MediaType) {
               yay.select_sugar(from: value_node, selector: "schema")
             {
               Ok(schema_node) ->
-                case parse_schema_ref(schema_node) {
+                case parse_schema_ref(schema_node, "content.schema") {
                   Ok(sr) -> Some(sr)
                   _ -> None
                 }
@@ -2044,7 +2079,12 @@ fn parse_headers_map(node: yay.Node) -> Dict(String, Header) {
               yay.select_sugar(from: value_node, selector: "schema")
             {
               Ok(schema_node) ->
-                case parse_schema_ref(schema_node) {
+                case
+                  parse_schema_ref(
+                    schema_node,
+                    "header." <> header_name <> ".schema",
+                  )
+                {
                   Ok(sr) -> Some(sr)
                   _ -> None
                 }
