@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/option.{type Option}
 import oaspec/openapi/schema.{type SchemaRef}
+import oaspec/openapi/value.{type JsonValue}
 
 /// Top-level OpenAPI 3.x specification.
 pub type OpenApiSpec {
@@ -83,7 +84,7 @@ pub type Components {
     security_schemes: Dict(String, SecurityScheme),
     path_items: Dict(String, PathItem),
     headers: Dict(String, Header),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
     links: Dict(String, Link),
   )
 }
@@ -199,7 +200,7 @@ pub type Parameter {
     deprecated: Bool,
     allow_reserved: Bool,
     content: Dict(String, MediaType),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
   )
 }
 
@@ -216,8 +217,8 @@ pub type RequestBody {
 pub type MediaType {
   MediaType(
     schema: Option(SchemaRef),
-    example: Option(String),
-    examples: Dict(String, String),
+    example: Option(JsonValue),
+    examples: Dict(String, JsonValue),
     encoding: Dict(String, Encoding),
   )
 }

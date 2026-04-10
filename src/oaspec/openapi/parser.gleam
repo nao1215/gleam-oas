@@ -21,6 +21,7 @@ import oaspec/openapi/spec.{
   PathItem, Post, Put, RequestBody, Response, SecurityRequirement, Server,
   ServerVariable, Tag, Trace,
 }
+import oaspec/openapi/value
 import simplifile
 import yay
 
@@ -548,7 +549,7 @@ fn parse_parameter(
         |> option.unwrap(False)
 
       let content = parse_content_map(node)
-      let examples = parse_string_map(node, "examples")
+      let examples = parse_json_value_map(node, "examples")
 
       Ok(Parameter(
         name:,
@@ -800,10 +801,13 @@ fn parse_required_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = case
+              yay.select_sugar(from: value_node, selector: "example")
+            {
+              Ok(val_node) -> Some(parse_json_value(val_node))
+              Error(_) -> None
+            }
+            let mt_examples = parse_json_value_map(value_node, "examples")
             let mt_encoding = parse_encoding_map(value_node)
             Ok(dict.insert(
               acc,
@@ -847,10 +851,13 @@ fn parse_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = case
+              yay.select_sugar(from: value_node, selector: "example")
+            {
+              Ok(val_node) -> Some(parse_json_value(val_node))
+              Error(_) -> None
+            }
+            let mt_examples = parse_json_value_map(value_node, "examples")
             let mt_encoding = parse_encoding_map(value_node)
             Ok(dict.insert(
               acc,
@@ -944,7 +951,7 @@ fn parse_components(root: yay.Node) -> Result(Components, ParseError) {
   use security_schemes <- result.try(parse_security_schemes_map(components_node))
   use path_items <- result.try(parse_path_items_map(components_node))
   let headers = parse_headers_map(components_node)
-  let examples = parse_string_map(components_node, "examples")
+  let examples = parse_json_value_map(components_node, "examples")
   let links = parse_links_map(components_node)
 
   Ok(Components(
@@ -1117,13 +1124,15 @@ pub fn parse_schema_object(
     |> result.unwrap(None)
     |> option.unwrap(False)
 
-  let default =
-    yay.extract_optional_string(node, "default")
-    |> result.unwrap(None)
+  let default = case yay.select_sugar(from: node, selector: "default") {
+    Ok(val_node) -> Some(parse_json_value(val_node))
+    Error(_) -> None
+  }
 
-  let example =
-    yay.extract_optional_string(node, "example")
-    |> result.unwrap(None)
+  let example = case yay.select_sugar(from: node, selector: "example") {
+    Ok(val_node) -> Some(parse_json_value(val_node))
+    Error(_) -> None
+  }
 
   let metadata =
     schema.SchemaMetadata(
@@ -1995,10 +2004,43 @@ fn parse_webhooks(
   }
 }
 
-/// Parse a string->string map from a node at a given key.
-fn parse_string_map(node: yay.Node, key: String) -> Dict(String, String) {
-  case yay.extract_string_map(node, key) {
-    Ok(m) -> m
+/// Convert a yay.Node to a JsonValue.
+fn parse_json_value(node: yay.Node) -> value.JsonValue {
+  case node {
+    yay.NodeStr(s) -> value.JsonString(s)
+    yay.NodeInt(n) -> value.JsonInt(n)
+    yay.NodeFloat(f) -> value.JsonFloat(f)
+    yay.NodeBool(b) -> value.JsonBool(b)
+    yay.NodeNil -> value.JsonNull
+    yay.NodeSeq(items) -> value.JsonArray(list.map(items, parse_json_value))
+    yay.NodeMap(entries) -> {
+      let pairs =
+        list.filter_map(entries, fn(entry) {
+          let #(key_node, val_node) = entry
+          case key_node {
+            yay.NodeStr(key) -> Ok(#(key, parse_json_value(val_node)))
+            _ -> Error(Nil)
+          }
+        })
+      value.JsonObject(dict.from_list(pairs))
+    }
+  }
+}
+
+/// Parse a string->JsonValue map from a node at a given key.
+fn parse_json_value_map(
+  node: yay.Node,
+  key: String,
+) -> Dict(String, value.JsonValue) {
+  case yay.select_sugar(from: node, selector: key) {
+    Ok(yay.NodeMap(entries)) ->
+      list.fold(entries, dict.new(), fn(acc, entry) {
+        let #(key_node, val_node) = entry
+        case key_node {
+          yay.NodeStr(k) -> dict.insert(acc, k, parse_json_value(val_node))
+          _ -> acc
+        }
+      })
     _ -> dict.new()
   }
 }
@@ -2021,10 +2063,13 @@ fn parse_content_map(node: yay.Node) -> Dict(String, MediaType) {
                 }
               _ -> None
             }
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = case
+              yay.select_sugar(from: value_node, selector: "example")
+            {
+              Ok(val_node) -> Some(parse_json_value(val_node))
+              Error(_) -> None
+            }
+            let mt_examples = parse_json_value_map(value_node, "examples")
             let mt_encoding = parse_encoding_map(value_node)
             dict.insert(
               acc,

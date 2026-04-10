@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
+import oaspec/openapi/value.{type JsonValue}
 
 /// Shared metadata for all schema types.
 /// Extracted from variants to avoid duplication and ensure composition
@@ -14,8 +15,8 @@ pub type SchemaMetadata {
     title: Option(String),
     read_only: Bool,
     write_only: Bool,
-    default: Option(String),
-    example: Option(String),
+    default: Option(JsonValue),
+    example: Option(JsonValue),
   )
 }
 
