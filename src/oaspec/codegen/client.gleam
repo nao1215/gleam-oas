@@ -9,7 +9,7 @@ import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
-import oaspec/openapi/spec.{type SpecStage, ParameterSchema, Value}
+import oaspec/openapi/spec.{type Resolved, ParameterSchema, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -479,7 +479,7 @@ fn generate_default_base_url(
 fn generate_client_function(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   path: String,
   method: spec.HttpMethod,
   ctx: Context,

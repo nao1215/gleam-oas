@@ -13,7 +13,7 @@ import oaspec/openapi/schema.{
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
   OneOfSchema, Reference, StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -157,7 +157,7 @@ fn generate_anonymous_decoders(
 fn generate_anonymous_response_decoders(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let responses = dict.to_list(operation.responses)
@@ -196,7 +196,7 @@ fn generate_anonymous_response_decoders(
 fn generate_anonymous_request_body_decoder(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   case operation.request_body {
@@ -1315,7 +1315,7 @@ fn generate_anonymous_encoders(
 fn generate_anonymous_request_body_encoder(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   case operation.request_body {

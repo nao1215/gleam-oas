@@ -14,7 +14,7 @@ import oaspec/openapi/schema.{
   NumberSchema, ObjectSchema, OneOfSchema, Reference, StringSchema, Typed,
   Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -221,7 +221,7 @@ fn generate_request_types(ctx: Context) -> String {
 fn generate_request_type(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let type_name = naming.schema_to_type_name(op_id) <> "Request"
@@ -300,9 +300,7 @@ fn generate_request_type(
 
 /// Check if any response variant references the types module.
 fn responses_need_types_import(
-  operations: List(
-    #(String, spec.Operation(SpecStage), String, spec.HttpMethod),
-  ),
+  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
   _ctx: Context,
 ) -> Bool {
   list.any(operations, fn(op) {
@@ -366,7 +364,7 @@ fn generate_response_types(ctx: Context) -> String {
 fn generate_response_type(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let type_name = naming.schema_to_type_name(op_id) <> "Response"
@@ -694,7 +692,7 @@ pub fn filter_write_only_properties(
 /// Extract the Gleam type for a request body from its content media types.
 /// Uses types. prefix since request body schemas live in the types module.
 fn extract_request_body_type(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {

@@ -16,10 +16,10 @@ import oaspec/openapi/spec.{
   type Header, type HttpMethod, type Info, type License, type Link,
   type MediaType, type OpenApiSpec, type Operation, type Parameter,
   type ParameterIn, type PathItem, type RefOr, type RequestBody, type Response,
-  type SecurityRequirement, type Server, type ServerVariable, type SpecStage,
-  type Tag, Callback, Components, Contact, Delete, Encoding, ExternalDoc, Get,
-  Head, Header, Info, License, Link, MediaType, OpenApiSpec, Operation, Options,
-  Parameter, Patch, PathItem, Post, Put, Ref, RequestBody, Response,
+  type SecurityRequirement, type Server, type ServerVariable, type Tag,
+  type Unresolved, Callback, Components, Contact, Delete, Encoding, ExternalDoc,
+  Get, Head, Header, Info, License, Link, MediaType, OpenApiSpec, Operation,
+  Options, Parameter, Patch, PathItem, Post, Put, Ref, RequestBody, Response,
   SecurityRequirement, Server, ServerVariable, Tag, Trace, Value,
 }
 import oaspec/openapi/value
@@ -28,7 +28,7 @@ import yay
 
 /// Parse an OpenAPI spec from a file path.
 /// Supports both YAML (.yaml, .yml) and JSON (.json) files.
-pub fn parse_file(path: String) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
+pub fn parse_file(path: String) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   use content <- result.try(
     simplifile.read(path)
     |> result.map_error(fn(_) {
@@ -42,7 +42,7 @@ pub fn parse_file(path: String) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
 /// Parse an OpenAPI spec from a YAML/JSON string.
 pub fn parse_string(
   content: String,
-) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
+) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   use docs <- result.try(
     yay.parse_string(content)
     |> result.map_error(fn(e) {
@@ -72,7 +72,7 @@ pub fn parse_string(
 }
 
 /// Parse the root OpenAPI object.
-fn parse_root(node: yay.Node) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
+fn parse_root(node: yay.Node) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   // openapi field may be a string ("3.0.3") or a YAML number (3.0 parsed as float)
   use openapi <- result.try(
     yay.extract_string(node, "openapi")
@@ -124,7 +124,7 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
 /// Returns Ok(None) if not present, Ok(Some(..)) if valid, Error if malformed.
 fn parse_optional_components(
   root: yay.Node,
-) -> Result(Option(Components(SpecStage)), Diagnostic) {
+) -> Result(Option(Components(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: root, selector: "components") {
     Ok(_) -> {
       use comps <- result.try(parse_components(root))
@@ -212,8 +212,8 @@ fn parse_server(node: yay.Node) -> Result(Server, Diagnostic) {
 /// Parse the paths object.
 fn parse_paths(
   root: yay.Node,
-  components: Option(Components(SpecStage)),
-) -> Result(Dict(String, RefOr(PathItem(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: root, selector: "paths") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -255,8 +255,8 @@ fn parse_paths(
 fn parse_path_item(
   node: yay.Node,
   path: String,
-  components: Option(Components(SpecStage)),
-) -> Result(PathItem(SpecStage), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(PathItem(Unresolved), Diagnostic) {
   let summary =
     yay.extract_optional_string(node, "summary")
     |> result.unwrap(None)
@@ -349,8 +349,8 @@ fn parse_optional_operation(
   method_key: String,
   path: String,
   method: HttpMethod,
-  components: Option(Components(SpecStage)),
-) -> Result(Option(Operation(SpecStage)), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Option(Operation(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: node, selector: method_key) {
     Ok(_) -> {
       use op <- result.try(parse_operation_at(
@@ -372,8 +372,8 @@ fn parse_operation_at(
   method_key: String,
   path: String,
   _method: HttpMethod,
-  components: Option(Components(SpecStage)),
-) -> Result(Operation(SpecStage), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Operation(Unresolved), Diagnostic) {
   use op_node <- result.try(
     yay.select_sugar(from: node, selector: method_key)
     |> result.map_error(fn(_) {
@@ -388,8 +388,8 @@ fn parse_operation_at(
 fn parse_operation(
   node: yay.Node,
   context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(Operation(SpecStage), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Operation(Unresolved), Diagnostic) {
   let operation_id =
     yay.extract_optional_string(node, "operationId")
     |> result.unwrap(None)
@@ -455,8 +455,8 @@ fn parse_operation(
 fn parse_optional_request_body(
   node: yay.Node,
   context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(Option(RefOr(RequestBody(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Option(RefOr(RequestBody(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "requestBody") {
     Ok(_) -> {
       use rb <- result.try(parse_request_body_at(node, context, components))
@@ -472,16 +472,16 @@ fn parse_optional_request_body(
 fn parse_responses_required(
   node: yay.Node,
   context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(dict.Dict(String, RefOr(Response(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(dict.Dict(String, RefOr(Response(Unresolved))), Diagnostic) {
   parse_responses(node, context, components)
 }
 
 /// Parse parameters list from a node.
 fn parse_parameters_list(
   node: yay.Node,
-  components: Option(Components(SpecStage)),
-) -> Result(List(RefOr(Parameter(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(List(RefOr(Parameter(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "parameters") {
     Ok(yay.NodeSeq(items)) ->
       list.try_map(items, fn(item) { parse_parameter(item, components) })
@@ -492,8 +492,8 @@ fn parse_parameters_list(
 /// Parse a single parameter.
 fn parse_parameter(
   node: yay.Node,
-  _components: Option(Components(SpecStage)),
-) -> Result(RefOr(Parameter(SpecStage)), Diagnostic) {
+  _components: Option(Components(Unresolved)),
+) -> Result(RefOr(Parameter(Unresolved)), Diagnostic) {
   // Check for $ref first
   case yay.extract_optional_string(node, "$ref") {
     Ok(Some(ref_str)) -> {
@@ -663,8 +663,8 @@ fn parse_security_scheme_in(
 fn parse_request_body_at(
   node: yay.Node,
   context: String,
-  _components: Option(Components(SpecStage)),
-) -> Result(RefOr(RequestBody(SpecStage)), Diagnostic) {
+  _components: Option(Components(Unresolved)),
+) -> Result(RefOr(RequestBody(Unresolved)), Diagnostic) {
   use rb_node <- result.try(
     yay.select_sugar(from: node, selector: "requestBody")
     |> result.map_error(fn(_) {
@@ -686,7 +686,7 @@ fn parse_request_body_at(
 fn parse_request_body(
   node: yay.Node,
   context: String,
-) -> Result(RequestBody(SpecStage), Diagnostic) {
+) -> Result(RequestBody(Unresolved), Diagnostic) {
   let description =
     yay.extract_optional_string(node, "description")
     |> result.unwrap(None)
@@ -800,8 +800,8 @@ fn parse_content(
 fn parse_responses(
   node: yay.Node,
   _context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(Dict(String, RefOr(Response(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Dict(String, RefOr(Response(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -831,8 +831,8 @@ fn parse_responses(
 /// Parse a single response object.
 fn parse_response(
   node: yay.Node,
-  _components: Option(Components(SpecStage)),
-) -> Result(RefOr(Response(SpecStage)), Diagnostic) {
+  _components: Option(Components(Unresolved)),
+) -> Result(RefOr(Response(Unresolved)), Diagnostic) {
   // Check for $ref first
   case yay.extract_optional_string(node, "$ref") {
     Ok(Some(ref_str)) -> Ok(Ref(ref_str))
@@ -856,7 +856,9 @@ fn parse_response(
 }
 
 /// Parse the components section.
-fn parse_components(root: yay.Node) -> Result(Components(SpecStage), Diagnostic) {
+fn parse_components(
+  root: yay.Node,
+) -> Result(Components(Unresolved), Diagnostic) {
   use components_node <- result.try(
     yay.select_sugar(from: root, selector: "components")
     |> result.map_error(fn(_) {
@@ -914,7 +916,7 @@ fn parse_schemas_map(
 /// Parse the parameters map from components.
 fn parse_parameters_map(
   components_node: yay.Node,
-) -> Result(Dict(String, RefOr(Parameter(SpecStage))), Diagnostic) {
+) -> Result(Dict(String, RefOr(Parameter(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "parameters") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -940,7 +942,7 @@ fn parse_parameters_map(
 /// Parse the requestBodies map from components.
 fn parse_request_bodies_map(
   components_node: yay.Node,
-) -> Result(Dict(String, RefOr(RequestBody(SpecStage))), Diagnostic) {
+) -> Result(Dict(String, RefOr(RequestBody(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "requestBodies") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -969,7 +971,7 @@ fn parse_request_bodies_map(
 /// Parse the responses map from components.
 fn parse_responses_map(
   components_node: yay.Node,
-) -> Result(Dict(String, RefOr(Response(SpecStage))), Diagnostic) {
+) -> Result(Dict(String, RefOr(Response(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -1423,7 +1425,7 @@ fn parse_security_schemes_map(
 /// Parse the pathItems map from components.
 fn parse_path_items_map(
   components_node: yay.Node,
-) -> Result(Dict(String, RefOr(PathItem(SpecStage))), Diagnostic) {
+) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "pathItems") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -1671,8 +1673,8 @@ fn parse_security_requirement_object(
 fn parse_callbacks(
   node: yay.Node,
   context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(dict.Dict(String, Callback(SpecStage)), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(dict.Dict(String, Callback(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: node, selector: "callbacks") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -1699,8 +1701,8 @@ fn parse_callbacks(
 fn parse_callback_object(
   node: yay.Node,
   context: String,
-  components: Option(Components(SpecStage)),
-) -> Result(Callback(SpecStage), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Callback(Unresolved), Diagnostic) {
   case node {
     yay.NodeMap(entries) -> {
       use parsed_entries <- result.try(
@@ -1846,8 +1848,8 @@ fn parse_tags(node: yay.Node) -> List(Tag) {
 /// Parse webhooks from root.
 fn parse_webhooks(
   node: yay.Node,
-  components: Option(Components(SpecStage)),
-) -> Result(Dict(String, RefOr(PathItem(SpecStage))), Diagnostic) {
+  components: Option(Components(Unresolved)),
+) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "webhooks") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {

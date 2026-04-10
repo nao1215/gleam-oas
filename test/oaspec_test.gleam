@@ -22,6 +22,7 @@ import oaspec/openapi/diagnostic.{Diagnostic}
 import oaspec/openapi/hoist
 import oaspec/openapi/normalize
 import oaspec/openapi/parser
+import oaspec/openapi/resolve
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
 import oaspec/openapi/spec
@@ -462,6 +463,7 @@ paths:
 }
 
 fn make_ctx_from_spec(spec) -> context.Context {
+  let assert Ok(resolved) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -470,7 +472,7 @@ fn make_ctx_from_spec(spec) -> context.Context {
       package: "api",
       mode: config.Both,
     )
-  context.new(spec, cfg)
+  context.new(resolved, cfg)
 }
 
 // --- Resolver Tests ---
@@ -521,8 +523,9 @@ pub fn parse_additional_properties_untyped_test() {
 
 fn make_ctx(spec_path: String) -> context.Context {
   let assert Ok(spec) = parser.parse_file(spec_path)
-  let spec = hoist.hoist(spec)
-  let spec = dedup.dedup(spec)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
   let cfg =
     config.Config(
       input: spec_path,
@@ -531,7 +534,7 @@ fn make_ctx(spec_path: String) -> context.Context {
       package: "api",
       mode: config.Both,
     )
-  context.new(spec, cfg)
+  context.new(resolved, cfg)
 }
 
 pub fn validate_accepts_deep_object_test() {
@@ -1733,6 +1736,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -1782,6 +1786,7 @@ components:
       type: integer
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -1828,6 +1833,7 @@ components:
         type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -3023,6 +3029,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3064,6 +3071,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3104,6 +3112,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3146,6 +3155,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3186,6 +3196,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3228,6 +3239,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3344,6 +3356,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3389,6 +3402,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3431,6 +3445,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3473,6 +3488,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3517,6 +3533,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3561,6 +3578,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3907,6 +3925,7 @@ components:
       scheme: basic
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4063,6 +4082,7 @@ components:
             write:pets: Write pets
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4110,6 +4130,7 @@ paths:
           description: ok
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4155,6 +4176,7 @@ paths:
           description: ok
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4762,6 +4784,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4824,6 +4847,7 @@ components:
       items: { type: string }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4881,6 +4905,7 @@ components:
       items: { type: string }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4950,9 +4975,10 @@ webhooks:
   let result = generate.generate(spec, cfg)
   should.be_ok(result)
   // But capability issues should include warnings
-  let spec = hoist.hoist(spec)
-  let spec = dedup.dedup(spec)
-  let ctx = context.new(spec, cfg)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let ctx = context.new(resolved, cfg)
   let issues = capability_check.check_preserved(ctx)
   let warnings = diagnostic.warnings_only(issues)
   { warnings != [] }
@@ -5328,6 +5354,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -5369,6 +5396,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -5406,6 +5434,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -6977,6 +7006,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7071,6 +7101,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7123,6 +7154,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7178,6 +7210,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7228,6 +7261,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7278,6 +7312,7 @@ components:
       enum: [active, inactive]
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7332,6 +7367,7 @@ components:
       minimum: 1
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",

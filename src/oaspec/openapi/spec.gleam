@@ -7,9 +7,15 @@ import oaspec/openapi/value.{type JsonValue}
 // Stage and RefOr: core of the stage-typed AST
 // ============================================================================
 
-/// Resolution stage of the AST.
-pub type SpecStage {
+/// Phantom type: spec has not yet been through the resolve phase.
+/// RefOr values may still contain Ref(String).
+pub type Unresolved {
   Unresolved
+}
+
+/// Phantom type: spec has been through the resolve phase.
+/// All RefOr values are guaranteed to be Value, not Ref.
+pub type Resolved {
   Resolved
 }
 

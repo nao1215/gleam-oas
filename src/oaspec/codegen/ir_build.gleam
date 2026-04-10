@@ -21,7 +21,7 @@ import oaspec/openapi/schema.{
   AnyOfSchema, Forbidden, Inline, ObjectSchema, OneOfSchema, Reference,
   StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 
@@ -340,7 +340,7 @@ fn anonymous_type_decls(ctx: Context) -> List(Declaration) {
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, _path, _method): #(
       String,
-      spec.Operation(SpecStage),
+      spec.Operation(Resolved),
       String,
       spec.HttpMethod,
     ) = op
@@ -352,7 +352,7 @@ fn anonymous_type_decls(ctx: Context) -> List(Declaration) {
 
 fn anonymous_response_type_decls(
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> List(Declaration) {
   let responses = dict.to_list(operation.responses)
@@ -386,7 +386,7 @@ fn anonymous_response_type_decls(
 
 fn anonymous_request_body_type_decls(
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> List(Declaration) {
   case operation.request_body {

@@ -15,18 +15,18 @@ import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   Inline, ObjectSchema, OneOfSchema, Reference, Typed,
 }
-import oaspec/openapi/spec.{type OpenApiSpec, type SpecStage, Value}
+import oaspec/openapi/spec.{type OpenApiSpec, type Resolved, Value}
 
 /// Run capability checks on a resolved spec.
 /// Returns errors for unsupported features and warnings for parsed-but-unused features.
-pub fn check(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
+pub fn check(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
   let schema_errors = check_schemas(spec)
   let security_errors = check_security_schemes(spec)
   list.flatten([schema_errors, security_errors])
 }
 
 /// Check all schemas for unsupported keywords stored during lossless parse.
-fn check_schemas(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
+fn check_schemas(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
   case spec.components {
     None -> []
     Some(components) ->
@@ -101,7 +101,7 @@ fn check_schema(path: String, schema_obj: SchemaObject) -> List(Diagnostic) {
 }
 
 /// Check security schemes for unsupported types (e.g. mutualTLS).
-fn check_security_schemes(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
+fn check_security_schemes(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
   case spec.components {
     None -> []
     Some(components) ->

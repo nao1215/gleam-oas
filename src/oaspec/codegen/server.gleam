@@ -6,7 +6,7 @@ import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/server_request_decode as decode_helpers
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{Inline, Reference}
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -61,7 +61,7 @@ fn generate_handlers(ctx: Context) -> String {
 fn generate_handler(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   _ctx: Context,
 ) -> se.StringBuilder {
   let fn_name = naming.operation_to_function_name(op_id)
@@ -116,7 +116,7 @@ fn generate_handler(
 fn generate_callback_handlers(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
 ) -> se.StringBuilder {
   let callbacks = dict.to_list(operation.callbacks)
   list.fold(callbacks, sb, fn(sb, entry) {
@@ -770,7 +770,7 @@ fn generate_route_body(
   sb: se.StringBuilder,
   op_id: String,
   fn_name: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   path: String,
   has_params: Bool,
   ctx: Context,
@@ -809,7 +809,7 @@ fn generate_request_construction(
   sb: se.StringBuilder,
   request_type_name: String,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   _path: String,
   ctx: Context,
 ) -> se.StringBuilder {
@@ -907,7 +907,7 @@ fn generate_request_construction(
 fn generate_response_conversion(
   sb: se.StringBuilder,
   response_type_name: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let responses = http.sort_response_entries(dict.to_list(operation.responses))

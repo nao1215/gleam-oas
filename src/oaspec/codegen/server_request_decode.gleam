@@ -5,7 +5,7 @@ import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{type SchemaRef, Inline, ObjectSchema, Reference}
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/naming
 
 /// Expression that case-insensitively parses a string to Bool.
@@ -102,7 +102,7 @@ pub fn body_field_kind_needs_float(kind: BodyFieldKind) -> Bool {
 /// Generate parse expression for a path parameter (already bound as String).
 pub fn param_parse_expr(
   var_name: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) -> {
@@ -122,7 +122,7 @@ pub fn param_parse_expr(
 /// Generate expression for a required query parameter.
 pub fn query_required_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   query_required_expr_with_schema(
     key,
@@ -207,7 +207,7 @@ pub fn query_required_expr_with_schema(
 /// Generate expression for an optional query parameter.
 pub fn query_optional_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   query_optional_expr_with_schema(
     key,
@@ -292,7 +292,7 @@ pub fn query_optional_expr_with_schema(
 }
 
 pub fn is_deep_object_param(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case param.in_, param.style, spec.parameter_schema(param) {
@@ -308,7 +308,7 @@ pub fn is_deep_object_param(
 }
 
 fn deep_object_properties(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(DeepObjectProperty) {
   let details = case spec.parameter_schema(param) {
@@ -337,7 +337,7 @@ fn deep_object_properties(
 }
 
 fn deep_object_type_name(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   op_id: String,
 ) -> String {
   case spec.parameter_schema(param) {
@@ -352,7 +352,7 @@ fn deep_object_type_name(
 
 pub fn deep_object_required_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -361,7 +361,7 @@ pub fn deep_object_required_expr(
 
 pub fn deep_object_optional_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -381,7 +381,7 @@ pub fn deep_object_optional_expr(
 
 fn deep_object_constructor_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -410,7 +410,7 @@ fn deep_object_constructor_expr(
 }
 
 pub fn deep_object_param_has_optional_fields(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case is_deep_object_param(param, ctx) {
@@ -421,7 +421,7 @@ pub fn deep_object_param_has_optional_fields(
 }
 
 pub fn deep_object_param_needs_string(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case is_deep_object_param(param, ctx) {
@@ -434,7 +434,7 @@ pub fn deep_object_param_needs_string(
 }
 
 pub fn deep_object_param_needs_int(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case is_deep_object_param(param, ctx) {
@@ -447,7 +447,7 @@ pub fn deep_object_param_needs_int(
 }
 
 pub fn deep_object_param_needs_float(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case is_deep_object_param(param, ctx) {
@@ -459,18 +459,16 @@ pub fn deep_object_param_needs_float(
   }
 }
 
-pub fn request_body_uses_form_urlencoded(
-  rb: spec.RequestBody(SpecStage),
-) -> Bool {
+pub fn request_body_uses_form_urlencoded(rb: spec.RequestBody(Resolved)) -> Bool {
   dict.has_key(rb.content, "application/x-www-form-urlencoded")
 }
 
-pub fn request_body_uses_multipart(rb: spec.RequestBody(SpecStage)) -> Bool {
+pub fn request_body_uses_multipart(rb: spec.RequestBody(Resolved)) -> Bool {
   dict.has_key(rb.content, "multipart/form-data")
 }
 
 pub fn operation_uses_form_urlencoded_body(
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
 ) -> Bool {
   case operation.request_body {
     Some(Value(rb)) -> request_body_uses_form_urlencoded(rb)
@@ -479,7 +477,7 @@ pub fn operation_uses_form_urlencoded_body(
 }
 
 pub fn operation_uses_multipart_body(
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
 ) -> Bool {
   case operation.request_body {
     Some(Value(rb)) -> request_body_uses_multipart(rb)
@@ -514,7 +512,7 @@ pub fn object_properties_from_schema_ref(
 }
 
 fn form_urlencoded_body_properties(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> List(DeepObjectProperty) {
   case dict.get(rb.content, "application/x-www-form-urlencoded") {
@@ -529,7 +527,7 @@ fn form_urlencoded_body_properties(
 }
 
 fn multipart_body_properties(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> List(DeepObjectProperty) {
   case dict.get(rb.content, "multipart/form-data") {
@@ -562,7 +560,7 @@ fn form_urlencoded_schema_ref_type_name(schema_ref: SchemaRef) -> String {
 }
 
 fn form_urlencoded_body_type_name(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
 ) -> String {
   case dict.get(rb.content, "application/x-www-form-urlencoded") {
@@ -579,7 +577,7 @@ fn form_urlencoded_body_type_name(
 }
 
 fn multipart_body_type_name(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
 ) -> String {
   case dict.get(rb.content, "multipart/form-data") {
@@ -684,7 +682,7 @@ fn form_urlencoded_object_optional_expr(
 }
 
 pub fn form_urlencoded_body_constructor_expr(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -698,7 +696,7 @@ pub fn form_urlencoded_body_constructor_expr(
 }
 
 pub fn form_urlencoded_body_has_optional_fields(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   form_urlencoded_properties_have_optional_fields(
@@ -709,7 +707,7 @@ pub fn form_urlencoded_body_has_optional_fields(
 }
 
 pub fn form_urlencoded_body_needs_string(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   form_urlencoded_properties_need_string(
@@ -720,7 +718,7 @@ pub fn form_urlencoded_body_needs_string(
 }
 
 pub fn form_urlencoded_body_needs_int(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   form_urlencoded_properties_need_int(
@@ -731,7 +729,7 @@ pub fn form_urlencoded_body_needs_int(
 }
 
 pub fn form_urlencoded_body_needs_float(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   form_urlencoded_properties_need_float(
@@ -742,7 +740,7 @@ pub fn form_urlencoded_body_needs_float(
 }
 
 pub fn form_urlencoded_body_has_nested_object(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   list.any(form_urlencoded_body_properties(rb, ctx), fn(prop) {
@@ -751,7 +749,7 @@ pub fn form_urlencoded_body_has_nested_object(
 }
 
 pub fn multipart_body_constructor_expr(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -779,14 +777,14 @@ pub fn multipart_body_constructor_expr(
 }
 
 pub fn multipart_body_has_optional_fields(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   list.any(multipart_body_properties(rb, ctx), fn(prop) { !prop.required })
 }
 
 pub fn multipart_body_needs_int(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   list.any(multipart_body_properties(rb, ctx), fn(prop) {
@@ -798,7 +796,7 @@ pub fn multipart_body_needs_int(
 }
 
 pub fn multipart_body_needs_float(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   ctx: Context,
 ) -> Bool {
   list.any(multipart_body_properties(rb, ctx), fn(prop) {
@@ -1108,7 +1106,7 @@ fn multipart_body_optional_expr_with_schema(
 /// Generate expression for a required header parameter.
 pub fn header_required_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
@@ -1150,7 +1148,7 @@ pub fn header_required_expr(
 /// Generate expression for an optional header parameter.
 pub fn header_optional_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
@@ -1193,7 +1191,7 @@ pub fn header_optional_expr(
 /// Generate expression for a required cookie parameter.
 pub fn cookie_required_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) ->
@@ -1217,7 +1215,7 @@ pub fn cookie_required_expr(
 /// Generate expression for an optional cookie parameter.
 pub fn cookie_optional_expr(
   key: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) ->
@@ -1243,7 +1241,7 @@ pub fn cookie_optional_expr(
 
 /// Generate the body decode expression for a request body.
 pub fn generate_body_decode_expr(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {

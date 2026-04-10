@@ -15,7 +15,7 @@ import oaspec/openapi/schema.{
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
   OneOfSchema, Reference, StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/content_type
 
 /// Validate the parsed spec for unsupported patterns.
@@ -110,7 +110,7 @@ fn validate_operations(ctx: Context) -> List(Diagnostic) {
 fn validate_path_template_params(
   op_id: String,
   path: String,
-  params: List(spec.Parameter(SpecStage)),
+  params: List(spec.Parameter(Resolved)),
 ) -> List(Diagnostic) {
   let template_names = extract_path_template_names(path)
   let path_param_names =
@@ -155,7 +155,7 @@ fn extract_path_template_names(path: String) -> List(String) {
 /// Unsupported: matrix, label, simple, spaceDelimited, pipeDelimited.
 fn validate_parameters(
   op_id: String,
-  params: List(spec.Parameter(SpecStage)),
+  params: List(spec.Parameter(Resolved)),
   ctx: Context,
 ) -> List(Diagnostic) {
   list.flat_map(params, fn(p) {
@@ -206,7 +206,7 @@ fn validate_parameters(
 
 fn validate_server_structured_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
   case ctx.config.mode {
@@ -251,7 +251,7 @@ fn validate_server_structured_param(
 
 fn validate_server_deep_object_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
   case
@@ -313,7 +313,7 @@ fn deep_object_server_leaf_supported(
 
 fn validate_server_cookie_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
   let _ = path
@@ -326,7 +326,7 @@ fn validate_server_cookie_param(
 /// that is not handled by deepObject style.
 fn validate_complex_param_schema(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
   case param.style {
@@ -371,7 +371,7 @@ fn validate_complex_param_schema(
 /// Validate that a deepObject parameter has no nested object properties.
 fn validate_deep_object_no_nested_objects(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
   case resolve_schema_object(spec.parameter_schema(param), ctx) {
@@ -416,7 +416,7 @@ fn resolve_schema_object(
 /// Validate request body for unsupported patterns.
 fn validate_request_body(
   op_id: String,
-  request_body: Option(spec.RequestBody(SpecStage)),
+  request_body: Option(spec.RequestBody(Resolved)),
   ctx: Context,
 ) -> List(Diagnostic) {
   case request_body {
@@ -764,7 +764,7 @@ fn multipart_field_is_stringifiable(schema_ref: SchemaRef, ctx: Context) -> Bool
 /// Validate response schemas and content types.
 fn validate_responses(
   op_id: String,
-  responses: dict.Dict(String, spec.Response(SpecStage)),
+  responses: dict.Dict(String, spec.Response(Resolved)),
   ctx: Context,
 ) -> List(Diagnostic) {
   let entries = dict.to_list(responses)

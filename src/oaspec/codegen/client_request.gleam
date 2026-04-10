@@ -6,17 +6,17 @@ import oaspec/codegen/context.{type Context}
 import oaspec/codegen/schema_dispatch
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
-import oaspec/openapi/spec.{type SpecStage, ParameterSchema, Value}
+import oaspec/openapi/spec.{type Resolved, ParameterSchema, Value}
 import oaspec/util/naming
 import oaspec/util/string_extra as se
 
 /// Build parameter list for function signature.
 pub fn build_param_list(
-  path_params: List(spec.Parameter(SpecStage)),
-  query_params: List(spec.Parameter(SpecStage)),
-  header_params: List(spec.Parameter(SpecStage)),
-  cookie_params: List(spec.Parameter(SpecStage)),
-  operation: spec.Operation(SpecStage),
+  path_params: List(spec.Parameter(Resolved)),
+  query_params: List(spec.Parameter(Resolved)),
+  header_params: List(spec.Parameter(Resolved)),
+  cookie_params: List(spec.Parameter(Resolved)),
+  operation: spec.Operation(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {
@@ -54,7 +54,7 @@ pub fn build_param_list(
 }
 
 /// Convert a parameter to its Gleam type string.
-pub fn param_to_type(param: spec.Parameter(SpecStage), ctx: Context) -> String {
+pub fn param_to_type(param: spec.Parameter(Resolved), ctx: Context) -> String {
   let base =
     schema_dispatch.resolve_param_type(spec.parameter_schema(param), ctx.spec)
   case param.required {
@@ -65,7 +65,7 @@ pub fn param_to_type(param: spec.Parameter(SpecStage), ctx: Context) -> String {
 
 /// Convert a parameter value to its String representation for URL/header use.
 pub fn param_to_string_expr(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   param_name: String,
   ctx: Context,
 ) -> String {
@@ -104,7 +104,7 @@ pub fn param_to_string_expr(
 
 /// Convert a required param to string for query building.
 pub fn to_str_for_required(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   param_name: String,
   ctx: Context,
 ) -> String {
@@ -113,7 +113,7 @@ pub fn to_str_for_required(
 
 /// Convert an optional param value (bound to `v`) to string.
 pub fn to_str_for_optional_value(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> String {
   case param.payload {
@@ -137,7 +137,7 @@ pub fn to_str_for_optional_value(
 }
 
 /// Get the Gleam type for a request body parameter.
-pub fn get_body_type(rb: spec.RequestBody(SpecStage), op_id: String) -> String {
+pub fn get_body_type(rb: spec.RequestBody(Resolved), op_id: String) -> String {
   let content_entries = dict.to_list(rb.content)
   case content_entries {
     // Multiple content types: use pre-serialized String
@@ -160,7 +160,7 @@ pub fn get_body_type(rb: spec.RequestBody(SpecStage), op_id: String) -> String {
 
 /// Get the encode expression for a request body.
 pub fn get_body_encode_expr(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   _ctx: Context,
 ) -> String {
@@ -193,7 +193,7 @@ pub fn get_body_encode_expr(
 /// Generate multipart/form-data body encoding in the client function.
 pub fn generate_multipart_body(
   sb: se.StringBuilder,
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   _op_id: String,
   ctx: Context,
 ) -> se.StringBuilder {
@@ -580,7 +580,7 @@ pub fn generate_form_bracket_fields(
 /// Generate application/x-www-form-urlencoded body encoding in the client function.
 pub fn generate_form_urlencoded_body(
   sb: se.StringBuilder,
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   _op_id: String,
   ctx: Context,
 ) -> se.StringBuilder {
@@ -740,7 +740,7 @@ pub fn generate_form_urlencoded_body(
 /// Check if a parameter is an array with explode behavior.
 /// OpenAPI default: style: form has explode: true by default.
 pub fn is_exploded_array_param(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   let is_array = case param.payload {
@@ -772,7 +772,7 @@ pub fn is_exploded_array_param(
 /// Generate exploded array query parameter: tags=a&tags=b
 pub fn generate_exploded_array_query_param(
   sb: se.StringBuilder,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   param_name: String,
   ctx: Context,
 ) -> se.StringBuilder {
@@ -828,7 +828,7 @@ pub fn generate_exploded_array_query_param(
 
 /// Check if a parameter uses deepObject style with an object schema.
 pub fn is_deep_object_param(
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> Bool {
   case param.payload {
@@ -845,7 +845,7 @@ pub fn is_deep_object_param(
 /// Generate deepObject-style query parameters: key[prop]=value for each property.
 pub fn generate_deep_object_query_param(
   sb: se.StringBuilder,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   param_name: String,
   ctx: Context,
 ) -> se.StringBuilder {

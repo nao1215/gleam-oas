@@ -4,7 +4,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/openapi/spec.{
-  type HttpMethod, type Operation, type SpecStage, Value,
+  type HttpMethod, type Operation, type Resolved, Value,
 }
 
 /// Collect all operations from the spec with their IDs, paths, and methods.
@@ -12,7 +12,7 @@ import oaspec/openapi/spec.{
 /// operationId generation from method + path when not specified.
 pub fn collect_operations(
   ctx: Context,
-) -> List(#(String, Operation(SpecStage), String, HttpMethod)) {
+) -> List(#(String, Operation(Resolved), String, HttpMethod)) {
   let paths =
     list.sort(dict.to_list(ctx.spec.paths), fn(a, b) {
       string.compare(a.0, b.0)

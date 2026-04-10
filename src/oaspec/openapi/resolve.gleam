@@ -7,17 +7,29 @@ import gleam/string
 import oaspec/openapi/diagnostic.{type Diagnostic}
 import oaspec/openapi/spec.{
   type Callback, type Components, type OpenApiSpec, type Operation,
-  type Parameter, type PathItem, type RefOr, type RequestBody, type Response,
-  type SpecStage, Callback, Components, Operation, PathItem, Ref, Value,
+  type Parameter, type PathItem, type RefOr, type RequestBody, type Resolved,
+  type Response, type Unresolved, Callback, Components, Operation, PathItem, Ref,
+  Value,
 }
 
 /// Resolve all RefOr aliases in the spec.
 /// Call after parse and normalize, before capability_check and codegen.
 /// Resolves both component-level aliases and inline $ref within operations.
-/// OpenApiSpec(Unresolved) → Result(OpenApiSpec(Resolved), List(Diagnostic))
 pub fn resolve(
-  spec: OpenApiSpec(SpecStage),
-) -> Result(OpenApiSpec(SpecStage), List(Diagnostic)) {
+  spec: OpenApiSpec(Unresolved),
+) -> Result(OpenApiSpec(Resolved), List(Diagnostic)) {
+  use resolved <- result.try(resolve_internal(spec))
+  Ok(coerce_stage(resolved))
+}
+
+/// Safe phantom type cast — stage has no runtime representation.
+@external(erlang, "gleam_stdlib", "identity")
+fn coerce_stage(spec: OpenApiSpec(a)) -> OpenApiSpec(b)
+
+/// Internal resolve that preserves the input stage parameter.
+fn resolve_internal(
+  spec: OpenApiSpec(stage),
+) -> Result(OpenApiSpec(stage), List(Diagnostic)) {
   case spec.components {
     None -> Ok(spec)
     Some(components) -> {
@@ -143,9 +155,9 @@ fn extract_ref_name(ref: String) -> String {
 
 /// Resolve inline refs in a paths dict by looking up components.
 fn resolve_inline_paths(
-  paths: Dict(String, RefOr(PathItem(SpecStage))),
-  components: Components(SpecStage),
-) -> Dict(String, RefOr(PathItem(SpecStage))) {
+  paths: Dict(String, RefOr(PathItem(stage))),
+  components: Components(stage),
+) -> Dict(String, RefOr(PathItem(stage))) {
   dict.map_values(paths, fn(_path, ref_or) {
     case ref_or {
       Ref(ref_str) -> resolve_path_item_ref(ref_str, components)
@@ -157,8 +169,8 @@ fn resolve_inline_paths(
 /// Resolve a path-level $ref by looking it up in components.pathItems.
 fn resolve_path_item_ref(
   ref_str: String,
-  components: Components(SpecStage),
-) -> RefOr(PathItem(SpecStage)) {
+  components: Components(stage),
+) -> RefOr(PathItem(stage)) {
   let ref_name = extract_ref_name(ref_str)
   case dict.get(components.path_items, ref_name) {
     Ok(Value(pi)) -> Value(resolve_inline_path_item(pi, components))
@@ -169,9 +181,9 @@ fn resolve_path_item_ref(
 
 /// Resolve inline refs within a path item.
 fn resolve_inline_path_item(
-  pi: PathItem(SpecStage),
-  components: Components(SpecStage),
-) -> PathItem(SpecStage) {
+  pi: PathItem(stage),
+  components: Components(stage),
+) -> PathItem(stage) {
   PathItem(
     ..pi,
     get: option_map(pi.get, resolve_inline_operation(_, components)),
@@ -188,9 +200,9 @@ fn resolve_inline_path_item(
 
 /// Resolve inline refs within an operation.
 fn resolve_inline_operation(
-  op: Operation(SpecStage),
-  components: Components(SpecStage),
-) -> Operation(SpecStage) {
+  op: Operation(stage),
+  components: Components(stage),
+) -> Operation(stage) {
   Operation(
     ..op,
     parameters: list.map(op.parameters, resolve_param_ref(_, components)),
@@ -209,9 +221,9 @@ fn resolve_inline_operation(
 
 /// Resolve inline refs within a callback.
 fn resolve_inline_callback(
-  cb: Callback(SpecStage),
-  components: Components(SpecStage),
-) -> Callback(SpecStage) {
+  cb: Callback(stage),
+  components: Components(stage),
+) -> Callback(stage) {
   Callback(
     entries: dict.map_values(cb.entries, fn(_url, ref_or) {
       case ref_or {
@@ -224,9 +236,9 @@ fn resolve_inline_callback(
 
 /// Resolve a parameter Ref by looking it up in components.parameters.
 fn resolve_param_ref(
-  ref_or: RefOr(Parameter(SpecStage)),
-  components: Components(SpecStage),
-) -> RefOr(Parameter(SpecStage)) {
+  ref_or: RefOr(Parameter(stage)),
+  components: Components(stage),
+) -> RefOr(Parameter(stage)) {
   case ref_or {
     Value(_) -> ref_or
     Ref(ref_str) -> {
@@ -241,9 +253,9 @@ fn resolve_param_ref(
 
 /// Resolve a request body Ref by looking it up in components.request_bodies.
 fn resolve_request_body_ref(
-  ref_or: RefOr(RequestBody(SpecStage)),
-  components: Components(SpecStage),
-) -> RefOr(RequestBody(SpecStage)) {
+  ref_or: RefOr(RequestBody(stage)),
+  components: Components(stage),
+) -> RefOr(RequestBody(stage)) {
   case ref_or {
     Value(_) -> ref_or
     Ref(ref_str) -> {
@@ -258,9 +270,9 @@ fn resolve_request_body_ref(
 
 /// Resolve a response Ref by looking it up in components.responses.
 fn resolve_response_ref(
-  ref_or: RefOr(Response(SpecStage)),
-  components: Components(SpecStage),
-) -> RefOr(Response(SpecStage)) {
+  ref_or: RefOr(Response(stage)),
+  components: Components(stage),
+) -> RefOr(Response(stage)) {
   case ref_or {
     Value(_) -> ref_or
     Ref(ref_str) -> {

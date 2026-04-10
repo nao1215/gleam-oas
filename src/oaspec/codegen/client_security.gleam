@@ -3,7 +3,7 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
-import oaspec/openapi/spec.{type SpecStage}
+import oaspec/openapi/spec.{type Resolved}
 import oaspec/util/naming
 import oaspec/util/string_extra as se
 
@@ -388,7 +388,7 @@ fn generate_scheme_apply(
 /// When allowReserved is true, reserved characters are sent as-is per OpenAPI spec.
 pub fn maybe_percent_encode(
   value_expr: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
 ) -> String {
   case param.allow_reserved {
     True -> value_expr
