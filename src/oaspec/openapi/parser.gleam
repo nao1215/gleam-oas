@@ -556,16 +556,42 @@ fn parse_parameter(
   }
 }
 
+/// Validate that a $ref string starts with the expected local prefix
+/// (e.g. "#/components/parameters/"). Rejects external refs and
+/// refs that point to the wrong component kind.
+fn validate_ref_prefix(
+  ref_str: String,
+  expected_prefix: String,
+  kind: String,
+) -> Result(String, ParseError) {
+  case string.starts_with(ref_str, expected_prefix) {
+    True -> {
+      let name = string.drop_start(ref_str, string.length(expected_prefix))
+      Ok(name)
+    }
+    False ->
+      Error(InvalidValue(
+        path: kind <> ".$ref",
+        detail: "Reference '"
+          <> ref_str
+          <> "' is not a local "
+          <> kind
+          <> " reference. Expected prefix: "
+          <> expected_prefix,
+      ))
+  }
+}
+
 /// Resolve a $ref for a parameter by looking it up in components.
 fn resolve_parameter_ref(
   ref_str: String,
   components: Option(Components),
 ) -> Result(Parameter, ParseError) {
-  let ref_name =
-    ref_str
-    |> string.split("/")
-    |> list.last
-    |> result.unwrap("unknown")
+  use ref_name <- result.try(validate_ref_prefix(
+    ref_str,
+    "#/components/parameters/",
+    "parameter",
+  ))
 
   case components {
     Some(comps) ->
@@ -590,11 +616,11 @@ fn resolve_request_body_ref(
   ref_str: String,
   components: Option(Components),
 ) -> Result(RequestBody, ParseError) {
-  let ref_name =
-    ref_str
-    |> string.split("/")
-    |> list.last
-    |> result.unwrap("unknown")
+  use ref_name <- result.try(validate_ref_prefix(
+    ref_str,
+    "#/components/requestBodies/",
+    "requestBody",
+  ))
 
   case components {
     Some(comps) ->
@@ -619,11 +645,11 @@ fn resolve_response_ref(
   ref_str: String,
   components: Option(Components),
 ) -> Result(Response, ParseError) {
-  let ref_name =
-    ref_str
-    |> string.split("/")
-    |> list.last
-    |> result.unwrap("unknown")
+  use ref_name <- result.try(validate_ref_prefix(
+    ref_str,
+    "#/components/responses/",
+    "response",
+  ))
 
   case components {
     Some(comps) ->
@@ -1479,11 +1505,11 @@ fn resolve_path_item_ref(
   ref_str: String,
   components: Option(Components),
 ) -> Result(PathItem, ParseError) {
-  let ref_name =
-    ref_str
-    |> string.split("/")
-    |> list.last
-    |> result.unwrap("unknown")
+  use ref_name <- result.try(validate_ref_prefix(
+    ref_str,
+    "#/components/pathItems/",
+    "pathItem",
+  ))
 
   case components {
     Some(comps) ->

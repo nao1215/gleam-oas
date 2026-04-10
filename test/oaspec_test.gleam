@@ -8774,3 +8774,27 @@ pub fn schema_no_type_with_properties_parses_test() {
   let assert Some(components) = spec.components
   dict.size(components.schemas) |> should.equal(1)
 }
+
+// ---------------------------------------------------------------------------
+// $ref prefix validation
+// ---------------------------------------------------------------------------
+
+/// External file $ref for parameter should be rejected.
+pub fn external_param_ref_rejects_test() {
+  let result = parser.parse_file("test/fixtures/external_param_ref.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not a local"))
+    _ -> should.fail()
+  }
+}
+
+/// $ref pointing to wrong component kind should be rejected.
+pub fn wrong_kind_ref_rejects_test() {
+  let result = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not a local parameter"))
+    _ -> should.fail()
+  }
+}
