@@ -4,9 +4,13 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import oaspec/capability
+import oaspec/codegen/context.{type Context}
+import oaspec/config
 import oaspec/openapi/diagnostic.{
   type Diagnostic, SeverityError, SeverityWarning, TargetBoth, TargetClient,
+  TargetServer,
 }
+import oaspec/openapi/operations
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   Inline, ObjectSchema, OneOfSchema, Reference, Typed,
@@ -18,8 +22,7 @@ import oaspec/openapi/spec.{type OpenApiSpec, type SpecStage, Value}
 pub fn check(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
   let schema_errors = check_schemas(spec)
   let security_errors = check_security_schemes(spec)
-  let scope_warnings = check_scope(spec)
-  list.flatten([schema_errors, security_errors, scope_warnings])
+  list.flatten([schema_errors, security_errors])
 }
 
 /// Check all schemas for unsupported keywords stored during lossless parse.
@@ -118,9 +121,11 @@ fn check_security_schemes(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
   }
 }
 
-/// Check for parsed-but-unused features using the capability registry.
-fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
-  let webhook_w = case dict.is_empty(spec.webhooks) {
+/// Check for parsed-but-unused AST features, emitting warnings.
+/// This is the single source of truth for "parsed but not generated" diagnostics.
+/// Requires Context because some checks iterate over resolved operations.
+pub fn check_preserved(ctx: Context) -> List(Diagnostic) {
+  let webhook_warnings = case dict.is_empty(ctx.spec.webhooks) {
     True -> []
     False -> [
       diagnostic.capability(
@@ -131,7 +136,81 @@ fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
       ),
     ]
   }
-  let external_docs_w = case spec.external_docs {
+  let ops = operations.collect_operations(ctx)
+  let response_warnings =
+    list.flat_map(ops, fn(op) {
+      let #(op_id, operation, _path, _method) = op
+      let entries = dict.to_list(operation.responses)
+      list.flat_map(entries, fn(entry) {
+        let #(status_code, ref_or) = entry
+        case ref_or {
+          Value(response) -> {
+            let base_path = op_id <> ".responses." <> status_code
+            let multi_content_warnings = case
+              ctx.config.mode,
+              list.length(dict.to_list(response.content))
+            {
+              config.Client, _ -> []
+              _, n if n > 1 -> [
+                diagnostic.capability(
+                  severity: SeverityWarning,
+                  target: TargetServer,
+                  path: base_path <> ".content",
+                  detail: "Multiple response content types are not fully supported for server code generation. Generated server responses lose the content-type header.",
+                ),
+              ]
+              _, _ -> []
+            }
+            let header_warnings = case dict.is_empty(response.headers) {
+              True -> []
+              False -> [
+                diagnostic.capability(
+                  severity: SeverityWarning,
+                  target: TargetBoth,
+                  path: base_path <> ".headers",
+                  detail: "Response headers are parsed but not used by code generation.",
+                ),
+              ]
+            }
+            let link_warnings = case dict.is_empty(response.links) {
+              True -> []
+              False -> [
+                diagnostic.capability(
+                  severity: SeverityWarning,
+                  target: TargetBoth,
+                  path: base_path <> ".links",
+                  detail: "Response links are parsed but not used by code generation.",
+                ),
+              ]
+            }
+            let content_entries = dict.to_list(response.content)
+            let encoding_warnings =
+              list.flat_map(content_entries, fn(ce) {
+                let #(media_type_name, media_type) = ce
+                case dict.is_empty(media_type.encoding) {
+                  True -> []
+                  False -> [
+                    diagnostic.capability(
+                      severity: SeverityWarning,
+                      target: TargetBoth,
+                      path: base_path <> "." <> media_type_name <> ".encoding",
+                      detail: "MediaType encoding is parsed but not used by code generation.",
+                    ),
+                  ]
+                }
+              })
+            list.flatten([
+              multi_content_warnings,
+              header_warnings,
+              link_warnings,
+              encoding_warnings,
+            ])
+          }
+          _ -> []
+        }
+      })
+    })
+  let external_docs_warnings = case ctx.spec.external_docs {
     Some(_) -> [
       diagnostic.capability(
         severity: SeverityWarning,
@@ -142,7 +221,7 @@ fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
     ]
     None -> []
   }
-  let tags_w = case list.is_empty(spec.tags) {
+  let tag_warnings = case list.is_empty(ctx.spec.tags) {
     True -> []
     False -> [
       diagnostic.capability(
@@ -153,33 +232,44 @@ fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
       ),
     ]
   }
-  // Operation/path servers
-  let server_w =
-    dict.to_list(spec.paths)
+  let operation_server_warnings =
+    list.flat_map(ops, fn(op) {
+      let #(op_id, operation, _path, _method) = op
+      case list.is_empty(operation.servers) {
+        True -> []
+        False -> [
+          diagnostic.capability(
+            severity: SeverityWarning,
+            target: TargetClient,
+            path: op_id <> ".servers",
+            detail: "Operation-level servers are parsed but client code generation uses only the top-level server URL.",
+          ),
+        ]
+      }
+    })
+  let path_server_warnings =
+    dict.to_list(ctx.spec.paths)
     |> list.flat_map(fn(entry) {
       let #(path, ref_or) = entry
       case ref_or {
-        Value(path_item) -> {
-          let path_w = case list.is_empty(path_item.servers) {
+        Value(path_item) ->
+          case list.is_empty(path_item.servers) {
             True -> []
             False -> [
               diagnostic.capability(
                 severity: SeverityWarning,
                 target: TargetClient,
                 path: "paths." <> path <> ".servers",
-                detail: "Path-level servers are parsed but client uses only top-level server URL.",
+                detail: "Path-level servers are parsed but client code generation uses only the top-level server URL.",
               ),
             ]
           }
-          path_w
-        }
         _ -> []
       }
     })
-  // Component headers/examples/links
-  let comp_w = case spec.components {
-    Some(c) -> {
-      let h = case dict.is_empty(c.headers) {
+  let component_warnings = case ctx.spec.components {
+    Some(components) -> {
+      let header_w = case dict.is_empty(components.headers) {
         True -> []
         False -> [
           diagnostic.capability(
@@ -190,7 +280,18 @@ fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
           ),
         ]
       }
-      let l = case dict.is_empty(c.links) {
+      let example_w = case dict.is_empty(components.examples) {
+        True -> []
+        False -> [
+          diagnostic.capability(
+            severity: SeverityWarning,
+            target: TargetBoth,
+            path: "components.examples",
+            detail: "Component examples are parsed but not used by code generation.",
+          ),
+        ]
+      }
+      let link_w = case dict.is_empty(components.links) {
         True -> []
         False -> [
           diagnostic.capability(
@@ -201,9 +302,17 @@ fn check_scope(spec: OpenApiSpec(SpecStage)) -> List(Diagnostic) {
           ),
         ]
       }
-      list.append(h, l)
+      list.flatten([header_w, example_w, link_w])
     }
     None -> []
   }
-  list.flatten([webhook_w, external_docs_w, tags_w, server_w, comp_w])
+  list.flatten([
+    webhook_warnings,
+    response_warnings,
+    external_docs_warnings,
+    tag_warnings,
+    operation_server_warnings,
+    path_server_warnings,
+    component_warnings,
+  ])
 }

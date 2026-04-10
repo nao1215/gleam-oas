@@ -16,6 +16,7 @@ import oaspec/codegen/types
 import oaspec/codegen/validate
 import oaspec/config
 import oaspec/generate
+import oaspec/openapi/capability_check
 import oaspec/openapi/dedup
 import oaspec/openapi/diagnostic.{Diagnostic}
 import oaspec/openapi/hoist
@@ -4948,12 +4949,12 @@ webhooks:
   // Generation must succeed even with warnings
   let result = generate.generate(spec, cfg)
   should.be_ok(result)
-  // But validation issues should include warnings
+  // But capability issues should include warnings
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx = context.new(spec, cfg)
-  let issues = validate.validate(ctx)
-  let warnings = validate.warnings_only(issues)
+  let issues = capability_check.check_preserved(ctx)
+  let warnings = diagnostic.warnings_only(issues)
   { warnings != [] }
   |> should.be_true()
 }
@@ -6125,7 +6126,7 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let ctx = make_ctx_from_spec(spec)
-  let issues = validate.validate(ctx)
+  let issues = capability_check.check_preserved(ctx)
   let warnings =
     list.filter(issues, fn(issue) {
       issue.severity == diagnostic.SeverityWarning

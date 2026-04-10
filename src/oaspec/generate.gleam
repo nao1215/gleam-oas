@@ -72,6 +72,11 @@ pub fn generate(
   // Create generation context
   let ctx = context.new(spec, cfg)
 
+  // Check for parsed-but-unused features (capability warnings)
+  let preserved_warnings =
+    capability_check.check_preserved(ctx)
+    |> diagnostic.filter_by_mode(cfg.mode)
+
   // Validate spec for unsupported features
   let validation_issues =
     validate.validate(ctx)
@@ -82,7 +87,12 @@ pub fn generate(
     False -> Error(ValidationErrors(errors: blocking_errors))
     True -> {
       let files = generate_all_files(ctx)
-      let warnings = list.append(capability_warnings, validation_warnings)
+      let warnings =
+        list.flatten([
+          capability_warnings,
+          preserved_warnings,
+          validation_warnings,
+        ])
       Ok(GenerationSummary(files:, spec_title:, warnings:))
     }
   }
