@@ -10,7 +10,7 @@ Generate usable Gleam code from OpenAPI 3.x specifications.
 - Generate client and server-side modules from a single spec
 - Produce readable Gleam types, encoders, decoders, request types, and response types
 - Handle real-world OpenAPI patterns: unions, nullable fields, `additionalProperties`, form bodies, multipart, and security
-- Backed by 347 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 94 OSS-derived fixtures (119 total)
+- Backed by 356 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 94 OSS-derived fixtures (129 total)
 
 ## Why oaspec
 
@@ -171,7 +171,7 @@ Coverage is strongest in these areas:
 
 These are the most important limitations today:
 
-- Advanced OpenAPI 3.1 and JSON Schema 2020-12 features such as `$defs`, `prefixItems`, `if/then/else`, `dependentSchemas`, `$dynamicRef`, and `contentMediaType` are not supported
+- The following JSON Schema 2020-12 keywords are detected and rejected at parse time: `const`, `$defs`, `prefixItems`, `if`/`then`/`else`, `dependentSchemas`, `not`, `unevaluatedProperties`, `unevaluatedItems`, `contentEncoding`, `contentMediaType`, `contentSchema`
 - OpenAPI 3.1 multi-type unions such as `type: [string, integer]` should be modeled with `oneOf` instead
 - `xml` annotations are not used for code generation
 - Some fields are parsed and preserved but not yet used by codegen, including `webhooks`, `externalDocs`, top-level `tags`, parameter examples, media examples and encoding, response headers and links, operation-level servers, and component headers/examples/links
