@@ -1,19 +1,20 @@
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
-import gleam/string
+import gleam/option.{None, Some}
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/ir_build
 import oaspec/codegen/ir_render
 import oaspec/codegen/schema_dispatch
+import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema,
+  type AdditionalProperties, type SchemaObject, type SchemaRef, AllOfSchema,
+  AnyOfSchema, ArraySchema, BooleanSchema, Forbidden, Inline, IntegerSchema,
+  NumberSchema, ObjectSchema, OneOfSchema, Reference, StringSchema, Typed,
+  Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -143,7 +144,7 @@ pub fn schema_to_gleam_type(schema: SchemaObject, _ctx: Context) -> String {
 
 /// Generate request types for all operations.
 fn generate_request_types(ctx: Context) -> String {
-  let operations = collect_operations(ctx)
+  let operations = operations.collect_operations(ctx)
 
   // Only import Option if any operation has optional parameters or optional body
   let needs_option =
@@ -171,8 +172,8 @@ fn generate_request_types(ctx: Context) -> String {
         list.any(operation.parameters, fn(ref_p) {
           case ref_p {
             Value(p) ->
-              case p.schema {
-                Some(Reference(..)) -> True
+              case p.payload {
+                spec.ParameterSchema(Reference(..)) -> True
                 _ -> False
               }
             _ -> False
@@ -220,7 +221,7 @@ fn generate_request_types(ctx: Context) -> String {
 fn generate_request_type(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let type_name = naming.schema_to_type_name(op_id) <> "Request"
@@ -241,12 +242,12 @@ fn generate_request_type(
           case ref_p {
             Value(param) -> {
               let field_name = naming.to_snake_case(param.name)
-              let field_type = case param.schema {
-                Some(Inline(StringSchema(..))) -> "String"
-                Some(Inline(IntegerSchema(..))) -> "Int"
-                Some(Inline(NumberSchema(..))) -> "Float"
-                Some(Inline(BooleanSchema(..))) -> "Bool"
-                Some(Inline(ArraySchema(items:, ..))) -> {
+              let field_type = case param.payload {
+                spec.ParameterSchema(Inline(StringSchema(..))) -> "String"
+                spec.ParameterSchema(Inline(IntegerSchema(..))) -> "Int"
+                spec.ParameterSchema(Inline(NumberSchema(..))) -> "Float"
+                spec.ParameterSchema(Inline(BooleanSchema(..))) -> "Bool"
+                spec.ParameterSchema(Inline(ArraySchema(items:, ..))) -> {
                   let item_type = case items {
                     Inline(StringSchema(..)) -> "String"
                     Inline(IntegerSchema(..)) -> "Int"
@@ -257,7 +258,7 @@ fn generate_request_type(
                   }
                   "List(" <> item_type <> ")"
                 }
-                Some(Reference(name:, ..)) ->
+                spec.ParameterSchema(Reference(name:, ..)) ->
                   "types." <> naming.schema_to_type_name(name)
                 _ -> "String"
               }
@@ -299,9 +300,7 @@ fn generate_request_type(
 
 /// Check if any response variant references the types module.
 fn responses_need_types_import(
-  operations: List(
-    #(String, spec.Operation(SpecStage), String, spec.HttpMethod),
-  ),
+  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
   _ctx: Context,
 ) -> Bool {
   list.any(operations, fn(op) {
@@ -342,7 +341,7 @@ fn responses_need_types_import(
 
 /// Generate response types for all operations.
 fn generate_response_types(ctx: Context) -> String {
-  let operations = collect_operations(ctx)
+  let operations = operations.collect_operations(ctx)
   let needs_types = responses_need_types_import(operations, ctx)
   let imports = case needs_types {
     True -> [ctx.config.package <> "/types"]
@@ -365,7 +364,7 @@ fn generate_response_types(ctx: Context) -> String {
 fn generate_response_type(
   sb: se.StringBuilder,
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
   let type_name = naming.schema_to_type_name(op_id) <> "Response"
@@ -448,8 +447,7 @@ pub type MergedAllOf {
   MergedAllOf(
     properties: dict.Dict(String, SchemaRef),
     required: List(String),
-    additional_properties: Option(SchemaRef),
-    additional_properties_untyped: Bool,
+    additional_properties: AdditionalProperties,
   )
 }
 
@@ -465,8 +463,7 @@ pub fn merge_allof_schemas(
     MergedAllOf(
       properties: dict.new(),
       required: [],
-      additional_properties: None,
-      additional_properties_untyped: False,
+      additional_properties: Forbidden,
     ),
     fn(acc, s_ref, idx) {
       let resolved = case s_ref {
@@ -474,27 +471,21 @@ pub fn merge_allof_schemas(
         Reference(..) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
       }
       case resolved {
-        Ok(ObjectSchema(
-          properties:,
-          required:,
-          additional_properties:,
-          additional_properties_untyped:,
-          ..,
-        )) -> {
+        Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
           let merged_ap = case
-            acc.additional_properties,
-            additional_properties
+            additional_properties,
+            acc.additional_properties
           {
-            None, ap -> ap
-            existing, _ -> existing
+            Typed(x), _ -> Typed(x)
+            _, Typed(x) -> Typed(x)
+            Untyped, _ -> Untyped
+            _, Untyped -> Untyped
+            Forbidden, Forbidden -> Forbidden
           }
-          let merged_ap_untyped =
-            acc.additional_properties_untyped || additional_properties_untyped
           MergedAllOf(
             properties: dict.merge(acc.properties, properties),
             required: list.append(acc.required, required),
             additional_properties: merged_ap,
-            additional_properties_untyped: merged_ap_untyped,
           )
         }
         // Non-object sub-schemas: add as a synthetic "value" field
@@ -519,92 +510,14 @@ pub fn merge_allof_schemas(
   )
 }
 
-/// Collect all operations from the spec with their IDs, paths, and methods.
-pub fn collect_operations(
-  ctx: Context,
-) -> List(#(String, spec.Operation(SpecStage), String, spec.HttpMethod)) {
-  let paths =
-    list.sort(dict.to_list(ctx.spec.paths), fn(a, b) {
-      string.compare(a.0, b.0)
-    })
-  list.flat_map(paths, fn(entry) {
-    let #(path, ref_or) = entry
-    case ref_or {
-      Value(path_item) -> {
-        let ops = [
-          #(path_item.get, spec.Get),
-          #(path_item.post, spec.Post),
-          #(path_item.put, spec.Put),
-          #(path_item.delete, spec.Delete),
-          #(path_item.patch, spec.Patch),
-          #(path_item.head, spec.Head),
-          #(path_item.options, spec.Options),
-          #(path_item.trace, spec.Trace),
-        ]
-        list.filter_map(ops, fn(op_entry) {
-          let #(maybe_op, method) = op_entry
-          case maybe_op {
-            Some(operation) -> {
-              // Merge path-level parameters with operation parameters.
-              // Operation params take precedence by (name, in) key per OpenAPI spec.
-              let op_param_keys =
-                list.filter_map(operation.parameters, fn(ref_p) {
-                  case ref_p {
-                    Value(p) -> Ok(#(p.name, p.in_))
-                    _ -> Error(Nil)
-                  }
-                })
-              let inherited_params =
-                list.filter(path_item.parameters, fn(ref_p) {
-                  case ref_p {
-                    Value(p) -> !list.contains(op_param_keys, #(p.name, p.in_))
-                    _ -> True
-                  }
-                })
-              let merged_params =
-                list.append(inherited_params, operation.parameters)
-              // Inherit top-level security if operation doesn't define its own.
-              // operation.security = None → inherit, Some([]) → no security,
-              // Some([...]) → use operation-level.
-              let effective_security = case operation.security {
-                Some(sec) -> sec
-                None -> ctx.spec.security
-              }
-              let operation =
-                spec.Operation(
-                  ..operation,
-                  parameters: merged_params,
-                  security: Some(effective_security),
-                )
-
-              let op_id = case operation.operation_id {
-                Some(id) -> id
-                None ->
-                  spec.method_to_lower(method)
-                  <> "_"
-                  <> string.replace(path, "/", "_")
-                  |> string.replace("{", "")
-                  |> string.replace("}", "")
-              }
-              Ok(#(op_id, operation, path, method))
-            }
-            None -> Error(Nil)
-          }
-        })
-      }
-      _ -> []
-    }
-  })
-}
-
 /// Check if a schema has typed or untyped additionalProperties that would need Dict.
 pub fn schema_has_additional_properties(
   schema_ref: SchemaRef,
   ctx: Context,
 ) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: Typed(_), ..)) -> True
+    Inline(ObjectSchema(additional_properties: Untyped, ..)) -> True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_additional_properties(s, ctx) })
     Reference(..) ->
@@ -623,7 +536,7 @@ pub fn schema_has_untyped_additional_properties(
   ctx: Context,
 ) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: Untyped, ..)) -> True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) {
         schema_has_untyped_additional_properties(s, ctx)
@@ -710,7 +623,6 @@ pub fn filter_read_only_properties(
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       min_properties:,
       max_properties:,
     ) -> {
@@ -730,7 +642,6 @@ pub fn filter_read_only_properties(
         properties: filtered_props,
         required: filtered_required,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       )
@@ -751,7 +662,6 @@ pub fn filter_write_only_properties(
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       min_properties:,
       max_properties:,
     ) -> {
@@ -771,7 +681,6 @@ pub fn filter_write_only_properties(
         properties: filtered_props,
         required: filtered_required,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       )
@@ -783,7 +692,7 @@ pub fn filter_write_only_properties(
 /// Extract the Gleam type for a request body from its content media types.
 /// Uses types. prefix since request body schemas live in the types module.
 fn extract_request_body_type(
-  rb: spec.RequestBody(SpecStage),
+  rb: spec.RequestBody(Resolved),
   op_id: String,
   ctx: Context,
 ) -> String {

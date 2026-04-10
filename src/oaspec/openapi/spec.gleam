@@ -1,14 +1,21 @@
 import gleam/dict.{type Dict}
 import gleam/option.{type Option}
 import oaspec/openapi/schema.{type SchemaRef}
+import oaspec/openapi/value.{type JsonValue}
 
 // ============================================================================
 // Stage and RefOr: core of the stage-typed AST
 // ============================================================================
 
-/// Resolution stage of the AST.
-pub type SpecStage {
+/// Phantom type: spec has not yet been through the resolve phase.
+/// RefOr values may still contain Ref(String).
+pub type Unresolved {
   Unresolved
+}
+
+/// Phantom type: spec has been through the resolve phase.
+/// All RefOr values are guaranteed to be Value, not Ref.
+pub type Resolved {
   Resolved
 }
 
@@ -121,7 +128,7 @@ pub type Components(stage) {
     security_schemes: Dict(String, RefOr(SecurityScheme)),
     path_items: Dict(String, RefOr(PathItem(stage))),
     headers: Dict(String, Header),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
     links: Dict(String, Link),
   )
 }
@@ -154,6 +161,9 @@ pub type SecurityScheme {
   HttpScheme(scheme: String, bearer_format: Option(String))
   OAuth2Scheme(description: Option(String), flows: Dict(String, OAuth2Flow))
   OpenIdConnectScheme(open_id_connect_url: String, description: Option(String))
+  /// Parsed but unsupported scheme type (e.g. mutualTLS).
+  /// Preserved losslessly; capability_check will reject it.
+  UnsupportedScheme(scheme_type: String)
 }
 
 /// An OAuth2 flow definition.
@@ -229,6 +239,14 @@ pub type ParameterIn {
   InCookie
 }
 
+/// How a parameter carries its type information.
+pub type ParameterPayload {
+  /// Parameter defined via a JSON Schema.
+  ParameterSchema(SchemaRef)
+  /// Parameter defined via content media type map (mutually exclusive with schema).
+  ParameterContent(Dict(String, MediaType))
+}
+
 /// An API parameter. Stage parameter is phantom.
 pub type Parameter(stage) {
   Parameter(
@@ -236,14 +254,21 @@ pub type Parameter(stage) {
     in_: ParameterIn,
     description: Option(String),
     required: Bool,
-    schema: Option(SchemaRef),
+    payload: ParameterPayload,
     style: Option(ParameterStyle),
     explode: Option(Bool),
     deprecated: Bool,
     allow_reserved: Bool,
-    content: Dict(String, MediaType),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
   )
+}
+
+/// Extract the schema from a parameter's payload, if it uses schema encoding.
+pub fn parameter_schema(param: Parameter(stage)) -> Option(SchemaRef) {
+  case param.payload {
+    ParameterSchema(s) -> option.Some(s)
+    ParameterContent(_) -> option.None
+  }
 }
 
 /// A request body definition. Stage parameter is phantom.
@@ -259,8 +284,8 @@ pub type RequestBody(stage) {
 pub type MediaType {
   MediaType(
     schema: Option(SchemaRef),
-    example: Option(String),
-    examples: Dict(String, String),
+    example: Option(JsonValue),
+    examples: Dict(String, JsonValue),
     encoding: Dict(String, Encoding),
   )
 }

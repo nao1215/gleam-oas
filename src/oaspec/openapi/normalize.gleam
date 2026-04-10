@@ -3,15 +3,18 @@ import gleam/list
 import gleam/option.{None, Some}
 import oaspec/openapi/schema.{
   type SchemaMetadata, type SchemaObject, type SchemaRef, AllOfSchema,
-  AnyOfSchema, ArraySchema, BooleanSchema, Inline, IntegerSchema, NumberSchema,
-  ObjectSchema, OneOfSchema, Reference, SchemaMetadata, StringSchema,
+  AnyOfSchema, ArraySchema, BooleanSchema, Forbidden, Inline, IntegerSchema,
+  NumberSchema, ObjectSchema, OneOfSchema, Reference, SchemaMetadata,
+  StringSchema, Typed,
 }
 import oaspec/openapi/spec.{
   type Callback, type Components, type Header, type MediaType, type OpenApiSpec,
   type Operation, type Parameter, type PathItem, type RefOr, type RequestBody,
   type Response, Callback, Components, Header, MediaType, OpenApiSpec, Operation,
-  Parameter, PathItem, Ref, RequestBody, Response, Value,
+  Parameter, ParameterContent, ParameterSchema, PathItem, Ref, RequestBody,
+  Response, Value,
 }
+import oaspec/openapi/value
 
 /// Normalize an OpenApiSpec after parsing.
 /// Converts OAS 3.1 patterns to 3.0-compatible representations:
@@ -137,11 +140,14 @@ fn normalize_callback(cb: Callback(stage)) -> Callback(stage) {
 }
 
 fn normalize_parameter(p: Parameter(stage)) -> Parameter(stage) {
-  Parameter(
-    ..p,
-    schema: option.map(p.schema, normalize_schema_ref),
-    content: dict.map_values(p.content, fn(_k, mt) { normalize_media_type(mt) }),
-  )
+  let payload = case p.payload {
+    ParameterSchema(s) -> ParameterSchema(normalize_schema_ref(s))
+    ParameterContent(c) ->
+      ParameterContent(
+        dict.map_values(c, fn(_k, mt) { normalize_media_type(mt) }),
+      )
+  }
+  Parameter(..p, payload: payload)
 }
 
 fn normalize_request_body(rb: RequestBody(stage)) -> RequestBody(stage) {
@@ -175,33 +181,22 @@ fn normalize_schema_ref(ref: SchemaRef) -> SchemaRef {
 }
 
 fn normalize_schema(s: SchemaObject) -> SchemaObject {
-  // 1. const_value -> single-value enum
+  // 1. const_value -> single-value enum (string const only)
+  // Non-string const (bool, int, float, object, array, null) is preserved
+  // as-is in metadata — codegen doesn't support const for these types yet,
+  // and capability_check will warn about it.
   let s = case s {
     StringSchema(metadata: m, ..) ->
       case m.const_value {
-        Some(const_val) ->
+        Some(value.JsonString(str_val)) ->
           StringSchema(
             ..s,
-            enum_values: [const_val],
+            enum_values: [str_val],
             metadata: SchemaMetadata(..m, const_value: None),
           )
-        None -> s
+        _ -> s
       }
-    _ ->
-      case schema.get_metadata(s).const_value {
-        Some(val) -> {
-          let m = schema.get_metadata(s)
-          StringSchema(
-            metadata: SchemaMetadata(..m, const_value: None),
-            format: None,
-            enum_values: [val],
-            min_length: None,
-            max_length: None,
-            pattern: None,
-          )
-        }
-        None -> s
-      }
+    _ -> s
   }
 
   // 2. raw_type with multiple types -> oneOf
@@ -272,8 +267,7 @@ fn make_typed_schema(type_str: String, metadata: SchemaMetadata) -> SchemaObject
         metadata: metadata,
         properties: dict.new(),
         required: [],
-        additional_properties: None,
-        additional_properties_untyped: False,
+        additional_properties: Forbidden,
         min_properties: None,
         max_properties: None,
       )
@@ -287,20 +281,20 @@ fn normalize_schema_children(s: SchemaObject) -> SchemaObject {
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       min_properties:,
       max_properties:,
     ) -> {
       let properties =
         dict.map_values(properties, fn(_k, v) { normalize_schema_ref(v) })
-      let additional_properties =
-        option.map(additional_properties, normalize_schema_ref)
+      let additional_properties = case additional_properties {
+        Typed(sr) -> Typed(normalize_schema_ref(sr))
+        other -> other
+      }
       ObjectSchema(
         metadata:,
         properties:,
         required:,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       )

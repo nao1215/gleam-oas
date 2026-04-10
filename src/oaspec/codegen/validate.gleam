@@ -4,107 +4,70 @@ import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/string
 import oaspec/codegen/context.{type Context}
-import oaspec/codegen/types as type_gen
 import oaspec/config
+import oaspec/openapi/diagnostic.{
+  type Diagnostic, SeverityError, TargetBoth, TargetServer,
+}
+import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema,
+  BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
+  OneOfSchema, Reference, StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved}
 import oaspec/util/content_type
-
-/// Severity level for validation issues.
-pub type Severity {
-  SeverityError
-  SeverityWarning
-}
-
-/// Target indicating which generation mode the issue applies to.
-pub type Target {
-  TargetBoth
-  TargetClient
-  TargetServer
-}
-
-/// A validation issue representing an unsupported or noteworthy OpenAPI feature.
-pub type ValidationError {
-  ValidationError(
-    path: String,
-    detail: String,
-    severity: Severity,
-    target: Target,
-  )
-}
 
 /// Validate the parsed spec for unsupported patterns.
 /// Returns a list of errors; empty list means validation passed.
 /// Name collisions and duplicate operationIds are handled by the dedup pass
 /// before validation, so they are no longer checked here.
-pub fn validate(ctx: Context) -> List(ValidationError) {
+pub fn validate(ctx: Context) -> List(Diagnostic) {
   let op_errors = validate_operations(ctx)
   let schema_errors = validate_component_schemas(ctx)
   let security_errors = validate_security_schemes(ctx)
-  let preserved_warnings = validate_preserved_but_unused(ctx)
-  list.flatten([op_errors, schema_errors, security_errors, preserved_warnings])
+  list.flatten([op_errors, schema_errors, security_errors])
 }
 
 /// Filter to only errors (not warnings).
-pub fn errors_only(issues: List(ValidationError)) -> List(ValidationError) {
-  list.filter(issues, fn(e) { e.severity == SeverityError })
+pub fn errors_only(issues: List(Diagnostic)) -> List(Diagnostic) {
+  diagnostic.errors_only(issues)
 }
 
 /// Filter to only warnings (not errors).
-pub fn warnings_only(issues: List(ValidationError)) -> List(ValidationError) {
-  list.filter(issues, fn(e) { e.severity == SeverityWarning })
+pub fn warnings_only(issues: List(Diagnostic)) -> List(Diagnostic) {
+  diagnostic.warnings_only(issues)
 }
 
 /// Filter validation issues to those relevant for the selected generation mode.
 pub fn filter_by_mode(
-  issues: List(ValidationError),
+  issues: List(Diagnostic),
   mode: config.GenerateMode,
-) -> List(ValidationError) {
-  case mode {
-    config.Client -> list.filter(issues, fn(e) { e.target != TargetServer })
-    config.Server -> list.filter(issues, fn(e) { e.target != TargetClient })
-    config.Both -> issues
-  }
+) -> List(Diagnostic) {
+  diagnostic.filter_by_mode(issues, mode)
 }
 
 /// Convert a validation error to a human-readable string.
-pub fn error_to_string(error: ValidationError) -> String {
-  let prefix = case error.severity {
-    SeverityError -> "Error"
-    SeverityWarning -> "Warning"
-  }
-  prefix <> " at " <> error.path <> ": " <> error.detail
+pub fn error_to_string(error: Diagnostic) -> String {
+  diagnostic.to_string(error)
 }
 
 /// Validate all operations for unsupported patterns.
-fn validate_operations(ctx: Context) -> List(ValidationError) {
-  let operations = type_gen.collect_operations(ctx)
+fn validate_operations(ctx: Context) -> List(Diagnostic) {
+  let operations = operations.collect_operations(ctx)
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, path, _method) = op
-    let resolved_params =
-      list.filter_map(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> Ok(p)
-          _ -> Error(Nil)
-        }
-      })
+    // All refs are guaranteed to be resolved by this point
+    let resolved_params = list.map(operation.parameters, spec.unwrap_ref)
     let resolved_request_body = case operation.request_body {
-      Some(Value(rb)) -> Some(rb)
-      _ -> None
+      Some(ref_or) -> Some(spec.unwrap_ref(ref_or))
+      None -> None
     }
     let resolved_responses =
       dict.to_list(operation.responses)
-      |> list.filter_map(fn(entry) {
+      |> list.map(fn(entry) {
         let #(code, ref_or) = entry
-        case ref_or {
-          Value(resp) -> Ok(#(code, resp))
-          _ -> Error(Nil)
-        }
+        #(code, spec.unwrap_ref(ref_or))
       })
       |> dict.from_list
     let path_errors =
@@ -114,7 +77,7 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
     let response_errors = validate_responses(op_id, resolved_responses, ctx)
     let missing_responses_errors = case dict.is_empty(resolved_responses) {
       True -> [
-        ValidationError(
+        diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
           path: op_id,
@@ -139,8 +102,8 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
 fn validate_path_template_params(
   op_id: String,
   path: String,
-  params: List(spec.Parameter(SpecStage)),
-) -> List(ValidationError) {
+  params: List(spec.Parameter(Resolved)),
+) -> List(Diagnostic) {
   let template_names = extract_path_template_names(path)
   let path_param_names =
     list.filter_map(params, fn(p) {
@@ -153,7 +116,7 @@ fn validate_path_template_params(
     case list.contains(path_param_names, name) {
       True -> Error(Nil)
       False ->
-        Ok(ValidationError(
+        Ok(diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
           path: op_id <> ".path",
@@ -184,9 +147,9 @@ fn extract_path_template_names(path: String) -> List(String) {
 /// Unsupported: matrix, label, simple, spaceDelimited, pipeDelimited.
 fn validate_parameters(
   op_id: String,
-  params: List(spec.Parameter(SpecStage)),
+  params: List(spec.Parameter(Resolved)),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   list.flat_map(params, fn(p) {
     let path = op_id <> ".parameters." <> p.name
     let style_errors = case p.style {
@@ -194,7 +157,7 @@ fn validate_parameters(
       | Some(spec.LabelStyle)
       | Some(spec.SpaceDelimitedStyle)
       | Some(spec.PipeDelimitedStyle) -> [
-        ValidationError(
+        diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
           path: path,
@@ -203,18 +166,18 @@ fn validate_parameters(
       ]
       _ -> []
     }
-    // Parameter.schema is None when Parameter.content is used instead.
+    // Parameter.payload is ParameterContent when Parameter.content is used instead of schema.
     // We don't support the content-based parameter serialization.
-    let content_errors = case p.schema {
-      None -> [
-        ValidationError(
+    let content_errors = case p.payload {
+      spec.ParameterContent(_) -> [
+        diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
           path: path,
           detail: "Parameters using 'content' instead of 'schema' are not supported.",
         ),
       ]
-      _ -> []
+      spec.ParameterSchema(_) -> []
     }
     // Object/complex schemas in query/header/cookie params require deepObject
     // style. Without it, codegen cannot stringify the value and falls through
@@ -235,13 +198,13 @@ fn validate_parameters(
 
 fn validate_server_structured_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case ctx.config.mode {
     config.Client -> []
     _ -> {
-      let schema_obj = resolve_schema_object(param.schema, ctx)
+      let schema_obj = resolve_schema_object(spec.parameter_schema(param), ctx)
       let array_errors = case param.in_, schema_obj {
         spec.InQuery, Some(ArraySchema(items: Inline(StringSchema(..)), ..))
         | spec.InQuery, Some(ArraySchema(items: Inline(IntegerSchema(..)), ..))
@@ -249,7 +212,7 @@ fn validate_server_structured_param(
         | spec.InQuery, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..))
         -> []
         spec.InQuery, Some(ArraySchema(..)) -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetServer,
             path: path,
@@ -262,7 +225,7 @@ fn validate_server_structured_param(
         | spec.InHeader, Some(ArraySchema(items: Inline(BooleanSchema(..)), ..))
         -> []
         spec.InHeader, Some(ArraySchema(..)) -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetServer,
             path: path,
@@ -280,10 +243,14 @@ fn validate_server_structured_param(
 
 fn validate_server_deep_object_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
-) -> List(ValidationError) {
-  case param.in_, param.style, resolve_schema_object(param.schema, ctx) {
+) -> List(Diagnostic) {
+  case
+    param.in_,
+    param.style,
+    resolve_schema_object(spec.parameter_schema(param), ctx)
+  {
     spec.InQuery,
       Some(spec.DeepObjectStyle),
       Some(ObjectSchema(properties:, ..))
@@ -294,7 +261,7 @@ fn validate_server_deep_object_param(
         case deep_object_server_leaf_supported(prop_ref, ctx) {
           True -> []
           False -> [
-            ValidationError(
+            diagnostic.validation(
               severity: SeverityError,
               target: TargetServer,
               path: path <> "." <> prop_name,
@@ -338,9 +305,9 @@ fn deep_object_server_leaf_supported(
 
 fn validate_server_cookie_param(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   let _ = path
   let _ = param
   let _ = ctx
@@ -351,9 +318,9 @@ fn validate_server_cookie_param(
 /// that is not handled by deepObject style.
 fn validate_complex_param_schema(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case param.style {
     Some(spec.DeepObjectStyle) ->
       // deepObject supports one level of object nesting only.
@@ -361,7 +328,7 @@ fn validate_complex_param_schema(
       // invalid code (e.g., uri.percent_encode(filter.meta)).
       validate_deep_object_no_nested_objects(path, param, ctx)
     _ ->
-      case resolve_schema_object(param.schema, ctx) {
+      case resolve_schema_object(spec.parameter_schema(param), ctx) {
         Some(ObjectSchema(..))
         | Some(AllOfSchema(..))
         | Some(OneOfSchema(..))
@@ -371,7 +338,7 @@ fn validate_complex_param_schema(
               case ctx.config.mode {
                 config.Client -> []
                 _ -> [
-                  ValidationError(
+                  diagnostic.validation(
                     severity: SeverityError,
                     target: TargetServer,
                     path: path,
@@ -380,7 +347,7 @@ fn validate_complex_param_schema(
                 ]
               }
             _ -> [
-              ValidationError(
+              diagnostic.validation(
                 severity: SeverityError,
                 target: TargetBoth,
                 path: path,
@@ -396,10 +363,10 @@ fn validate_complex_param_schema(
 /// Validate that a deepObject parameter has no nested object properties.
 fn validate_deep_object_no_nested_objects(
   path: String,
-  param: spec.Parameter(SpecStage),
+  param: spec.Parameter(Resolved),
   ctx: Context,
-) -> List(ValidationError) {
-  case resolve_schema_object(param.schema, ctx) {
+) -> List(Diagnostic) {
+  case resolve_schema_object(spec.parameter_schema(param), ctx) {
     Some(ObjectSchema(properties:, ..)) ->
       dict.to_list(properties)
       |> list.flat_map(fn(entry) {
@@ -409,7 +376,7 @@ fn validate_deep_object_no_nested_objects(
           | Some(AllOfSchema(..))
           | Some(OneOfSchema(..))
           | Some(AnyOfSchema(..)) -> [
-            ValidationError(
+            diagnostic.validation(
               severity: SeverityError,
               target: TargetBoth,
               path: path <> "." <> prop_name,
@@ -441,9 +408,9 @@ fn resolve_schema_object(
 /// Validate request body for unsupported patterns.
 fn validate_request_body(
   op_id: String,
-  request_body: Option(spec.RequestBody(SpecStage)),
+  request_body: Option(spec.RequestBody(Resolved)),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case request_body {
     None -> []
     Some(rb) -> {
@@ -455,7 +422,7 @@ fn validate_request_body(
       let content_type_errors = case unsupported {
         [] -> []
         [media_type, ..] -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetBoth,
             path: op_id <> ".requestBody",
@@ -521,7 +488,7 @@ fn validate_multipart_request_body_fields(
   op_id: String,
   content: dict.Dict(String, spec.MediaType),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case dict.get(content, "multipart/form-data") {
     Ok(media_type) ->
       case resolve_schema_object(media_type.schema, ctx) {
@@ -532,7 +499,7 @@ fn validate_multipart_request_body_fields(
             case multipart_field_is_stringifiable(field_schema, ctx) {
               True -> []
               False -> [
-                ValidationError(
+                diagnostic.validation(
                   severity: SeverityError,
                   target: TargetBoth,
                   path: op_id <> ".requestBody.multipart." <> field_name,
@@ -542,7 +509,7 @@ fn validate_multipart_request_body_fields(
             }
           })
         Some(_) -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetBoth,
             path: op_id <> ".requestBody",
@@ -561,13 +528,13 @@ fn validate_form_urlencoded_schema(
   op_id: String,
   content: dict.Dict(String, spec.MediaType),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case dict.get(content, "application/x-www-form-urlencoded") {
     Ok(media_type) ->
       case resolve_schema_object(media_type.schema, ctx) {
         Some(ObjectSchema(..)) -> []
         Some(_) -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetBoth,
             path: op_id <> ".requestBody",
@@ -590,7 +557,7 @@ fn validate_server_form_urlencoded_request_body(
   content: dict.Dict(String, spec.MediaType),
   content_keys: List(String),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case ctx.config.mode {
     config.Client -> []
     _ ->
@@ -598,7 +565,7 @@ fn validate_server_form_urlencoded_request_body(
         Ok(media_type) -> {
           let content_type_errors = case list.length(content_keys) > 1 {
             True -> [
-              ValidationError(
+              diagnostic.validation(
                 severity: SeverityError,
                 target: TargetServer,
                 path: op_id <> ".requestBody",
@@ -619,7 +586,7 @@ fn validate_server_form_urlencoded_request_body(
                 {
                   True -> []
                   False -> [
-                    ValidationError(
+                    diagnostic.validation(
                       severity: SeverityError,
                       target: TargetServer,
                       path: op_id <> ".requestBody.form." <> field_name,
@@ -641,7 +608,7 @@ fn validate_server_request_body_content_types(
   op_id: String,
   content_keys: List(String),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case ctx.config.mode {
     config.Client -> []
     _ -> {
@@ -653,7 +620,7 @@ fn validate_server_request_body_content_types(
           && content_type.is_supported_request(content_type.from_string(key))
         })
       list.map(non_json_but_supported, fn(media_type) {
-        ValidationError(
+        diagnostic.validation(
           severity: SeverityError,
           target: TargetServer,
           path: op_id <> ".requestBody",
@@ -671,7 +638,7 @@ fn validate_server_multipart_request_body(
   content: dict.Dict(String, spec.MediaType),
   content_keys: List(String),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case ctx.config.mode {
     config.Client -> []
     _ ->
@@ -679,7 +646,7 @@ fn validate_server_multipart_request_body(
         Ok(media_type) -> {
           let content_type_errors = case list.length(content_keys) > 1 {
             True -> [
-              ValidationError(
+              diagnostic.validation(
                 severity: SeverityError,
                 target: TargetServer,
                 path: op_id <> ".requestBody",
@@ -698,7 +665,7 @@ fn validate_server_multipart_request_body(
                 case multipart_server_field_supported(field_schema, ctx) {
                   True -> []
                   False -> [
-                    ValidationError(
+                    diagnostic.validation(
                       severity: SeverityError,
                       target: TargetServer,
                       path: op_id <> ".requestBody.multipart." <> field_name,
@@ -789,9 +756,9 @@ fn multipart_field_is_stringifiable(schema_ref: SchemaRef, ctx: Context) -> Bool
 /// Validate response schemas and content types.
 fn validate_responses(
   op_id: String,
-  responses: dict.Dict(String, spec.Response(SpecStage)),
+  responses: dict.Dict(String, spec.Response(Resolved)),
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   let entries = dict.to_list(responses)
   list.flat_map(entries, fn(entry) {
     let #(status_code, response) = entry
@@ -806,7 +773,7 @@ fn validate_responses(
       {
         True -> []
         False -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetBoth,
             path: path,
@@ -826,7 +793,7 @@ fn validate_responses(
 }
 
 /// Validate component schemas recursively.
-fn validate_component_schemas(ctx: Context) -> List(ValidationError) {
+fn validate_component_schemas(ctx: Context) -> List(Diagnostic) {
   let schemas = case ctx.spec.components {
     Some(components) -> dict.to_list(components.schemas)
     None -> []
@@ -847,13 +814,13 @@ fn validate_schema_ref_recursive(
   path: String,
   schema_ref: SchemaRef,
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case schema_ref {
     Reference(ref:, ..) ->
       // Detect external refs (not starting with #/) before resolution
       case string.starts_with(ref, "#/") {
         False -> [
-          ValidationError(
+          diagnostic.validation(
             severity: SeverityError,
             target: TargetBoth,
             path: path,
@@ -866,7 +833,7 @@ fn validate_schema_ref_recursive(
           case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
             Ok(_) -> []
             Error(_) -> [
-              ValidationError(
+              diagnostic.validation(
                 severity: SeverityError,
                 target: TargetBoth,
                 path: path,
@@ -886,26 +853,20 @@ fn validate_schema_recursive(
   path: String,
   schema_obj: SchemaObject,
   ctx: Context,
-) -> List(ValidationError) {
+) -> List(Diagnostic) {
   case schema_obj {
-    ObjectSchema(
-      properties:,
-      additional_properties:,
-      additional_properties_untyped:,
-      ..,
-    ) -> {
+    ObjectSchema(properties:, additional_properties:, ..) -> {
       // additionalProperties: true is supported via Dict(String, Dynamic)
       let ap_errors = []
-      let _ = additional_properties_untyped
       // Recurse into typed additionalProperties schema
       let typed_ap_errors = case additional_properties {
-        Some(ap_ref) ->
+        Typed(ap_ref) ->
           validate_schema_ref_recursive(
             path <> ".additionalProperties",
             ap_ref,
             ctx,
           )
-        None -> []
+        Forbidden | Untyped -> []
       }
       // Recurse into properties
       let prop_errors =
@@ -946,7 +907,7 @@ fn validate_schema_recursive(
 
 /// Validate that all security scheme references in global and operation-level
 /// security requirements point to schemes defined in components.securitySchemes.
-fn validate_security_schemes(ctx: Context) -> List(ValidationError) {
+fn validate_security_schemes(ctx: Context) -> List(Diagnostic) {
   let scheme_names = case ctx.spec.components {
     Some(components) -> dict.keys(components.security_schemes)
     None -> []
@@ -958,7 +919,7 @@ fn validate_security_schemes(ctx: Context) -> List(ValidationError) {
         case list.contains(scheme_names, scheme_ref.scheme_name) {
           True -> Error(Nil)
           False ->
-            Ok(ValidationError(
+            Ok(diagnostic.validation(
               severity: SeverityError,
               target: TargetBoth,
               path: "security." <> scheme_ref.scheme_name,
@@ -970,7 +931,7 @@ fn validate_security_schemes(ctx: Context) -> List(ValidationError) {
       })
     })
 
-  let operations = type_gen.collect_operations(ctx)
+  let operations = operations.collect_operations(ctx)
   let operation_errors =
     list.flat_map(operations, fn(op) {
       let #(op_id, operation, _path, _method) = op
@@ -981,7 +942,7 @@ fn validate_security_schemes(ctx: Context) -> List(ValidationError) {
               case list.contains(scheme_names, scheme_ref.scheme_name) {
                 True -> Error(Nil)
                 False ->
-                  Ok(ValidationError(
+                  Ok(diagnostic.validation(
                     severity: SeverityError,
                     target: TargetBoth,
                     path: op_id <> ".security." <> scheme_ref.scheme_name,
@@ -997,210 +958,4 @@ fn validate_security_schemes(ctx: Context) -> List(ValidationError) {
     })
 
   list.append(global_errors, operation_errors)
-}
-
-/// Check for AST fields that are parsed but not used by codegen, emitting
-/// warnings so users are aware their spec contains features we preserve but
-/// do not generate code for.
-fn validate_preserved_but_unused(ctx: Context) -> List(ValidationError) {
-  let webhook_warnings = case dict.is_empty(ctx.spec.webhooks) {
-    True -> []
-    False -> [
-      ValidationError(
-        severity: SeverityWarning,
-        target: TargetBoth,
-        path: "webhooks",
-        detail: "Webhooks are parsed but not used by code generation.",
-      ),
-    ]
-  }
-  let operations = type_gen.collect_operations(ctx)
-  let response_warnings =
-    list.flat_map(operations, fn(op) {
-      let #(op_id, operation, _path, _method) = op
-      let entries = dict.to_list(operation.responses)
-      list.flat_map(entries, fn(entry) {
-        let #(status_code, ref_or) = entry
-        case ref_or {
-          Value(response) -> {
-            let base_path = op_id <> ".responses." <> status_code
-            let multi_content_warnings = case
-              ctx.config.mode,
-              list.length(dict.to_list(response.content))
-            {
-              config.Client, _ -> []
-              _, n if n > 1 -> [
-                ValidationError(
-                  severity: SeverityWarning,
-                  target: TargetServer,
-                  path: base_path <> ".content",
-                  detail: "Multiple response content types are not fully supported for server code generation. Generated server responses lose the content-type header.",
-                ),
-              ]
-              _, _ -> []
-            }
-            let header_warnings = case dict.is_empty(response.headers) {
-              True -> []
-              False -> [
-                ValidationError(
-                  severity: SeverityWarning,
-                  target: TargetBoth,
-                  path: base_path <> ".headers",
-                  detail: "Response headers are parsed but not used by code generation.",
-                ),
-              ]
-            }
-            let link_warnings = case dict.is_empty(response.links) {
-              True -> []
-              False -> [
-                ValidationError(
-                  severity: SeverityWarning,
-                  target: TargetBoth,
-                  path: base_path <> ".links",
-                  detail: "Response links are parsed but not used by code generation.",
-                ),
-              ]
-            }
-            let content_entries = dict.to_list(response.content)
-            let encoding_warnings =
-              list.flat_map(content_entries, fn(ce) {
-                let #(media_type_name, media_type) = ce
-                case dict.is_empty(media_type.encoding) {
-                  True -> []
-                  False -> [
-                    ValidationError(
-                      severity: SeverityWarning,
-                      target: TargetBoth,
-                      path: base_path <> "." <> media_type_name <> ".encoding",
-                      detail: "MediaType encoding is parsed but not used by code generation.",
-                    ),
-                  ]
-                }
-              })
-            list.flatten([
-              multi_content_warnings,
-              header_warnings,
-              link_warnings,
-              encoding_warnings,
-            ])
-          }
-          _ -> []
-        }
-      })
-    })
-  // Warn about external docs
-  let external_docs_warnings = case ctx.spec.external_docs {
-    Some(_) -> [
-      ValidationError(
-        severity: SeverityWarning,
-        target: TargetBoth,
-        path: "externalDocs",
-        detail: "External docs are parsed but not used by code generation.",
-      ),
-    ]
-    None -> []
-  }
-
-  // Warn about top-level tags
-  let tag_warnings = case list.is_empty(ctx.spec.tags) {
-    True -> []
-    False -> [
-      ValidationError(
-        severity: SeverityWarning,
-        target: TargetBoth,
-        path: "tags",
-        detail: "Top-level tags are parsed but not used by code generation.",
-      ),
-    ]
-  }
-
-  // Warn about operation-level servers (client only uses top-level servers)
-  let operation_server_warnings =
-    list.flat_map(operations, fn(op) {
-      let #(op_id, operation, _path, _method) = op
-      case list.is_empty(operation.servers) {
-        True -> []
-        False -> [
-          ValidationError(
-            severity: SeverityWarning,
-            target: TargetClient,
-            path: op_id <> ".servers",
-            detail: "Operation-level servers are parsed but client code generation uses only the top-level server URL.",
-          ),
-        ]
-      }
-    })
-
-  // Warn about path-level servers
-  let path_server_warnings =
-    dict.to_list(ctx.spec.paths)
-    |> list.flat_map(fn(entry) {
-      let #(path, ref_or) = entry
-      case ref_or {
-        Value(path_item) ->
-          case list.is_empty(path_item.servers) {
-            True -> []
-            False -> [
-              ValidationError(
-                severity: SeverityWarning,
-                target: TargetClient,
-                path: "paths." <> path <> ".servers",
-                detail: "Path-level servers are parsed but client code generation uses only the top-level server URL.",
-              ),
-            ]
-          }
-        _ -> []
-      }
-    })
-
-  // Warn about component-level headers, examples, and links
-  let component_warnings = case ctx.spec.components {
-    Some(components) -> {
-      let header_w = case dict.is_empty(components.headers) {
-        True -> []
-        False -> [
-          ValidationError(
-            severity: SeverityWarning,
-            target: TargetBoth,
-            path: "components.headers",
-            detail: "Component headers are parsed but not used by code generation.",
-          ),
-        ]
-      }
-      let example_w = case dict.is_empty(components.examples) {
-        True -> []
-        False -> [
-          ValidationError(
-            severity: SeverityWarning,
-            target: TargetBoth,
-            path: "components.examples",
-            detail: "Component examples are parsed but not used by code generation.",
-          ),
-        ]
-      }
-      let link_w = case dict.is_empty(components.links) {
-        True -> []
-        False -> [
-          ValidationError(
-            severity: SeverityWarning,
-            target: TargetBoth,
-            path: "components.links",
-            detail: "Component links are parsed but not used by code generation.",
-          ),
-        ]
-      }
-      list.flatten([header_w, example_w, link_w])
-    }
-    None -> []
-  }
-
-  list.flatten([
-    webhook_warnings,
-    response_warnings,
-    external_docs_warnings,
-    tag_warnings,
-    operation_server_warnings,
-    path_server_warnings,
-    component_warnings,
-  ])
 }

@@ -5,7 +5,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  Inline, ObjectSchema, OneOfSchema, Reference,
+  Inline, ObjectSchema, OneOfSchema, Reference, Typed,
 }
 import oaspec/openapi/spec.{
   type OpenApiSpec, type PathItem, type RefOr, Components, OpenApiSpec, PathItem,
@@ -242,12 +242,12 @@ fn hoist_within_schema(
 
       // Hoist additional_properties if present
       let #(new_ap, state) = case additional_properties {
-        Some(ap_ref) -> {
+        Typed(ap_ref) -> {
           let #(hoisted, state) =
             hoist_schema_ref(ap_ref, name_prefix, "Value", state)
-          #(Some(hoisted), state)
+          #(Typed(hoisted), state)
         }
-        None -> #(None, state)
+        other -> #(other, state)
       }
 
       let result =
@@ -460,15 +460,19 @@ fn hoist_parameters(
     case ref_or_param {
       Ref(_) -> #(list.append(params_acc, [ref_or_param]), state)
       Value(param) -> {
-        case param.schema {
-          Some(schema_ref) -> {
+        case param.payload {
+          spec.ParameterSchema(schema_ref) -> {
             let suffix = "Param" <> naming.to_pascal_case(param.name)
             let #(hoisted, state) =
               hoist_schema_ref(schema_ref, op_id, suffix, state)
-            let new_param = spec.Parameter(..param, schema: Some(hoisted))
+            let new_param =
+              spec.Parameter(..param, payload: spec.ParameterSchema(hoisted))
             #(list.append(params_acc, [Value(new_param)]), state)
           }
-          None -> #(list.append(params_acc, [ref_or_param]), state)
+          spec.ParameterContent(_) -> #(
+            list.append(params_acc, [ref_or_param]),
+            state,
+          )
         }
       }
     }

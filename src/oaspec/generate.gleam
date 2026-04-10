@@ -11,32 +11,31 @@ import oaspec/codegen/validate
 import oaspec/config.{type Config, Both, Client, Server}
 import oaspec/openapi/capability_check
 import oaspec/openapi/dedup
+import oaspec/openapi/diagnostic.{type Diagnostic}
 import oaspec/openapi/hoist
 import oaspec/openapi/normalize
-import oaspec/openapi/parser
 import oaspec/openapi/resolve
-import oaspec/openapi/spec.{type OpenApiSpec, type SpecStage}
+import oaspec/openapi/spec.{type OpenApiSpec, type Unresolved}
 
 /// Result of a successful code generation run.
 pub type GenerationSummary {
   GenerationSummary(
     files: List(GeneratedFile),
     spec_title: String,
-    warnings: List(validate.ValidationError),
+    warnings: List(Diagnostic),
   )
 }
 
 /// Errors from the pure generation pipeline.
 pub type GenerateError {
-  ValidationErrors(errors: List(validate.ValidationError))
-  ResolveError(detail: String)
+  ValidationErrors(errors: List(Diagnostic))
 }
 
 /// Pure generation pipeline: parse → normalize → resolve → capability_check → hoist → dedup → validate → codegen.
 /// Takes an already-parsed spec and config; returns generated files or errors.
 /// Does not perform IO — callers handle writing files and printing output.
 pub fn generate(
-  spec: OpenApiSpec(SpecStage),
+  spec: OpenApiSpec(Unresolved),
   cfg: Config,
 ) -> Result(GenerationSummary, GenerateError) {
   let spec_title = spec.info.title <> " v" <> spec.info.version
@@ -47,9 +46,7 @@ pub fn generate(
   // Resolve component entry aliases ($ref within components)
   use spec <- result.try(
     resolve.resolve(spec)
-    |> result.map_error(fn(e) {
-      ResolveError(detail: parser.parse_error_to_string(e))
-    }),
+    |> result.map_error(fn(errors) { ValidationErrors(errors:) }),
   )
 
   // Check for unsupported features using capability registry
@@ -72,6 +69,11 @@ pub fn generate(
   // Create generation context
   let ctx = context.new(spec, cfg)
 
+  // Check for parsed-but-unused features (capability warnings)
+  let preserved_warnings =
+    capability_check.check_preserved(ctx)
+    |> diagnostic.filter_by_mode(cfg.mode)
+
   // Validate spec for unsupported features
   let validation_issues =
     validate.validate(ctx)
@@ -82,7 +84,12 @@ pub fn generate(
     False -> Error(ValidationErrors(errors: blocking_errors))
     True -> {
       let files = generate_all_files(ctx)
-      let warnings = list.append(capability_warnings, validation_warnings)
+      let warnings =
+        list.flatten([
+          capability_warnings,
+          preserved_warnings,
+          validation_warnings,
+        ])
       Ok(GenerationSummary(files:, spec_title:, warnings:))
     }
   }

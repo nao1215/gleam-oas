@@ -5,7 +5,7 @@
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/ir.{
@@ -14,12 +14,14 @@ import oaspec/codegen/ir.{
 }
 import oaspec/codegen/schema_dispatch
 import oaspec/openapi/dedup
+import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, Inline,
-  ObjectSchema, OneOfSchema, Reference, StringSchema,
+  type AdditionalProperties, type SchemaObject, type SchemaRef, AllOfSchema,
+  AnyOfSchema, Forbidden, Inline, ObjectSchema, OneOfSchema, Reference,
+  StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
 import oaspec/util/naming
 
@@ -200,14 +202,7 @@ fn schema_type_decls(
   ctx: Context,
 ) -> List(Declaration) {
   case schema {
-    ObjectSchema(
-      metadata:,
-      properties:,
-      required:,
-      additional_properties:,
-      additional_properties_untyped:,
-      ..,
-    ) -> {
+    ObjectSchema(metadata:, properties:, required:, additional_properties:, ..) -> {
       let props = dict.to_list(properties)
       let deduped_names =
         dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
@@ -235,8 +230,8 @@ fn schema_type_decls(
         })
 
       // Add additional_properties field if present
-      let fields = case additional_properties, additional_properties_untyped {
-        Some(ap_ref), _ -> {
+      let fields = case additional_properties {
+        Typed(ap_ref) -> {
           let inner_type = schema_ref_to_type(ap_ref, ctx)
           list.append(fields, [
             Field(
@@ -245,7 +240,7 @@ fn schema_type_decls(
             ),
           ])
         }
-        None, True -> {
+        Untyped -> {
           list.append(fields, [
             Field(
               name: "additional_properties",
@@ -253,7 +248,7 @@ fn schema_type_decls(
             ),
           ])
         }
-        None, False -> fields
+        Forbidden -> fields
       }
 
       [
@@ -318,7 +313,6 @@ fn schema_type_decls(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: None,
           max_properties: None,
         )
@@ -342,11 +336,11 @@ fn schema_type_decls(
 // ---------------------------------------------------------------------------
 
 fn anonymous_type_decls(ctx: Context) -> List(Declaration) {
-  let operations = collect_operations(ctx)
+  let operations = operations.collect_operations(ctx)
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, _path, _method): #(
       String,
-      spec.Operation(SpecStage),
+      spec.Operation(Resolved),
       String,
       spec.HttpMethod,
     ) = op
@@ -358,7 +352,7 @@ fn anonymous_type_decls(ctx: Context) -> List(Declaration) {
 
 fn anonymous_response_type_decls(
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> List(Declaration) {
   let responses = dict.to_list(operation.responses)
@@ -392,7 +386,7 @@ fn anonymous_response_type_decls(
 
 fn anonymous_request_body_type_decls(
   op_id: String,
-  operation: spec.Operation(SpecStage),
+  operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> List(Declaration) {
   case operation.request_body {
@@ -465,7 +459,6 @@ fn anonymous_type_for_schema(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: None,
           max_properties: None,
         )
@@ -535,8 +528,8 @@ fn schema_has_optional_fields(schema_ref: SchemaRef, ctx: Context) -> Bool {
 
 fn schema_has_additional_properties(schema_ref: SchemaRef, ctx: Context) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: Typed(_), ..)) -> True
+    Inline(ObjectSchema(additional_properties: Untyped, ..)) -> True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_additional_properties(s, ctx) })
     Reference(..) ->
@@ -554,7 +547,7 @@ fn schema_has_untyped_additional_properties(
   ctx: Context,
 ) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: Untyped, ..)) -> True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) {
         schema_has_untyped_additional_properties(s, ctx)
@@ -574,8 +567,7 @@ type MergedAllOf {
   MergedAllOf(
     properties: dict.Dict(String, SchemaRef),
     required: List(String),
-    additional_properties: Option(SchemaRef),
-    additional_properties_untyped: Bool,
+    additional_properties: AdditionalProperties,
   )
 }
 
@@ -585,8 +577,7 @@ fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
     MergedAllOf(
       properties: dict.new(),
       required: [],
-      additional_properties: None,
-      additional_properties_untyped: False,
+      additional_properties: Forbidden,
     ),
     fn(acc, s_ref, idx) {
       let resolved = case s_ref {
@@ -594,27 +585,18 @@ fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
         Reference(..) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
       }
       case resolved {
-        Ok(ObjectSchema(
-          properties:,
-          required:,
-          additional_properties:,
-          additional_properties_untyped:,
-          ..,
-        )) -> {
+        Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
           let merged_ap = case
             acc.additional_properties,
             additional_properties
           {
-            None, ap -> ap
+            Forbidden, ap -> ap
             existing, _ -> existing
           }
-          let merged_ap_untyped =
-            acc.additional_properties_untyped || additional_properties_untyped
           MergedAllOf(
             properties: dict.merge(acc.properties, properties),
             required: list.append(acc.required, required),
             additional_properties: merged_ap,
-            additional_properties_untyped: merged_ap_untyped,
           )
         }
         Ok(schema_obj) -> {
@@ -638,78 +620,6 @@ fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
   )
 }
 
-fn collect_operations(
-  ctx: Context,
-) -> List(#(String, spec.Operation(SpecStage), String, spec.HttpMethod)) {
-  let paths =
-    list.sort(dict.to_list(ctx.spec.paths), fn(a, b) {
-      string.compare(a.0, b.0)
-    })
-  list.flat_map(paths, fn(entry) {
-    let #(path, ref_or) = entry
-    case ref_or {
-      Value(path_item) -> {
-        let ops = [
-          #(path_item.get, spec.Get),
-          #(path_item.post, spec.Post),
-          #(path_item.put, spec.Put),
-          #(path_item.delete, spec.Delete),
-          #(path_item.patch, spec.Patch),
-          #(path_item.head, spec.Head),
-          #(path_item.options, spec.Options),
-          #(path_item.trace, spec.Trace),
-        ]
-        list.filter_map(ops, fn(op_entry) {
-          let #(maybe_op, method) = op_entry
-          case maybe_op {
-            Some(operation) -> {
-              let op_param_keys =
-                list.filter_map(operation.parameters, fn(ref_p) {
-                  case ref_p {
-                    Value(p) -> Ok(#(p.name, p.in_))
-                    _ -> Error(Nil)
-                  }
-                })
-              let inherited_params =
-                list.filter(path_item.parameters, fn(ref_p) {
-                  case ref_p {
-                    Value(p) -> !list.contains(op_param_keys, #(p.name, p.in_))
-                    _ -> True
-                  }
-                })
-              let merged_params =
-                list.append(inherited_params, operation.parameters)
-              let effective_security = case operation.security {
-                Some(sec) -> sec
-                None -> ctx.spec.security
-              }
-              let operation =
-                spec.Operation(
-                  ..operation,
-                  parameters: merged_params,
-                  security: Some(effective_security),
-                )
-
-              let op_id = case operation.operation_id {
-                Some(id) -> id
-                None ->
-                  spec.method_to_lower(method)
-                  <> "_"
-                  <> string.replace(path, "/", "_")
-                  |> string.replace("{", "")
-                  |> string.replace("}", "")
-              }
-              Ok(#(op_id, operation, path, method))
-            }
-            None -> Error(Nil)
-          }
-        })
-      }
-      _ -> []
-    }
-  })
-}
-
 fn filter_write_only_properties(
   schema_obj: SchemaObject,
   ctx: Context,
@@ -720,7 +630,6 @@ fn filter_write_only_properties(
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       min_properties:,
       max_properties:,
     ) -> {
@@ -740,7 +649,6 @@ fn filter_write_only_properties(
         properties: filtered_props,
         required: filtered_required,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       )
@@ -759,7 +667,6 @@ fn filter_read_only_properties(
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       min_properties:,
       max_properties:,
     ) -> {
@@ -779,7 +686,6 @@ fn filter_read_only_properties(
         properties: filtered_props,
         required: filtered_required,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       )

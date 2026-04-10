@@ -4,6 +4,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit
 import gleeunit/should
+import oaspec/capability
 import oaspec/codegen/client as client_gen
 import oaspec/codegen/context
 import oaspec/codegen/decoders
@@ -16,13 +17,17 @@ import oaspec/codegen/types
 import oaspec/codegen/validate
 import oaspec/config
 import oaspec/generate
+import oaspec/openapi/capability_check
 import oaspec/openapi/dedup
+import oaspec/openapi/diagnostic.{Diagnostic}
 import oaspec/openapi/hoist
 import oaspec/openapi/normalize
 import oaspec/openapi/parser
+import oaspec/openapi/resolve
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
 import oaspec/openapi/spec
+import oaspec/openapi/value
 import oaspec/util/content_type
 import oaspec/util/http
 import oaspec/util/naming
@@ -310,7 +315,7 @@ paths:
   let ctx = make_ctx_from_spec(spec)
   let errors =
     validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+    |> list.filter(fn(e) { e.target != diagnostic.TargetServer })
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "Array parameters") })
   |> should.be_false()
@@ -341,7 +346,7 @@ paths:
   let ctx = make_ctx_from_spec(spec)
   let errors =
     validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+    |> list.filter(fn(e) { e.target != diagnostic.TargetServer })
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "Array parameters") })
   |> should.be_false()
@@ -453,11 +458,13 @@ paths:
 "
   let result = parser.parse_string(yaml)
   should.be_error(result)
-  let assert Error(parser.InvalidValue(path: _, detail: detail)) = result
+  let assert Error(Diagnostic(code: "invalid_value", message: detail, ..)) =
+    result
   string.contains(detail, "required: true") |> should.be_true()
 }
 
 fn make_ctx_from_spec(spec) -> context.Context {
+  let assert Ok(resolved) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -466,7 +473,7 @@ fn make_ctx_from_spec(spec) -> context.Context {
       package: "api",
       mode: config.Both,
     )
-  context.new(spec, cfg)
+  context.new(resolved, cfg)
 }
 
 // --- Resolver Tests ---
@@ -508,18 +515,18 @@ pub fn parse_additional_properties_untyped_test() {
   let assert Ok(schema.Inline(schema.ObjectSchema(properties: props, ..))) =
     dict.get(components.schemas, "UntypedPayload")
   let assert Ok(schema.Inline(schema.ObjectSchema(
-    additional_properties_untyped: untyped,
+    additional_properties: schema.Untyped,
     ..,
   ))) = dict.get(props, "payload")
-  untyped |> should.be_true()
 }
 
 // --- Validation Tests ---
 
 fn make_ctx(spec_path: String) -> context.Context {
   let assert Ok(spec) = parser.parse_file(spec_path)
-  let spec = hoist.hoist(spec)
-  let spec = dedup.dedup(spec)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
   let cfg =
     config.Config(
       input: spec_path,
@@ -528,14 +535,14 @@ fn make_ctx(spec_path: String) -> context.Context {
       package: "api",
       mode: config.Both,
     )
-  context.new(spec, cfg)
+  context.new(resolved, cfg)
 }
 
 pub fn validate_accepts_deep_object_test() {
   let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
   let errors =
     validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+    |> list.filter(fn(e) { e.target != diagnostic.TargetServer })
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "deepObject") })
   |> should.be_false()
@@ -545,7 +552,7 @@ pub fn validate_accepts_complex_schema_parameter_test() {
   let ctx = make_ctx("test/fixtures/broken_openapi.yaml")
   let errors =
     validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+    |> list.filter(fn(e) { e.target != diagnostic.TargetServer })
   let error_strings = list.map(errors, validate.error_to_string)
   list.any(error_strings, fn(s) {
     string.contains(s, "Complex schema parameters")
@@ -592,7 +599,7 @@ components:
   let ctx = make_ctx_from_spec(spec)
   let errors =
     validate.validate(ctx)
-    |> list.filter(fn(e) { e.target != validate.TargetServer })
+    |> list.filter(fn(e) { e.target != diagnostic.TargetServer })
   errors |> should.equal([])
 }
 
@@ -601,7 +608,7 @@ pub fn validate_accepts_multipart_form_data_test() {
   let errors = validate.validate(ctx)
   // Filter out server-targeted errors; multipart is valid for client codegen
   let client_errors =
-    list.filter(errors, fn(e) { e.target != validate.TargetServer })
+    list.filter(errors, fn(e) { e.target != diagnostic.TargetServer })
   let error_strings = list.map(client_errors, validate.error_to_string)
   list.any(error_strings, fn(s) { string.contains(s, "multipart/form-data") })
   |> should.be_false()
@@ -685,13 +692,12 @@ pub fn validate_missing_responses_rejects_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_missing =
         list.any(error_details, fn(d) { string.contains(d, "no responses") })
       should.be_true(has_missing)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -699,8 +705,11 @@ pub fn validate_missing_responses_rejects_test() {
 pub fn parse_invalid_param_location_fails_test() {
   let result = parser.parse_file("test/fixtures/invalid_param_location.yaml")
   should.be_error(result)
-  let assert Error(parser.InvalidValue(path: "parameter.in", detail: _)) =
-    result
+  let assert Error(Diagnostic(
+    code: "invalid_value",
+    pointer: "parameter.in",
+    ..,
+  )) = result
 }
 
 pub fn parse_missing_openapi_field_fails_test() {
@@ -713,7 +722,12 @@ paths: {}
 "
   let result = parser.parse_string(yaml)
   should.be_error(result)
-  let assert Error(parser.MissingField(path: "", field: "openapi")) = result
+  let assert Error(Diagnostic(
+    code: "missing_field",
+    pointer: "",
+    message: "Missing required field: openapi",
+    ..,
+  )) = result
 }
 
 pub fn parse_missing_info_fails_test() {
@@ -724,7 +738,12 @@ paths: {}
 "
   let result = parser.parse_string(yaml)
   should.be_error(result)
-  let assert Error(parser.MissingField(path: "", field: "info")) = result
+  let assert Error(Diagnostic(
+    code: "missing_field",
+    pointer: "",
+    message: "Missing required field: info",
+    ..,
+  )) = result
 }
 
 pub fn parse_missing_info_title_fails_test() {
@@ -737,7 +756,12 @@ paths: {}
 "
   let result = parser.parse_string(yaml)
   should.be_error(result)
-  let assert Error(parser.MissingField(path: "info", field: "title")) = result
+  let assert Error(Diagnostic(
+    code: "missing_field",
+    pointer: "info",
+    message: "Missing required field: title",
+    ..,
+  )) = result
 }
 
 pub fn validate_deep_inline_oneof_in_request_body_accepted_test() {
@@ -1713,6 +1737,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -1762,6 +1787,7 @@ components:
       type: integer
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -1808,6 +1834,7 @@ components:
         type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -3003,6 +3030,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3044,6 +3072,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3084,6 +3113,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3126,6 +3156,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3166,6 +3197,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3208,6 +3240,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3324,6 +3357,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3369,6 +3403,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3411,6 +3446,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3425,7 +3461,7 @@ paths:
       ),
     )
   let errors = validate.validate(ctx)
-  let assert [validate.ValidationError(detail: msg, ..)] = errors
+  let assert [Diagnostic(message: msg, ..)] = errors
   // Error message must mention form-urlencoded as a supported type
   string.contains(msg, "form-urlencoded")
   |> should.be_true()
@@ -3453,6 +3489,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3467,7 +3504,7 @@ paths:
       ),
     )
   let errors = validate.validate(ctx)
-  let assert [validate.ValidationError(detail: msg, ..)] = errors
+  let assert [Diagnostic(message: msg, ..)] = errors
   // Error message must mention XML as a supported type
   string.contains(msg, "xml")
   |> should.be_true()
@@ -3497,6 +3534,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3541,6 +3579,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -3887,6 +3926,7 @@ components:
       scheme: basic
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4043,6 +4083,7 @@ components:
             write:pets: Write pets
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4090,6 +4131,7 @@ paths:
           description: ok
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4135,6 +4177,7 @@ paths:
           description: ok
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let spec = hoist.hoist(spec)
   let spec = dedup.dedup(spec)
   let ctx =
@@ -4742,6 +4785,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4804,6 +4848,7 @@ components:
       items: { type: string }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4861,6 +4906,7 @@ components:
       items: { type: string }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -4929,12 +4975,13 @@ webhooks:
   // Generation must succeed even with warnings
   let result = generate.generate(spec, cfg)
   should.be_ok(result)
-  // But validation issues should include warnings
-  let spec = hoist.hoist(spec)
-  let spec = dedup.dedup(spec)
-  let ctx = context.new(spec, cfg)
-  let issues = validate.validate(ctx)
-  let warnings = validate.warnings_only(issues)
+  // But capability issues should include warnings
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let ctx = context.new(resolved, cfg)
+  let issues = capability_check.check_preserved(ctx)
+  let warnings = diagnostic.warnings_only(issues)
   { warnings != [] }
   |> should.be_true()
 }
@@ -5308,6 +5355,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -5349,6 +5397,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -5386,6 +5435,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let ctx =
     context.new(
       spec,
@@ -5648,9 +5698,9 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
+      e.target == diagnostic.TargetServer
       && string.contains(
-        e.detail,
+        e.message,
         "multipart/form-data server request bodies only support",
       )
     })
@@ -5694,9 +5744,9 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
+      e.target == diagnostic.TargetServer
       && string.contains(
-        e.detail,
+        e.message,
         "application/x-www-form-urlencoded server request bodies only support",
       )
     })
@@ -5733,8 +5783,8 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "not supported for server")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "not supported for server")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -5902,8 +5952,8 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "Query array parameters are only supported")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "Query array parameters are only supported")
     })
   list.length(server_errors)
   |> should.equal(1)
@@ -5914,8 +5964,8 @@ pub fn validate_accepts_deep_object_params_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "deepObject")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "deepObject")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -5949,8 +5999,8 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "Complex path parameters are not supported")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "Complex path parameters are not supported")
     })
   list.length(server_errors)
   |> should.equal(1)
@@ -5991,17 +6041,17 @@ paths:
 
 pub fn filter_by_mode_drops_server_errors_for_client_test() {
   let issues = [
-    validate.ValidationError(
+    diagnostic.validation(
       path: "x",
       detail: "server-only",
-      severity: validate.SeverityError,
-      target: validate.TargetServer,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetServer,
     ),
-    validate.ValidationError(
+    diagnostic.validation(
       path: "y",
       detail: "shared",
-      severity: validate.SeverityError,
-      target: validate.TargetBoth,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetBoth,
     ),
   ]
   let filtered = validate.filter_by_mode(issues, config.Client)
@@ -6011,17 +6061,17 @@ pub fn filter_by_mode_drops_server_errors_for_client_test() {
 
 pub fn filter_by_mode_drops_client_errors_for_server_test() {
   let issues = [
-    validate.ValidationError(
+    diagnostic.validation(
       path: "x",
       detail: "client-only",
-      severity: validate.SeverityError,
-      target: validate.TargetClient,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetClient,
     ),
-    validate.ValidationError(
+    diagnostic.validation(
       path: "y",
       detail: "shared",
-      severity: validate.SeverityError,
-      target: validate.TargetBoth,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetBoth,
     ),
   ]
   let filtered = validate.filter_by_mode(issues, config.Server)
@@ -6031,23 +6081,23 @@ pub fn filter_by_mode_drops_client_errors_for_server_test() {
 
 pub fn filter_by_mode_keeps_all_errors_for_both_test() {
   let issues = [
-    validate.ValidationError(
+    diagnostic.validation(
       path: "x",
       detail: "client-only",
-      severity: validate.SeverityError,
-      target: validate.TargetClient,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetClient,
     ),
-    validate.ValidationError(
+    diagnostic.validation(
       path: "y",
       detail: "server-only",
-      severity: validate.SeverityError,
-      target: validate.TargetServer,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetServer,
     ),
-    validate.ValidationError(
+    diagnostic.validation(
       path: "z",
       detail: "shared",
-      severity: validate.SeverityError,
-      target: validate.TargetBoth,
+      severity: diagnostic.SeverityError,
+      target: diagnostic.TargetBoth,
     ),
   ]
   let filtered = validate.filter_by_mode(issues, config.Both)
@@ -6106,12 +6156,12 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let ctx = make_ctx_from_spec(spec)
-  let issues = validate.validate(ctx)
+  let issues = capability_check.check_preserved(ctx)
   let warnings =
     list.filter(issues, fn(issue) {
-      issue.severity == validate.SeverityWarning
-      && issue.target == validate.TargetServer
-      && string.contains(issue.detail, "Multiple response content types")
+      issue.severity == diagnostic.SeverityWarning
+      && issue.target == diagnostic.TargetServer
+      && string.contains(issue.message, "Multiple response content types")
     })
   list.length(warnings)
   |> should.equal(1)
@@ -6153,8 +6203,8 @@ pub fn validate_accepts_cookie_params_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "Cookie parameters")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "Cookie parameters")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6276,8 +6326,8 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "Array parameters")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "Array parameters")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6372,8 +6422,8 @@ paths:
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "Array parameters")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "Array parameters")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6491,8 +6541,8 @@ pub fn validate_accepts_form_urlencoded_body_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "application/x-www-form-urlencoded")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "application/x-www-form-urlencoded")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6550,8 +6600,8 @@ pub fn validate_accepts_nested_form_urlencoded_body_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "application/x-www-form-urlencoded")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "application/x-www-form-urlencoded")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6588,8 +6638,8 @@ pub fn validate_accepts_multipart_body_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "multipart/form-data")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "multipart/form-data")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6648,8 +6698,8 @@ pub fn validate_accepts_form_urlencoded_ref_fields_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "application/x-www-form-urlencoded")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "application/x-www-form-urlencoded")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6696,8 +6746,8 @@ pub fn validate_accepts_multipart_ref_fields_for_server_codegen_test() {
   let errors = validate.validate(ctx)
   let server_errors =
     list.filter(errors, fn(e) {
-      e.target == validate.TargetServer
-      && string.contains(e.detail, "multipart/form-data")
+      e.target == diagnostic.TargetServer
+      && string.contains(e.message, "multipart/form-data")
     })
   list.length(server_errors)
   |> should.equal(0)
@@ -6957,6 +7007,7 @@ paths:
                 type: string
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7051,6 +7102,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7063,8 +7115,8 @@ paths:
   let errors = validate.validate(ctx)
   let multipart_errors =
     list.filter(errors, fn(e) {
-      string.contains(e.detail, "multipart")
-      && e.target == validate.TargetServer
+      string.contains(e.message, "multipart")
+      && e.target == diagnostic.TargetServer
     })
   list.length(multipart_errors)
   |> should.equal(0)
@@ -7103,6 +7155,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7158,6 +7211,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7170,8 +7224,8 @@ paths:
   let errors = validate.validate(ctx)
   let form_errors =
     list.filter(errors, fn(e) {
-      string.contains(e.detail, "form-urlencoded")
-      && e.target == validate.TargetServer
+      string.contains(e.message, "form-urlencoded")
+      && e.target == diagnostic.TargetServer
     })
   list.length(form_errors)
   |> should.equal(0)
@@ -7208,6 +7262,7 @@ paths:
         '200': { description: ok }
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7258,6 +7313,7 @@ components:
       enum: [active, inactive]
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7269,7 +7325,7 @@ components:
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
   let deep_object_errors =
-    list.filter(errors, fn(e) { string.contains(e.detail, "deepObject") })
+    list.filter(errors, fn(e) { string.contains(e.message, "deepObject") })
   // Should have NO deepObject errors for referenced enum leaf
   list.length(deep_object_errors)
   |> should.equal(0)
@@ -7312,6 +7368,7 @@ components:
       minimum: 1
 "
   let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
     config.Config(
       input: "test.yaml",
@@ -7323,7 +7380,7 @@ components:
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
   let deep_object_errors =
-    list.filter(errors, fn(e) { string.contains(e.detail, "deepObject") })
+    list.filter(errors, fn(e) { string.contains(e.message, "deepObject") })
   list.length(deep_object_errors)
   |> should.equal(0)
 }
@@ -7448,7 +7505,7 @@ pub fn oss_libopenapi_all_components_validates_security_test() {
   let blocking = validate.errors_only(errors)
   let has_security_error =
     list.any(blocking, fn(e) {
-      string.contains(validate.error_to_string(e), "api_key")
+      string.contains(diagnostic.to_string(e), "api_key")
     })
   should.be_true(has_security_error)
 }
@@ -7463,12 +7520,11 @@ pub fn oss_libopenapi_burgershop_rejects_not_keyword_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
       should.be_true(has_not)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -7531,7 +7587,6 @@ pub fn oss_oapi_codegen_nullable_generates_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7561,7 +7616,6 @@ pub fn oss_oapi_codegen_allof_additional_generates_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7613,7 +7667,6 @@ pub fn oss_oapi_codegen_issue_312_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7644,7 +7697,6 @@ pub fn oss_oapi_codegen_issue_52_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7668,7 +7720,6 @@ pub fn oss_oapi_codegen_issue_1168_rejects_problem_json_test() {
       list.length(errors) |> should.not_equal(0)
     // If codegen succeeds with warnings, that's also acceptable
     Ok(summary) -> list.length(summary.warnings) |> should.not_equal(0)
-    _ -> should.be_true(True)
   }
 }
 
@@ -7698,7 +7749,6 @@ pub fn oss_oapi_codegen_issue_579_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7720,7 +7770,6 @@ pub fn oss_oapi_codegen_issue_2185_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7752,7 +7801,6 @@ pub fn oss_openapi_gen_issue_9719_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7803,7 +7851,6 @@ pub fn oss_openapi_gen_petstore_server_generates_client_test() {
     Error(generate.ValidationErrors(errors)) ->
       list.length(errors) |> should.not_equal(0)
     Ok(summary) -> list.length(summary.warnings) |> should.not_equal(0)
-    _ -> should.be_true(True)
   }
 }
 
@@ -7826,7 +7873,6 @@ pub fn oss_kiota_discriminator_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7847,7 +7893,6 @@ pub fn oss_kiota_derived_types_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7869,7 +7914,6 @@ pub fn oss_kiota_multi_security_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8022,7 +8066,6 @@ pub fn oss_openapi_gen_issue_11897_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8049,7 +8092,6 @@ pub fn oss_openapi_gen_issue_1666_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8076,7 +8118,6 @@ pub fn oss_openapi_gen_issue_18516_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8178,12 +8219,27 @@ pub fn oss_kin_openapi_minimal_json_parses_test() {
 /// not part of the OpenAPI 3.x specification. The parser rejects it with a
 /// clear error message guiding the user to fix the security scheme type.
 pub fn oss_kin_openapi_components_json_rejects_invalid_scheme_test() {
-  let result =
+  // Parser preserves unsupported scheme types losslessly;
+  // capability_check rejects them during generate.
+  let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_kin_openapi_components.json")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "cookie"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details = list.map(errors, fn(e) { e.message })
+      let has_cookie =
+        list.any(error_details, fn(d) { string.contains(d, "cookie") })
+      should.be_true(has_cookie)
+    }
+    Ok(_) -> should.fail()
   }
 }
 
@@ -8221,7 +8277,11 @@ pub fn oss_spec_validator_missing_description_rejects_test() {
       "test/fixtures/oss_spec_validator_missing_description.yaml",
     )
   case result {
-    Error(parser.MissingField(_, "description")) -> should.be_true(True)
+    Error(Diagnostic(
+      code: "missing_field",
+      message: "Missing required field: description",
+      ..,
+    )) -> should.be_true(True)
     Error(e) -> {
       let msg = parser.parse_error_to_string(e)
       should.be_true(string.contains(msg, "description"))
@@ -8506,7 +8566,11 @@ pub fn oss_openapi_gen_missing_info_rejects_test() {
   let result =
     parser.parse_file("test/fixtures/oss_openapi_gen_missing_info.yaml")
   case result {
-    Error(parser.MissingField(_, "info")) -> should.be_true(True)
+    Error(Diagnostic(
+      code: "missing_field",
+      message: "Missing required field: info",
+      ..,
+    )) -> should.be_true(True)
     Error(e) -> {
       let msg = parser.parse_error_to_string(e)
       should.be_true(string.contains(msg, "info"))
@@ -8521,7 +8585,7 @@ pub fn oss_openapi_gen_missing_info_attr_rejects_test() {
   let result =
     parser.parse_file("test/fixtures/oss_openapi_gen_missing_info_attr.yaml")
   case result {
-    Error(parser.MissingField(_, _)) -> should.be_true(True)
+    Error(Diagnostic(code: "missing_field", ..)) -> should.be_true(True)
     _ -> should.fail()
   }
 }
@@ -8544,7 +8608,11 @@ pub fn oss_spec_validator_bench_petstore_parses_test() {
 pub fn oss_spec_validator_empty_v30_rejects_test() {
   let result = parser.parse_file("test/fixtures/oss_spec_validator_empty.yaml")
   case result {
-    Error(parser.MissingField(_, "info")) -> should.be_true(True)
+    Error(Diagnostic(
+      code: "missing_field",
+      message: "Missing required field: info",
+      ..,
+    )) -> should.be_true(True)
     Error(e) -> {
       let msg = parser.parse_error_to_string(e)
       should.be_true(string.contains(msg, "info"))
@@ -8672,15 +8740,28 @@ pub fn oss_swagger_parser_java_31_basic_rejects_multi_type_test() {
   should.be_true(True)
 }
 
-/// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type
-/// which is a 3.1-only addition. The parser rejects it with a clear error.
+/// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type.
+/// Parser preserves it losslessly; generate fails via capability_check.
 pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
-  let result =
+  let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_swagger_parser_java_31_security.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "mutualTLS"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details = list.map(errors, fn(e) { e.message })
+      let has_mutual =
+        list.any(error_details, fn(d) { string.contains(d, "mutualTLS") })
+      should.be_true(has_mutual)
+    }
+    Ok(_) -> should.fail()
   }
 }
 
@@ -8697,13 +8778,12 @@ pub fn oss_swagger_parser_java_31_schema_siblings_rejects_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_dependent =
         list.any(error_details, fn(d) { string.contains(d, "dependentSchemas") })
       should.be_true(has_dependent)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8756,12 +8836,11 @@ pub fn unsupported_if_then_else_capability_check_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_if = list.any(error_details, fn(d) { string.contains(d, "if") })
       should.be_true(has_if)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8775,13 +8854,12 @@ pub fn unsupported_prefix_items_capability_check_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_prefix =
         list.any(error_details, fn(d) { string.contains(d, "prefixItems") })
       should.be_true(has_prefix)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8794,12 +8872,11 @@ pub fn unsupported_not_capability_check_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
       should.be_true(has_not)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8812,13 +8889,12 @@ pub fn unsupported_defs_capability_check_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_defs =
         list.any(error_details, fn(d) { string.contains(d, "$defs") })
       should.be_true(has_defs)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8851,15 +8927,14 @@ pub fn validate_invalid_security_ref_rejects_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let error_details =
-        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let error_details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       let has_security =
         list.any(error_details, fn(d) {
           string.contains(d, "nonexistent_scheme")
         })
       should.be_true(has_security)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8883,7 +8958,7 @@ pub fn wrong_kind_ref_rejects_test() {
 pub fn unknown_param_style_rejects_test() {
   let result = parser.parse_file("test/fixtures/unknown_param_style.yaml")
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
+    Error(Diagnostic(code: "invalid_value", message: detail, ..)) ->
       should.be_true(string.contains(detail, "unknownStyle"))
     _ -> should.fail()
   }
@@ -8900,7 +8975,7 @@ pub fn normalize_const_to_enum_test() {
   let assert Some(components) = spec.components
   let assert Ok(schema.Inline(schema.StringSchema(metadata: meta, ..))) =
     dict.get(components.schemas, "Status")
-  meta.const_value |> should.equal(Some("active"))
+  meta.const_value |> should.equal(Some(value.JsonString("active")))
 
   // After normalize: const_value cleared, enum_values set
   let normalized = normalize.normalize(spec)
@@ -8912,6 +8987,33 @@ pub fn normalize_const_to_enum_test() {
   ))) = dict.get(norm_components.schemas, "Status")
   norm_meta.const_value |> should.equal(None)
   enums |> should.equal(["active"])
+}
+
+/// Non-string const values are preserved, not converted to StringSchema.
+pub fn normalize_preserves_non_string_const_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/normalize_const_types.yaml")
+  let normalized = normalize.normalize(spec)
+  let assert Some(components) = normalized.components
+
+  // String const: normalized to enum
+  let assert Ok(schema.Inline(schema.StringSchema(
+    metadata: str_meta,
+    enum_values: str_enums,
+    ..,
+  ))) = dict.get(components.schemas, "StringConst")
+  str_meta.const_value |> should.equal(None)
+  str_enums |> should.equal(["active"])
+
+  // Bool const: preserved as BooleanSchema with const_value
+  let assert Ok(schema.Inline(schema.BooleanSchema(metadata: bool_meta))) =
+    dict.get(components.schemas, "BoolConst")
+  bool_meta.const_value |> should.equal(Some(value.JsonBool(True)))
+
+  // Int const: preserved as IntegerSchema with const_value
+  let assert Ok(schema.Inline(schema.IntegerSchema(metadata: int_meta, ..))) =
+    dict.get(components.schemas, "IntConst")
+  int_meta.const_value |> should.equal(Some(value.JsonInt(42)))
 }
 
 /// type: [string, integer] is normalized to oneOf by normalize pass.
@@ -8969,10 +9071,9 @@ pub fn resolve_component_alias_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       // May have warnings but should not have blocking errors about aliases
       let blocking =
-        list.filter(errors, fn(e) { e.severity == validate.SeverityError })
+        list.filter(errors, fn(e) { e.severity == diagnostic.SeverityError })
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8991,11 +9092,30 @@ pub fn capability_check_uses_registry_test() {
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
     Error(generate.ValidationErrors(errors:)) -> {
-      let details = list.map(errors, fn(e) { validate.error_to_string(e) })
+      let details = list.map(errors, fn(e) { diagnostic.to_string(e) })
       should.be_true(list.any(details, fn(d) { string.contains(d, "if") }))
     }
     _ -> should.fail()
   }
+}
+
+// ---------------------------------------------------------------------------
+// README boundaries generated from registry
+// ---------------------------------------------------------------------------
+
+/// README Current Boundaries section mentions all Unsupported capabilities.
+pub fn readme_boundaries_match_registry_test() {
+  let assert Ok(readme) = simplifile.read("README.md")
+  // Every Unsupported capability name must appear in the README
+  let unsupported = capability.by_level(capability.Unsupported)
+  list.each(unsupported, fn(c) {
+    should.be_true(string.contains(readme, c.name))
+  })
+  // Every NotHandled capability name must appear in the README
+  let not_handled = capability.by_level(capability.NotHandled)
+  list.each(not_handled, fn(c) {
+    should.be_true(string.contains(readme, c.name))
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -9004,15 +9124,16 @@ pub fn capability_check_uses_registry_test() {
 
 /// YAML syntax error includes line/column in error message.
 pub fn yaml_error_has_source_location_test() {
-  // Test that SourceLoc type exists and parse_error_to_string formats it
-  let loc = parser.SourceLoc(line: 5, column: 10)
-  let err = parser.YamlError(detail: "test error", loc: loc)
-  let msg = parser.parse_error_to_string(err)
+  // Test that SourceLoc type exists and to_short_string formats it
+  let loc = diagnostic.SourceLoc(line: 5, column: 10)
+  let err = diagnostic.yaml_error(detail: "test error", loc: loc)
+  let msg = diagnostic.to_short_string(err)
   should.be_true(string.contains(msg, "line 5"))
   should.be_true(string.contains(msg, "column 10"))
   // NoSourceLoc case
-  let err2 = parser.YamlError(detail: "test error", loc: parser.NoSourceLoc)
-  let msg2 = parser.parse_error_to_string(err2)
+  let err2 =
+    diagnostic.yaml_error(detail: "test error", loc: diagnostic.NoSourceLoc)
+  let msg2 = diagnostic.to_short_string(err2)
   should.equal(msg2, "test error")
 }
 
@@ -9032,6 +9153,5 @@ pub fn pipeline_end_to_end_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }

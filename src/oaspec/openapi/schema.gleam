@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
+import oaspec/openapi/value.{type JsonValue}
 
 /// Shared metadata for all schema types.
 /// Extracted from variants to avoid duplication and ensure composition
@@ -14,9 +15,9 @@ pub type SchemaMetadata {
     title: Option(String),
     read_only: Bool,
     write_only: Bool,
-    default: Option(String),
-    example: Option(String),
-    const_value: Option(String),
+    default: Option(JsonValue),
+    example: Option(JsonValue),
+    const_value: Option(JsonValue),
     raw_type: Option(List(String)),
     unsupported_keywords: List(String),
   )
@@ -37,6 +38,16 @@ pub fn default_metadata() -> SchemaMetadata {
     raw_type: option.None,
     unsupported_keywords: [],
   )
+}
+
+/// How additionalProperties is modeled in the AST.
+pub type AdditionalProperties {
+  /// additionalProperties: false (or absent with no schema)
+  Forbidden
+  /// additionalProperties: true (accept any JSON value)
+  Untyped
+  /// additionalProperties: { schema }
+  Typed(SchemaRef)
 }
 
 /// Represents a JSON Schema object within OpenAPI 3.x.
@@ -81,8 +92,7 @@ pub type SchemaObject {
     metadata: SchemaMetadata,
     properties: Dict(String, SchemaRef),
     required: List(String),
-    additional_properties: Option(SchemaRef),
-    additional_properties_untyped: Bool,
+    additional_properties: AdditionalProperties,
     min_properties: Option(Int),
     max_properties: Option(Int),
   )
