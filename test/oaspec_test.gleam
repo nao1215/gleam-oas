@@ -670,12 +670,28 @@ pub fn validate_broken_spec_accepts_untyped_additional_properties_test() {
 // --- Parser: fail-fast tests ---
 
 pub fn parse_missing_responses_succeeds_with_empty_dict_test() {
-  // Missing responses field is now parsed as empty dict (not a parse error).
+  // Missing responses field is parsed as empty dict (not a parse error).
   // Validation catches missing responses separately.
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/missing_responses.yaml")
   let paths = dict.to_list(spec.paths)
   list.length(paths) |> should.not_equal(0)
+}
+
+pub fn validate_missing_responses_rejects_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/missing_responses.yaml")
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_missing =
+        list.any(error_details, fn(d) { string.contains(d, "no responses") })
+      should.be_true(has_missing)
+    }
+    Ok(_) -> should.fail()
+  }
 }
 
 pub fn parse_invalid_param_location_fails_test() {

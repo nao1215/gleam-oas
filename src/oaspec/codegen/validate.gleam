@@ -91,7 +91,24 @@ fn validate_operations(ctx: Context) -> List(ValidationError) {
     let param_errors = validate_parameters(op_id, operation.parameters, ctx)
     let body_errors = validate_request_body(op_id, operation.request_body, ctx)
     let response_errors = validate_responses(op_id, operation.responses, ctx)
-    list.flatten([path_errors, param_errors, body_errors, response_errors])
+    let missing_responses_errors = case dict.is_empty(operation.responses) {
+      True -> [
+        ValidationError(
+          severity: SeverityError,
+          target: TargetBoth,
+          path: op_id,
+          detail: "Operation has no responses defined. OpenAPI 3.x requires at least one response.",
+        ),
+      ]
+      False -> []
+    }
+    list.flatten([
+      path_errors,
+      param_errors,
+      body_errors,
+      response_errors,
+      missing_responses_errors,
+    ])
   })
 }
 
