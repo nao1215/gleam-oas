@@ -107,14 +107,17 @@ fn check_security_schemes(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
     Some(components) ->
       dict.to_list(components.security_schemes)
       |> list.filter_map(fn(entry) {
-        let #(_name, ref_or) = entry
+        let #(name, ref_or) = entry
         case ref_or {
-          Value(_scheme) -> {
-            // mutualTLS would have been rejected at parse time since
-            // parse_security_scheme doesn't recognize it. Nothing to
-            // check here for now.
-            Error(Nil)
-          }
+          Value(spec.UnsupportedScheme(scheme_type:)) ->
+            Ok(diagnostic.capability(
+              severity: SeverityError,
+              target: TargetBoth,
+              path: "components.securitySchemes." <> name,
+              detail: "Unsupported security scheme type: '"
+                <> scheme_type
+                <> "'. Supported types: apiKey, http, oauth2, openIdConnect.",
+            ))
           _ -> Error(Nil)
         }
       })

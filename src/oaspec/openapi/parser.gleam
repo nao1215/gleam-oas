@@ -1523,10 +1523,9 @@ fn parse_security_scheme(
       Ok(spec.OpenIdConnectScheme(open_id_connect_url:, description:))
     }
     _ ->
-      Error(diagnostic.invalid_value(
-        path: "securityScheme.type",
-        detail: "Unsupported security scheme type: " <> type_str,
-      ))
+      // Preserve unsupported scheme types losslessly;
+      // capability_check will reject them.
+      Ok(spec.UnsupportedScheme(scheme_type: type_str))
   }
 }
 

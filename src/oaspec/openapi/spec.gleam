@@ -161,6 +161,9 @@ pub type SecurityScheme {
   HttpScheme(scheme: String, bearer_format: Option(String))
   OAuth2Scheme(description: Option(String), flows: Dict(String, OAuth2Flow))
   OpenIdConnectScheme(open_id_connect_url: String, description: Option(String))
+  /// Parsed but unsupported scheme type (e.g. mutualTLS).
+  /// Preserved losslessly; capability_check will reject it.
+  UnsupportedScheme(scheme_type: String)
 }
 
 /// An OAuth2 flow definition.

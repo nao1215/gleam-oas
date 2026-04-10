@@ -8218,12 +8218,27 @@ pub fn oss_kin_openapi_minimal_json_parses_test() {
 /// not part of the OpenAPI 3.x specification. The parser rejects it with a
 /// clear error message guiding the user to fix the security scheme type.
 pub fn oss_kin_openapi_components_json_rejects_invalid_scheme_test() {
-  let result =
+  // Parser preserves unsupported scheme types losslessly;
+  // capability_check rejects them during generate.
+  let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_kin_openapi_components.json")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
   case result {
-    Error(Diagnostic(code: "invalid_value", message: detail, ..)) ->
-      should.be_true(string.contains(detail, "cookie"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details = list.map(errors, fn(e) { e.message })
+      let has_cookie =
+        list.any(error_details, fn(d) { string.contains(d, "cookie") })
+      should.be_true(has_cookie)
+    }
+    Ok(_) -> should.fail()
   }
 }
 
@@ -8724,15 +8739,28 @@ pub fn oss_swagger_parser_java_31_basic_rejects_multi_type_test() {
   should.be_true(True)
 }
 
-/// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type
-/// which is a 3.1-only addition. The parser rejects it with a clear error.
+/// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type.
+/// Parser preserves it losslessly; generate fails via capability_check.
 pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
-  let result =
+  let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_swagger_parser_java_31_security.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
   case result {
-    Error(Diagnostic(code: "invalid_value", message: detail, ..)) ->
-      should.be_true(string.contains(detail, "mutualTLS"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details = list.map(errors, fn(e) { e.message })
+      let has_mutual =
+        list.any(error_details, fn(d) { string.contains(d, "mutualTLS") })
+      should.be_true(has_mutual)
+    }
+    Ok(_) -> should.fail()
   }
 }
 
