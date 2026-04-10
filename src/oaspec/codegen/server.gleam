@@ -106,8 +106,7 @@ fn generate_handler(
   }
 
   sb
-  |> se.indent(1, "// TODO: Implement " <> fn_name)
-  |> se.indent(1, "todo")
+  |> se.indent(1, "panic as \"unimplemented: " <> fn_name <> "\"")
   |> se.line("}")
   |> se.blank_line()
 }
@@ -136,8 +135,7 @@ fn generate_callback_handlers(
       )
       |> se.doc_comment("URL: " <> url_expression)
       |> se.line("pub fn " <> fn_name <> "() -> String {")
-      |> se.indent(1, "// TODO: Implement callback " <> callback_name)
-      |> se.indent(1, "todo")
+      |> se.indent(1, "panic as \"unimplemented: " <> fn_name <> "\"")
       |> se.line("}")
       |> se.blank_line()
     })

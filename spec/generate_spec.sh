@@ -212,13 +212,12 @@ Describe 'oaspec generate'
 
     # --- Server handlers ---
 
-    It 'generates handler stubs with TODO markers'
+    It 'generates handler stubs with panic placeholders'
       The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'pub fn list_pets'
       The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'pub fn create_pet'
       The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'pub fn get_pet'
       The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'pub fn delete_pet'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include '// TODO: Implement'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'todo'
+      The contents of file "$TEST_OUTPUT_DIR/api/handlers.gleam" should include 'panic as "unimplemented:'
     End
 
     It 'handler signatures reference request and response types'
