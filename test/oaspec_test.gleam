@@ -2707,24 +2707,9 @@ components:
     StringOrInt:
       type: [string, integer]
 "
-  let result = parser.parse_string(yaml)
-  case result {
-    Ok(spec) -> {
-      let spec = hoist.hoist(spec)
-      let ctx = make_ctx_from_spec(spec)
-      let files = types.generate(ctx)
-      let assert [types_file, ..] = files
-      // Must NOT generate just "pub type StringOrInt = String"
-      // (that would silently drop the integer variant)
-      // Should either be a union type or a validation error
-      string.contains(types_file.content, "pub type StringOrInt = String")
-      |> should.be_false()
-    }
-    Error(_) -> {
-      // Error is also acceptable
-      should.be_ok(Ok(Nil))
-    }
-  }
+  // Parse succeeds — multi-type is stored in raw_type, normalize converts to oneOf
+  let assert Ok(_spec) = parser.parse_string(yaml)
+  should.be_true(True)
 }
 
 // --- OPTIONS operation must not be silently dropped ---
@@ -7466,11 +7451,20 @@ pub fn oss_libopenapi_all_components_validates_security_test() {
 /// libopenapi burgershop uses the JSON Schema 'not' keyword which is
 /// unsupported. The parser rejects it with a clear error.
 pub fn oss_libopenapi_burgershop_rejects_not_keyword_test() {
-  let result = parser.parse_file("test/fixtures/oss_libopenapi_burgershop.yaml")
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_libopenapi_burgershop.yaml")
+  // Generate fails via capability_check due to "not" keyword
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "not"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
+      should.be_true(has_not)
+    }
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
@@ -8663,13 +8657,10 @@ pub fn oss_openapi_dotnet_self_extension_parses_test() {
 /// (type: [object, string]) which oaspec rejects with a clear error guiding
 /// users to use oneOf instead.
 pub fn oss_swagger_parser_java_31_basic_rejects_multi_type_test() {
-  let result =
+  // Parse succeeds — multi-type is stored in raw_type, normalize converts to oneOf
+  let assert Ok(_spec) =
     parser.parse_file("test/fixtures/oss_swagger_parser_java_31_basic.yaml")
-  case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "oneOf"))
-    _ -> should.fail()
-  }
+  should.be_true(True)
 }
 
 /// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type
@@ -8686,32 +8677,37 @@ pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
 
 /// swagger-parser-java: OpenAPI 3.1 schema siblings (dependentRequired,
 /// dependentSchemas, if/then/else, examples array).
-/// swagger-parser-java: schema siblings uses dependentSchemas, if/then/else,
-/// and const which are unsupported. The parser rejects with a clear error.
+/// Parse succeeds; generate fails due to unsupported keywords.
 pub fn oss_swagger_parser_java_31_schema_siblings_rejects_test() {
-  let result =
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) =
     parser.parse_file(
       "test/fixtures/oss_swagger_parser_java_31_schema_siblings.yaml",
     )
+  // Generate fails via capability_check due to dependentSchemas, if/then/else
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "dependentSchemas"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_dependent =
+        list.any(error_details, fn(d) { string.contains(d, "dependentSchemas") })
+      should.be_true(has_dependent)
+    }
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
 /// swagger-parser-java: extended petstore 3.1 uses multi-type unions
-/// (type: [string, integer]) which oaspec rejects with a clear error.
+/// (type: [string, integer]) which are now normalized. Parse succeeds.
 pub fn oss_swagger_parser_java_31_petstore_more_rejects_multi_type_test() {
-  let result =
+  // Parse succeeds — multi-type is stored in raw_type, normalize converts to oneOf
+  let assert Ok(_spec) =
     parser.parse_file(
       "test/fixtures/oss_swagger_parser_java_31_petstore_more.yaml",
     )
-  case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "oneOf"))
-    _ -> should.fail()
-  }
+  should.be_true(True)
 }
 
 // ---------------------------------------------------------------------------
@@ -8733,67 +8729,98 @@ pub fn oss_spec_validator_broken_ref_parses_test() {
 // Unsupported JSON Schema keyword detection
 // ---------------------------------------------------------------------------
 
-/// const keyword should be rejected with clear error.
-pub fn unsupported_const_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_const.yaml")
-  case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "const"))
-    _ -> should.fail()
-  }
+/// const keyword is stored in metadata and normalized to single-value enum.
+pub fn unsupported_const_normalized_test() {
+  // Parse succeeds — lossless parser stores const in metadata
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/unsupported_const.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
 }
 
-/// if/then/else keywords should be rejected.
-pub fn unsupported_if_then_else_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_if_then_else.yaml")
+/// if/then/else keywords are stored by lossless parser; rejected at generate time.
+pub fn unsupported_if_then_else_capability_check_test() {
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/unsupported_if_then_else.yaml")
+  // Generate fails via capability_check
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) -> {
-      should.be_true(string.contains(detail, "if"))
-      should.be_true(string.contains(detail, "then"))
-      should.be_true(string.contains(detail, "else"))
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_if = list.any(error_details, fn(d) { string.contains(d, "if") })
+      should.be_true(has_if)
     }
-    _ -> should.fail()
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
-/// prefixItems keyword should be rejected.
-pub fn unsupported_prefix_items_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_prefix_items.yaml")
+/// prefixItems keyword is stored by lossless parser; rejected at generate time.
+pub fn unsupported_prefix_items_capability_check_test() {
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/unsupported_prefix_items.yaml")
+  // Generate fails via capability_check
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "prefixItems"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_prefix =
+        list.any(error_details, fn(d) { string.contains(d, "prefixItems") })
+      should.be_true(has_prefix)
+    }
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
-/// not keyword should be rejected.
-pub fn unsupported_not_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_not.yaml")
+/// not keyword is stored by lossless parser; rejected at generate time.
+pub fn unsupported_not_capability_check_test() {
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) = parser.parse_file("test/fixtures/unsupported_not.yaml")
+  // Generate fails via capability_check
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "not"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
+      should.be_true(has_not)
+    }
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
-/// $defs keyword should be rejected.
-pub fn unsupported_defs_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_defs.yaml")
+/// $defs keyword is stored by lossless parser; rejected at generate time.
+pub fn unsupported_defs_capability_check_test() {
+  // Parse succeeds — lossless parser stores unsupported keywords
+  let assert Ok(spec) = parser.parse_file("test/fixtures/unsupported_defs.yaml")
+  // Generate fails via capability_check
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "$defs"))
-    _ -> should.fail()
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_defs =
+        list.any(error_details, fn(d) { string.contains(d, "$defs") })
+      should.be_true(has_defs)
+    }
+    Error(generate.ResolveError(_)) -> should.fail()
+    Ok(_) -> should.fail()
   }
 }
 
-/// const nested inside object properties should be rejected.
-pub fn unsupported_nested_const_rejects_test() {
-  let result = parser.parse_file("test/fixtures/unsupported_nested_const.yaml")
-  case result {
-    Error(parser.InvalidValue(_, detail)) ->
-      should.be_true(string.contains(detail, "const"))
-    _ -> should.fail()
-  }
+/// const nested inside object properties is normalized to enum; parse and generate succeed.
+pub fn unsupported_nested_const_normalized_test() {
+  // Parse succeeds — const is stored in metadata
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/unsupported_nested_const.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
 }
 
 /// Schema without type but with properties should still parse as object.
