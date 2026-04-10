@@ -1,0 +1,19 @@
+openapi: "3.0.0"
+info:
+  title: Wrong Kind Ref Test
+  version: 1.0.0
+paths:
+  /test:
+    get:
+      parameters:
+        - $ref: "#/components/schemas/Pet"
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string

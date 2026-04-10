@@ -670,12 +670,28 @@ pub fn validate_broken_spec_accepts_untyped_additional_properties_test() {
 // --- Parser: fail-fast tests ---
 
 pub fn parse_missing_responses_succeeds_with_empty_dict_test() {
-  // Missing responses field is now parsed as empty dict (not a parse error).
+  // Missing responses field is parsed as empty dict (not a parse error).
   // Validation catches missing responses separately.
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/missing_responses.yaml")
   let paths = dict.to_list(spec.paths)
   list.length(paths) |> should.not_equal(0)
+}
+
+pub fn validate_missing_responses_rejects_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/missing_responses.yaml")
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_missing =
+        list.any(error_details, fn(d) { string.contains(d, "no responses") })
+      should.be_true(has_missing)
+    }
+    Ok(_) -> should.fail()
+  }
 }
 
 pub fn parse_invalid_param_location_fails_test() {
@@ -7424,51 +7440,30 @@ pub fn oss_libopenapi_all_components_parses_test() {
   dict.size(components.schemas) |> should.not_equal(0)
 }
 
-pub fn oss_libopenapi_all_components_validates_test() {
+/// The all_components fixture references security scheme 'api_key' that is
+/// not defined in components.securitySchemes. Validation catches this.
+pub fn oss_libopenapi_all_components_validates_security_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_libopenapi_all_components.yaml")
   let ctx = make_ctx_from_spec(spec)
   let errors = validate.validate(ctx)
   let blocking = validate.errors_only(errors)
-  list.length(blocking) |> should.equal(0)
+  let has_security_error =
+    list.any(blocking, fn(e) {
+      string.contains(validate.error_to_string(e), "api_key")
+    })
+  should.be_true(has_security_error)
 }
 
-pub fn oss_libopenapi_all_components_generates_test() {
-  let assert Ok(spec) =
-    parser.parse_file("test/fixtures/oss_libopenapi_all_components.yaml")
-  let ctx = make_ctx_from_spec(spec)
-  let result = generate.generate(spec, ctx.config)
+/// libopenapi burgershop uses the JSON Schema 'not' keyword which is
+/// unsupported. The parser rejects it with a clear error.
+pub fn oss_libopenapi_burgershop_rejects_not_keyword_test() {
+  let result = parser.parse_file("test/fixtures/oss_libopenapi_burgershop.yaml")
   case result {
-    Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
-    Error(generate.ValidationErrors(errors:)) -> {
-      let blocking = validate.errors_only(errors)
-      list.length(blocking) |> should.equal(0)
-    }
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not"))
+    _ -> should.fail()
   }
-}
-
-pub fn oss_libopenapi_burgershop_parses_test() {
-  let assert Ok(spec) =
-    parser.parse_file("test/fixtures/oss_libopenapi_burgershop.yaml")
-  spec.info.title |> should.equal("Burger Shop")
-  spec.info.version |> should.equal("1.2")
-  // Has webhooks
-  dict.size(spec.webhooks) |> should.not_equal(0)
-  // Has security
-  list.length(spec.security) |> should.not_equal(0)
-}
-
-pub fn oss_libopenapi_burgershop_schemas_test() {
-  let assert Ok(spec) =
-    parser.parse_file("test/fixtures/oss_libopenapi_burgershop.yaml")
-  let assert Some(components) = spec.components
-  // Has expected schemas
-  let schema_names = dict.keys(components.schemas)
-  list.contains(schema_names, "Burger") |> should.be_true()
-  list.contains(schema_names, "Error") |> should.be_true()
-  list.contains(schema_names, "Fries") |> should.be_true()
-  list.contains(schema_names, "Dressing") |> should.be_true()
-  list.contains(schema_names, "Drink") |> should.be_true()
 }
 
 pub fn oss_libopenapi_petstorev3_parses_test() {
@@ -8058,5 +8053,785 @@ pub fn oss_openapi_gen_issue_18516_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OSS: kin-openapi (MIT)
+// Test data derived from https://github.com/getkin/kin-openapi
+// ---------------------------------------------------------------------------
+
+/// kin-openapi link-example: complex links between operations.
+pub fn oss_kin_openapi_link_example_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_link_example.yaml")
+  spec.info.title |> should.equal("Link Example")
+  // Has multiple paths
+  dict.size(spec.paths) |> should.not_equal(0)
+  // Has components with links
+  let assert Some(components) = spec.components
+  dict.size(components.links) |> should.not_equal(0)
+}
+
+/// kin-openapi issue409: string schema with regex pattern.
+pub fn oss_kin_openapi_issue409_pattern_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_issue409.yaml")
+  spec.info.title |> should.equal("Issue 409")
+  dict.size(spec.paths) |> should.not_equal(0)
+}
+
+/// kin-openapi issue753: callbacks with schema refs.
+pub fn oss_kin_openapi_callbacks_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_callbacks.yaml")
+  // Has two paths with callbacks
+  dict.size(spec.paths) |> should.equal(2)
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+/// kin-openapi issue794: request body with empty media type content.
+pub fn oss_kin_openapi_empty_media_type_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_empty_media_type.yaml")
+  spec.info.title |> should.equal("Swagger API")
+  dict.size(spec.paths) |> should.equal(1)
+}
+
+/// kin-openapi issue697: schema with date format and example.
+pub fn oss_kin_openapi_date_example_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_date_example.yaml")
+  spec.info.title |> should.equal("sample")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+/// kin-openapi: path-level parameters overridden at operation level.
+pub fn oss_kin_openapi_param_override_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_param_override.yaml")
+  spec.info.title |> should.equal("customer")
+  dict.size(spec.paths) |> should.equal(1)
+  list.length(spec.servers) |> should.equal(1)
+}
+
+/// kin-openapi: additionalProperties with typed schema.
+pub fn oss_kin_openapi_additional_properties_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_kin_openapi_additional_properties.yaml",
+    )
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(2)
+}
+
+/// kin-openapi: example $ref within parameters, headers, and media types.
+pub fn oss_kin_openapi_example_refs_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_example_refs.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.parameters) |> should.not_equal(0)
+  dict.size(components.headers) |> should.not_equal(0)
+  dict.size(components.request_bodies) |> should.not_equal(0)
+  dict.size(components.responses) |> should.not_equal(0)
+}
+
+/// kin-openapi: minimal OpenAPI spec in JSON format.
+pub fn oss_kin_openapi_minimal_json_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_minimal.json")
+  // The original fixture has an empty title
+  spec.info.title |> should.equal("")
+  spec.openapi |> should.equal("3.0.0")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+/// kin-openapi: components with $ref cross-references in JSON.
+/// The fixture contains an invalid security scheme type ("cookie") which is
+/// not part of the OpenAPI 3.x specification. The parser rejects it with a
+/// clear error message guiding the user to fix the security scheme type.
+pub fn oss_kin_openapi_components_json_rejects_invalid_scheme_test() {
+  let result =
+    parser.parse_file("test/fixtures/oss_kin_openapi_components.json")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "cookie"))
+    _ -> should.fail()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-spec-validator (Apache-2.0)
+// Test data derived from https://github.com/python-openapi/openapi-spec-validator
+// ---------------------------------------------------------------------------
+
+/// openapi-spec-validator: standard petstore v3.0.
+pub fn oss_spec_validator_petstore_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spec_validator_petstore.yaml")
+  spec.info.title |> should.equal("Swagger Petstore")
+  spec.openapi |> should.equal("3.0.0")
+  dict.size(spec.paths) |> should.equal(2)
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(3)
+}
+
+/// openapi-spec-validator: readOnly and writeOnly properties.
+pub fn oss_spec_validator_read_write_only_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spec_validator_read_write_only.yaml")
+  spec.info.title |> should.equal("Specification Containing readOnly")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+/// openapi-spec-validator: response without description field.
+/// OpenAPI 3.x requires 'description' on every response object.
+/// The parser rejects this with a user-friendly error message.
+pub fn oss_spec_validator_missing_description_rejects_test() {
+  let result =
+    parser.parse_file(
+      "test/fixtures/oss_spec_validator_missing_description.yaml",
+    )
+  case result {
+    Error(parser.MissingField(_, "description")) -> should.be_true(True)
+    Error(e) -> {
+      let msg = parser.parse_error_to_string(e)
+      should.be_true(string.contains(msg, "description"))
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// openapi-spec-validator: self-referencing recursive schema.
+pub fn oss_spec_validator_recursive_property_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_spec_validator_recursive_property.yaml",
+    )
+  spec.info.title |> should.equal("Some Schema")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+/// openapi-spec-validator: petstore v3.1 with pathItems in components.
+pub fn oss_spec_validator_petstore_v31_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spec_validator_petstore_v31.yaml")
+  spec.info.title |> should.equal("Swagger Petstore")
+  spec.openapi |> should.equal("3.1.0")
+  let assert Some(components) = spec.components
+  dict.size(components.path_items) |> should.not_equal(0)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: swagger-parser-js (MIT)
+// Test data derived from https://github.com/APIDevTools/swagger-parser
+// ---------------------------------------------------------------------------
+
+/// swagger-parser-js: relative server URL in JSON format.
+pub fn oss_swagger_parser_js_relative_server_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_js_relative_server.json",
+    )
+  spec.info.title |> should.equal("Swagger Petstore")
+  list.length(spec.servers) |> should.equal(1)
+  dict.size(spec.paths) |> should.not_equal(0)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: spectral (Apache-2.0)
+// Test data derived from https://github.com/stoplightio/spectral
+// ---------------------------------------------------------------------------
+
+/// spectral: valid minimal OpenAPI 3.0 spec with contact and tags.
+pub fn oss_spectral_valid_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_valid.yaml")
+  spec.info.title |> should.equal("OAS3")
+  spec.openapi |> should.equal("3.0.0")
+  list.length(spec.servers) |> should.equal(1)
+  list.length(spec.tags) |> should.equal(1)
+}
+
+/// spectral: minimal OpenAPI 3.0 spec without contact info.
+pub fn oss_spectral_no_contact_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_no_contact.yaml")
+  spec.info.title |> should.equal("OAS3")
+  spec.info.contact |> should.equal(None)
+}
+
+/// spectral: comprehensive spec with unused components in JSON.
+pub fn oss_spectral_unused_components_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_unused_components.json")
+  spec.info.title |> should.equal("Used Components")
+  list.length(spec.tags) |> should.not_equal(0)
+  dict.size(spec.paths) |> should.not_equal(0)
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-dotnet (MIT)
+// Test data derived from https://github.com/microsoft/OpenAPI.NET
+// ---------------------------------------------------------------------------
+
+/// openapi-dotnet: OAuth2 security scheme with authorization code flow.
+pub fn oss_openapi_dotnet_oauth2_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_oauth2.yaml")
+  spec.info.title |> should.equal("Repair Service")
+  let assert Some(components) = spec.components
+  dict.size(components.security_schemes) |> should.equal(1)
+}
+
+/// openapi-dotnet: operation with empty security array (opt-out of global security).
+pub fn oss_openapi_dotnet_empty_security_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_empty_security.yaml")
+  spec.info.title |> should.equal("Repair Service")
+  dict.size(spec.paths) |> should.equal(1)
+}
+
+/// openapi-dotnet: webhooks with $ref to components/pathItems (OpenAPI 3.1).
+pub fn oss_openapi_dotnet_webhooks_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_webhooks.yaml")
+  spec.info.title |> should.equal("Webhook Example")
+  dict.size(spec.webhooks) |> should.not_equal(0)
+  let assert Some(components) = spec.components
+  dict.size(components.path_items) |> should.not_equal(0)
+}
+
+/// openapi-dotnet: spec without any security configuration.
+pub fn oss_openapi_dotnet_no_security_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_no_security.yaml")
+  spec.info.title |> should.equal("Repair Service")
+  list.length(spec.security) |> should.equal(0)
+}
+
+/// openapi-dotnet: petstore with multiple content types, 4XX/5XX wildcards,
+/// contact info, license, and termsOfService.
+pub fn oss_openapi_dotnet_petstore_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_petstore.yaml")
+  spec.info.title |> should.equal("Swagger Petstore (Simple)")
+  let assert Some(contact) = spec.info.contact
+  let assert Some(name) = contact.name
+  name |> should.equal("Swagger API team")
+  let assert Some(license) = spec.info.license
+  license.name |> should.equal("MIT")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(3)
+  dict.size(spec.paths) |> should.equal(2)
+}
+
+/// openapi-dotnet: spec with reusable headers and examples in components.
+pub fn oss_openapi_dotnet_headers_examples_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_headers_examples.yaml")
+  spec.openapi |> should.equal("3.0.4")
+  let assert Some(components) = spec.components
+  dict.size(components.headers) |> should.not_equal(0)
+  dict.size(components.schemas) |> should.not_equal(0)
+  list.length(spec.tags) |> should.equal(1)
+}
+
+/// openapi-dotnet: OpenAPI 3.1 spec with $id schema references.
+/// Uses URL-style $ref (e.g. "$ref: https://foo.bar/Box") which the parser
+/// stores as Reference with the URL as ref string.
+pub fn oss_openapi_dotnet_dollar_id_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_dollar_id.yaml")
+  spec.info.title |> should.equal("Simple API")
+  spec.openapi |> should.equal("3.1.2")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(2)
+  dict.size(spec.paths) |> should.equal(2)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: swagger-parser-java (Apache-2.0)
+// Test data derived from https://github.com/swagger-api/swagger-parser
+// ---------------------------------------------------------------------------
+
+/// swagger-parser-java issue1070: additionalProperties: false with nested $ref.
+pub fn oss_swagger_parser_java_additional_props_false_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_additional_props_false.yaml",
+    )
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(2)
+}
+
+/// swagger-parser-java issue879: callback using $ref to components/callbacks.
+pub fn oss_swagger_parser_java_callback_ref_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_swagger_parser_java_callback_ref.yaml")
+  spec.info.title |> should.equal("Callback with ref Example")
+  dict.size(spec.paths) |> should.equal(1)
+}
+
+/// swagger-parser-java issue1433: schema without explicit type field.
+pub fn oss_swagger_parser_java_no_type_schema_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_no_type_schema.yaml",
+    )
+  spec.info.title |> should.equal("no type resolution")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(2)
+}
+
+/// swagger-parser-java issue1086: deeply nested object schemas with
+/// multipleOf and date format.
+pub fn oss_swagger_parser_java_nested_objects_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_nested_objects.yaml",
+    )
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+/// swagger-parser-java: API with duplicate tag names in JSON.
+pub fn oss_swagger_parser_java_multiple_tags_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_multiple_tags.json",
+    )
+  spec.info.title |> should.equal("Sample API")
+  list.length(spec.tags) |> should.not_equal(0)
+  dict.size(spec.paths) |> should.not_equal(0)
+}
+
+/// swagger-parser-java issue959: petstore with path-level parameters and tags.
+pub fn oss_swagger_parser_java_path_params_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_swagger_parser_java_path_params.json")
+  spec.info.title |> should.equal("Swagger Petstore")
+  list.length(spec.tags) |> should.equal(1)
+}
+
+/// swagger-parser-java issue895: petstore with contact and license in JSON.
+pub fn oss_swagger_parser_java_petstore_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_swagger_parser_java_petstore.yaml")
+  spec.info.title |> should.equal("Swagger Petstore")
+  let assert Some(contact) = spec.info.contact
+  let assert Some(name) = contact.name
+  name |> should.equal("API Support")
+  let assert Some(license) = spec.info.license
+  license.name |> should.equal("Apache 2.0")
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-generator (Apache-2.0) — additional tests
+// Test data derived from https://github.com/OpenAPITools/openapi-generator
+// ---------------------------------------------------------------------------
+
+/// openapi-generator: oneOf with multiple schema variants (fruit).
+pub fn oss_openapi_gen_oneof_fruit_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_oneof_fruit.yaml")
+  spec.info.title |> should.equal("fruity")
+  let assert Some(components) = spec.components
+  // fruit + apple + banana + orange
+  dict.size(components.schemas) |> should.equal(4)
+}
+
+/// openapi-generator: array with nullable items.
+pub fn oss_openapi_gen_array_nullable_items_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_array_nullable_items.yaml")
+  spec.info.title |> should.equal("Array nullable items")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+/// openapi-generator: type alias ($ref as schema value) and discriminator.
+pub fn oss_openapi_gen_type_alias_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_type_alias.yaml")
+  spec.info.title |> should.equal("broken API")
+  let assert Some(components) = spec.components
+  // MyParameter, MyParameterTextField, TypeAliasToString, BaseModel, ComposedModel
+  dict.size(components.schemas) |> should.equal(5)
+}
+
+/// openapi-generator: enum values with URI format strings.
+pub fn oss_openapi_gen_enum_uri_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_gen_enum_uri.yaml")
+  spec.info.title |> should.equal("Example API")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+/// openapi-generator: spec missing required 'info' field.
+/// The parser rejects this with a clear error.
+pub fn oss_openapi_gen_missing_info_rejects_test() {
+  let result =
+    parser.parse_file("test/fixtures/oss_openapi_gen_missing_info.yaml")
+  case result {
+    Error(parser.MissingField(_, "info")) -> should.be_true(True)
+    Error(e) -> {
+      let msg = parser.parse_error_to_string(e)
+      should.be_true(string.contains(msg, "info"))
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// openapi-generator: petstore missing required info attribute.
+/// Rejects with user-friendly error pointing to the missing field.
+pub fn oss_openapi_gen_missing_info_attr_rejects_test() {
+  let result =
+    parser.parse_file("test/fixtures/oss_openapi_gen_missing_info_attr.yaml")
+  case result {
+    Error(parser.MissingField(_, _)) -> should.be_true(True)
+    _ -> should.fail()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-spec-validator (Apache-2.0) — benchmark specs
+// Test data derived from https://github.com/python-openapi/openapi-spec-validator
+// ---------------------------------------------------------------------------
+
+/// openapi-spec-validator: petstore benchmark spec.
+pub fn oss_spec_validator_bench_petstore_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spec_validator_bench_petstore.yaml")
+  spec.info.title |> should.equal("Swagger Petstore")
+  dict.size(spec.paths) |> should.not_equal(0)
+}
+
+/// openapi-spec-validator: empty OpenAPI 3.0 spec (only version, no info).
+/// The parser rejects this with a user-friendly error about missing 'info'.
+pub fn oss_spec_validator_empty_v30_rejects_test() {
+  let result = parser.parse_file("test/fixtures/oss_spec_validator_empty.yaml")
+  case result {
+    Error(parser.MissingField(_, "info")) -> should.be_true(True)
+    Error(e) -> {
+      let msg = parser.parse_error_to_string(e)
+      should.be_true(string.contains(msg, "info"))
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OSS: swagger-parser-js (MIT) — additional tests
+// Test data derived from https://github.com/APIDevTools/swagger-parser
+// ---------------------------------------------------------------------------
+
+/// swagger-parser-js: OpenAPI 3.1 spec with no paths or webhooks.
+/// Valid minimal 3.1 document (paths is optional in 3.1).
+pub fn oss_swagger_parser_js_no_paths_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_swagger_parser_js_no_paths.yaml")
+  spec.info.title |> should.equal("Invalid API")
+  spec.openapi |> should.equal("3.1")
+  dict.size(spec.paths) |> should.equal(0)
+  dict.size(spec.webhooks) |> should.equal(0)
+}
+
+/// swagger-parser-js: top-level, path-level, and operation-level servers.
+pub fn oss_swagger_parser_js_server_hierarchy_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_js_server_hierarchy.json",
+    )
+  spec.info.title |> should.equal("Swagger Petstore")
+  // Top-level server
+  list.length(spec.servers) |> should.equal(1)
+  // Path-level and operation-level servers
+  let assert Ok(pet_path) = dict.get(spec.paths, "/pet")
+  list.length(pet_path.servers) |> should.equal(1)
+  let assert Some(get_op) = pet_path.get
+  list.length(get_op.servers) |> should.equal(1)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: spectral (Apache-2.0) — additional tests
+// Test data derived from https://github.com/stoplightio/spectral
+// ---------------------------------------------------------------------------
+
+/// spectral: operation-level and global security with apiKey + OAuth2.
+pub fn oss_spectral_operation_security_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_operation_security.yaml")
+  spec.openapi |> should.equal("3.0.2")
+  // Global security has 2 entries (apikey OR oauth2)
+  list.length(spec.security) |> should.equal(2)
+  let assert Some(components) = spec.components
+  dict.size(components.security_schemes) |> should.equal(2)
+}
+
+/// spectral: webhooks with inline request body (OpenAPI 3.1).
+pub fn oss_spectral_webhooks_servers_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_webhooks_servers.yaml")
+  spec.openapi |> should.equal("3.1.0")
+  dict.size(spec.webhooks) |> should.equal(1)
+}
+
+/// spectral: examples with value in parameters and response content.
+pub fn oss_spectral_examples_value_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spectral_examples_value.yaml")
+  dict.size(spec.paths) |> should.equal(1)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-dotnet (MIT) — additional tests
+// Test data derived from https://github.com/microsoft/OpenAPI.NET
+// ---------------------------------------------------------------------------
+
+/// openapi-dotnet: multipart encoding, discriminator, allOf inheritance (3.1).
+pub fn oss_openapi_dotnet_encoding_discriminator_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/oss_openapi_dotnet_encoding_discriminator.yaml",
+    )
+  spec.openapi |> should.equal("3.1.2")
+  spec.info.title |> should.equal("A simple OpenAPI 3.1 example")
+  dict.size(spec.paths) |> should.equal(2)
+  let assert Some(components) = spec.components
+  // Pet, Cat, Dog
+  dict.size(components.schemas) |> should.equal(3)
+}
+
+/// openapi-dotnet: reusable pathItems with webhooks and multi-schema (3.1).
+pub fn oss_openapi_dotnet_reusable_paths_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_reusable_paths.yaml")
+  spec.openapi |> should.equal("3.1.2")
+  dict.size(spec.webhooks) |> should.not_equal(0)
+  let assert Some(components) = spec.components
+  dict.size(components.path_items) |> should.not_equal(0)
+  dict.size(components.schemas) |> should.equal(2)
+  let assert Some(dialect) = spec.json_schema_dialect
+  should.be_true(string.contains(dialect, "json-schema.org"))
+}
+
+/// openapi-dotnet: spec with x-oai-$self vendor extension (3.1).
+pub fn oss_openapi_dotnet_self_extension_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_openapi_dotnet_self_extension.yaml")
+  spec.openapi |> should.equal("3.1.2")
+  spec.info.title |> should.equal("API with x-oai-$self extension")
+  dict.size(spec.paths) |> should.equal(1)
+}
+
+// ---------------------------------------------------------------------------
+// OSS: swagger-parser-java (Apache-2.0) — 3.1 tests
+// Test data derived from https://github.com/swagger-api/swagger-parser
+// ---------------------------------------------------------------------------
+
+/// swagger-parser-java: OpenAPI 3.1 basic spec uses multi-type unions
+/// (type: [object, string]) which oaspec rejects with a clear error guiding
+/// users to use oneOf instead.
+pub fn oss_swagger_parser_java_31_basic_rejects_multi_type_test() {
+  let result =
+    parser.parse_file("test/fixtures/oss_swagger_parser_java_31_basic.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "oneOf"))
+    _ -> should.fail()
+  }
+}
+
+/// swagger-parser-java: OpenAPI 3.1 security scheme includes mutualTLS type
+/// which is a 3.1-only addition. The parser rejects it with a clear error.
+pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
+  let result =
+    parser.parse_file("test/fixtures/oss_swagger_parser_java_31_security.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "mutualTLS"))
+    _ -> should.fail()
+  }
+}
+
+/// swagger-parser-java: OpenAPI 3.1 schema siblings (dependentRequired,
+/// dependentSchemas, if/then/else, examples array).
+/// swagger-parser-java: schema siblings uses dependentSchemas, if/then/else,
+/// and const which are unsupported. The parser rejects with a clear error.
+pub fn oss_swagger_parser_java_31_schema_siblings_rejects_test() {
+  let result =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_31_schema_siblings.yaml",
+    )
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "dependentSchemas"))
+    _ -> should.fail()
+  }
+}
+
+/// swagger-parser-java: extended petstore 3.1 uses multi-type unions
+/// (type: [string, integer]) which oaspec rejects with a clear error.
+pub fn oss_swagger_parser_java_31_petstore_more_rejects_multi_type_test() {
+  let result =
+    parser.parse_file(
+      "test/fixtures/oss_swagger_parser_java_31_petstore_more.yaml",
+    )
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "oneOf"))
+    _ -> should.fail()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OSS: openapi-spec-validator (Apache-2.0) — additional tests
+// Test data derived from https://github.com/python-openapi/openapi-spec-validator
+// ---------------------------------------------------------------------------
+
+/// openapi-spec-validator: schema with broken $ref URI.
+/// The parser stores the broken ref as a Reference (no resolution at parse time).
+pub fn oss_spec_validator_broken_ref_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_spec_validator_broken_ref.yaml")
+  spec.info.title |> should.equal("Some Schema")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.not_equal(0)
+}
+
+// ---------------------------------------------------------------------------
+// Unsupported JSON Schema keyword detection
+// ---------------------------------------------------------------------------
+
+/// const keyword should be rejected with clear error.
+pub fn unsupported_const_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_const.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "const"))
+    _ -> should.fail()
+  }
+}
+
+/// if/then/else keywords should be rejected.
+pub fn unsupported_if_then_else_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_if_then_else.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) -> {
+      should.be_true(string.contains(detail, "if"))
+      should.be_true(string.contains(detail, "then"))
+      should.be_true(string.contains(detail, "else"))
+    }
+    _ -> should.fail()
+  }
+}
+
+/// prefixItems keyword should be rejected.
+pub fn unsupported_prefix_items_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_prefix_items.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "prefixItems"))
+    _ -> should.fail()
+  }
+}
+
+/// not keyword should be rejected.
+pub fn unsupported_not_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_not.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not"))
+    _ -> should.fail()
+  }
+}
+
+/// $defs keyword should be rejected.
+pub fn unsupported_defs_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_defs.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "$defs"))
+    _ -> should.fail()
+  }
+}
+
+/// const nested inside object properties should be rejected.
+pub fn unsupported_nested_const_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unsupported_nested_const.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "const"))
+    _ -> should.fail()
+  }
+}
+
+/// Schema without type but with properties should still parse as object.
+pub fn schema_no_type_with_properties_parses_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/schema_no_type_with_properties.yaml")
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(1)
+}
+
+// ---------------------------------------------------------------------------
+// $ref prefix validation
+// ---------------------------------------------------------------------------
+
+/// Security requirement referencing undefined scheme should be rejected.
+pub fn validate_invalid_security_ref_rejects_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/invalid_security_ref.yaml")
+  let result = generate.generate(spec, make_ctx_from_spec(spec).config)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      let error_details =
+        list.map(errors, fn(e) { validate.error_to_string(e) })
+      let has_security =
+        list.any(error_details, fn(d) {
+          string.contains(d, "nonexistent_scheme")
+        })
+      should.be_true(has_security)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// External file $ref for parameter should be rejected.
+pub fn external_param_ref_rejects_test() {
+  let result = parser.parse_file("test/fixtures/external_param_ref.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not a local"))
+    _ -> should.fail()
+  }
+}
+
+/// $ref pointing to wrong component kind should be rejected.
+pub fn wrong_kind_ref_rejects_test() {
+  let result = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "not a local parameter"))
+    _ -> should.fail()
+  }
+}
+
+/// Unknown parameter style should be rejected with clear error.
+pub fn unknown_param_style_rejects_test() {
+  let result = parser.parse_file("test/fixtures/unknown_param_style.yaml")
+  case result {
+    Error(parser.InvalidValue(_, detail)) ->
+      should.be_true(string.contains(detail, "unknownStyle"))
+    _ -> should.fail()
   }
 }

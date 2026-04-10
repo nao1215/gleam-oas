@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-10
+
+### Added
+
+- 41 OSS-derived test fixtures from kin-openapi (MIT), openapi-spec-validator (Apache-2.0), swagger-parser-js (MIT), spectral (Apache-2.0), OpenAPI.NET (MIT), swagger-parser-java (Apache-2.0), and openapi-generator (Apache-2.0), covering links, callbacks, encoding, discriminator, webhooks, reusable pathItems, OAuth2 flows, server hierarchy, schema siblings, and more
+- Validation for missing `responses` on operations (OpenAPI 3.x requires at least one response)
+- Validation that security scheme references in `security` requirements point to schemes defined in `components.securitySchemes`
+- Warnings for parsed-but-unused features: `externalDocs`, top-level `tags`, operation/path-level `servers`, component `headers`/`examples`/`links`
+- Doc comments on public API entry points (`oaspec.gleam`, `string_extra.gleam`)
+- Schema path context in parse error messages (e.g. `components.schemas.Pet.items` instead of `schema`)
+
+### Fixed
+
+- **Critical:** Unsupported JSON Schema 2020-12 keywords (`const`, `$defs`, `prefixItems`, `if`/`then`/`else`, `dependentSchemas`, `not`, `unevaluatedProperties`, `unevaluatedItems`, `contentEncoding`, `contentMediaType`, `contentSchema`) are now detected and rejected instead of silently generating broken decoders
+- Non-schema `$ref` resolution now validates the reference prefix (e.g. `#/components/parameters/`) instead of resolving by last path segment only; external refs and wrong-kind refs are rejected
+- Component-level `$ref` aliases in parameters, requestBodies, responses, and securitySchemes are now skipped gracefully instead of failing with "No components to resolve reference"
+- CLI now uses `parser.parse_error_to_string` instead of a less helpful duplicate formatter
+- Unknown parameter `style` values are now rejected with a clear error instead of silently defaulting to `form`
+- README client output example now includes `guards.gleam`
+- README test counts and unsupported keyword list aligned with implementation
+
 ## [0.6.3] - 2026-04-09
 
 ### Added
