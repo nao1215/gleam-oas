@@ -8987,11 +8987,32 @@ pub fn external_param_ref_rejects_test() {
   }
 }
 
-/// $ref pointing to wrong component kind is now stored as Ref(...) at parse time.
-/// Validation/resolution will catch wrong-kind refs later.
+/// $ref pointing to wrong component kind (schemas instead of parameters)
+/// must produce a diagnostic error, not silently resolve from a different kind.
 pub fn wrong_kind_ref_rejects_test() {
-  let result = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
-  let assert Ok(_spec) = result
+  let assert Ok(spec) = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      // Must report wrong-kind ref, not silently resolve as parameter
+      let has_kind_error =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "schemas")
+          || string.contains(e.message, "wrong")
+          || string.contains(e.message, "kind")
+        })
+      should.be_true(has_kind_error)
+    }
+    Ok(_) -> should.fail()
+  }
 }
 
 /// Unknown parameter style should be rejected with clear error.
