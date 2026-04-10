@@ -24,6 +24,7 @@ import oaspec/openapi/parser
 import oaspec/openapi/resolver
 import oaspec/openapi/schema
 import oaspec/openapi/spec
+import oaspec/openapi/value
 import oaspec/util/content_type
 import oaspec/util/http
 import oaspec/util/naming
@@ -8924,7 +8925,7 @@ pub fn normalize_const_to_enum_test() {
   let assert Some(components) = spec.components
   let assert Ok(schema.Inline(schema.StringSchema(metadata: meta, ..))) =
     dict.get(components.schemas, "Status")
-  meta.const_value |> should.equal(Some("active"))
+  meta.const_value |> should.equal(Some(value.JsonString("active")))
 
   // After normalize: const_value cleared, enum_values set
   let normalized = normalize.normalize(spec)

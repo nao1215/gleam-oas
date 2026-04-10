@@ -12,6 +12,7 @@ import oaspec/openapi/spec.{
   type Response, Callback, Components, Header, MediaType, OpenApiSpec, Operation,
   Parameter, PathItem, Ref, RequestBody, Response, Value,
 }
+import oaspec/openapi/value
 
 /// Normalize an OpenApiSpec after parsing.
 /// Converts OAS 3.1 patterns to 3.0-compatible representations:
@@ -182,7 +183,7 @@ fn normalize_schema(s: SchemaObject) -> SchemaObject {
         Some(const_val) ->
           StringSchema(
             ..s,
-            enum_values: [const_val],
+            enum_values: [value.to_display_string(const_val)],
             metadata: SchemaMetadata(..m, const_value: None),
           )
         None -> s
@@ -194,7 +195,7 @@ fn normalize_schema(s: SchemaObject) -> SchemaObject {
           StringSchema(
             metadata: SchemaMetadata(..m, const_value: None),
             format: None,
-            enum_values: [val],
+            enum_values: [value.to_display_string(val)],
             min_length: None,
             max_length: None,
             pattern: None,

@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/option.{type Option}
 import oaspec/openapi/schema.{type SchemaRef}
+import oaspec/openapi/value.{type JsonValue}
 
 // ============================================================================
 // Stage and RefOr: core of the stage-typed AST
@@ -121,7 +122,7 @@ pub type Components(stage) {
     security_schemes: Dict(String, RefOr(SecurityScheme)),
     path_items: Dict(String, RefOr(PathItem(stage))),
     headers: Dict(String, Header),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
     links: Dict(String, Link),
   )
 }
@@ -242,7 +243,7 @@ pub type Parameter(stage) {
     deprecated: Bool,
     allow_reserved: Bool,
     content: Dict(String, MediaType),
-    examples: Dict(String, String),
+    examples: Dict(String, JsonValue),
   )
 }
 
@@ -259,8 +260,8 @@ pub type RequestBody(stage) {
 pub type MediaType {
   MediaType(
     schema: Option(SchemaRef),
-    example: Option(String),
-    examples: Dict(String, String),
+    example: Option(JsonValue),
+    examples: Dict(String, JsonValue),
     encoding: Dict(String, Encoding),
   )
 }

@@ -22,6 +22,7 @@ import oaspec/openapi/spec.{
   Parameter, Patch, PathItem, Post, Put, Ref, RequestBody, Response,
   SecurityRequirement, Server, ServerVariable, Tag, Trace, Value,
 }
+import oaspec/openapi/value
 import simplifile
 import yay
 
@@ -576,7 +577,7 @@ fn parse_parameter(
         |> option.unwrap(False)
 
       use content <- result.try(parse_content_map(node))
-      let examples = parse_string_map(node, "examples")
+      let examples = value.extract_map(node, "examples")
 
       Ok(
         Value(Parameter(
@@ -720,10 +721,8 @@ fn parse_required_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = value.extract_optional(value_node, "example")
+            let mt_examples = value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node))
             Ok(dict.insert(
               acc,
@@ -771,10 +770,8 @@ fn parse_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = value.extract_optional(value_node, "example")
+            let mt_examples = value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node))
             Ok(dict.insert(
               acc,
@@ -870,7 +867,7 @@ fn parse_components(root: yay.Node) -> Result(Components(SpecStage), Diagnostic)
   use security_schemes <- result.try(parse_security_schemes_map(components_node))
   use path_items <- result.try(parse_path_items_map(components_node))
   use headers <- result.try(parse_headers_map(components_node))
-  let examples = parse_string_map(components_node, "examples")
+  let examples = value.extract_map(components_node, "examples")
   use links <- result.try(parse_links_map(components_node))
 
   Ok(Components(
@@ -1038,17 +1035,11 @@ pub fn parse_schema_object(
     |> result.unwrap(None)
     |> option.unwrap(False)
 
-  let default =
-    yay.extract_optional_string(node, "default")
-    |> result.unwrap(None)
+  let default = value.extract_optional(node, "default")
 
-  let example =
-    yay.extract_optional_string(node, "example")
-    |> result.unwrap(None)
+  let example = value.extract_optional(node, "example")
 
-  let const_value =
-    yay.extract_optional_string(node, "const")
-    |> result.unwrap(None)
+  let const_value = value.extract_optional(node, "const")
 
   let unsupported_keywords = detect_unsupported_keywords(node)
 
@@ -1875,14 +1866,6 @@ fn parse_webhooks(
   }
 }
 
-/// Parse a string->string map from a node at a given key.
-fn parse_string_map(node: yay.Node, key: String) -> Dict(String, String) {
-  case yay.extract_string_map(node, key) {
-    Ok(m) -> m
-    _ -> dict.new()
-  }
-}
-
 /// Parse a content map (non-result version for use in Parameter).
 fn parse_content_map(
   node: yay.Node,
@@ -1905,10 +1888,8 @@ fn parse_content_map(
                 _ -> Ok(None)
               },
             )
-            let mt_example =
-              yay.extract_optional_string(value_node, "example")
-              |> result.unwrap(None)
-            let mt_examples = parse_string_map(value_node, "examples")
+            let mt_example = value.extract_optional(value_node, "example")
+            let mt_examples = value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node))
             Ok(dict.insert(
               acc,
