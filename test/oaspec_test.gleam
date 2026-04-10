@@ -2952,6 +2952,45 @@ security:
   }
 }
 
+// --- Handler stubs use panic instead of todo ---
+pub fn server_handler_stubs_use_panic_not_todo_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: T
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: getItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(handler_file) =
+    list.find(files, fn(f) { string.contains(f.path, "handlers") })
+  let content = handler_file.content
+
+  // Handler stubs must use panic, not todo
+  string.contains(content, "panic as \"unimplemented: get_items\"")
+  |> should.be_true()
+
+  // Must NOT contain bare todo keyword
+  string.contains(content, "  todo\n")
+  |> should.be_false()
+}
+
 // --- Server router must call handlers, not return hardcoded "OK" ---
 pub fn server_router_calls_handlers_test() {
   let yaml =

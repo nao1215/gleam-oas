@@ -36,11 +36,11 @@ info "Code generation done."
 # -------------------------------------------------------
 # Step 2: Overwrite handlers with real implementation
 # -------------------------------------------------------
-info "Writing handler implementations (replacing todo stubs)..."
+info "Writing handler implementations (replacing panic stubs)..."
 
 cat > "$SCRIPT_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
 // Hand-written handler implementations for integration testing.
-// These replace the generated todo stubs.
+// These replace the generated panic stubs.
 
 import api/request_types
 import api/response_types

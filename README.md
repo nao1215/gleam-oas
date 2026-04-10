@@ -72,7 +72,7 @@ pub fn create_pet(config: ClientConfig, body: types.CreatePetRequest)
 pub fn list_pets(req: request_types.ListPetsRequest)
   -> response_types.ListPetsResponse {
   let _ = req
-  todo
+  panic as "unimplemented: list_pets"
 }
 ```
 
