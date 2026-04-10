@@ -69,9 +69,14 @@ fn resolve_internal(
           path_items: path_items,
         )
       // Resolve inline $ref in paths and webhooks
-      let resolved_paths = resolve_inline_paths(spec.paths, resolved_components)
-      let resolved_webhooks =
-        resolve_inline_paths(spec.webhooks, resolved_components)
+      use resolved_paths <- result.try(resolve_inline_paths(
+        spec.paths,
+        resolved_components,
+      ))
+      use resolved_webhooks <- result.try(resolve_inline_paths(
+        spec.webhooks,
+        resolved_components,
+      ))
       Ok(
         spec.OpenApiSpec(
           ..spec,
@@ -157,11 +162,21 @@ fn extract_ref_name(ref: String) -> String {
 fn resolve_inline_paths(
   paths: Dict(String, RefOr(PathItem(stage))),
   components: Components(stage),
-) -> Dict(String, RefOr(PathItem(stage))) {
-  dict.map_values(paths, fn(_path, ref_or) {
+) -> Result(Dict(String, RefOr(PathItem(stage))), List(Diagnostic)) {
+  dict.to_list(paths)
+  |> list.try_fold(dict.new(), fn(acc, entry) {
+    let #(path, ref_or) = entry
     case ref_or {
-      Ref(ref_str) -> resolve_path_item_ref(ref_str, components)
-      Value(pi) -> Value(resolve_inline_path_item(pi, components))
+      Ref(ref_str) ->
+        case resolve_path_item_ref(ref_str, path, components) {
+          Ok(resolved) -> Ok(dict.insert(acc, path, resolved))
+          Error(e) -> Error([e])
+        }
+      Value(pi) ->
+        case resolve_inline_path_item(pi, path, components) {
+          Ok(resolved_pi) -> Ok(dict.insert(acc, path, Value(resolved_pi)))
+          Error(errs) -> Error(errs)
+        }
     }
   })
 }
@@ -169,83 +184,179 @@ fn resolve_inline_paths(
 /// Resolve a path-level $ref by looking it up in components.pathItems.
 fn resolve_path_item_ref(
   ref_str: String,
+  path: String,
   components: Components(stage),
-) -> RefOr(PathItem(stage)) {
+) -> Result(RefOr(PathItem(stage)), Diagnostic) {
   let ref_name = extract_ref_name(ref_str)
   case dict.get(components.path_items, ref_name) {
-    Ok(Value(pi)) -> Value(resolve_inline_path_item(pi, components))
-    Ok(Ref(_)) -> Ref(ref_str)
-    Error(_) -> Ref(ref_str)
+    Ok(Value(pi)) ->
+      case resolve_inline_path_item(pi, path, components) {
+        Ok(resolved_pi) -> Ok(Value(resolved_pi))
+        Error(errs) -> {
+          // Take the first diagnostic from the inner resolution
+          case errs {
+            [first, ..] -> Error(first)
+            [] ->
+              Error(diagnostic.resolve_error(
+                path: "paths." <> path,
+                detail: "Unresolved $ref: "
+                  <> ref_str
+                  <> " — target not found in components",
+              ))
+          }
+        }
+      }
+    Ok(Ref(_)) ->
+      Error(diagnostic.resolve_error(
+        path: "paths." <> path,
+        detail: "Unresolved $ref: "
+          <> ref_str
+          <> " — target not found in components",
+      ))
+    Error(_) ->
+      Error(diagnostic.resolve_error(
+        path: "paths." <> path,
+        detail: "Unresolved $ref: "
+          <> ref_str
+          <> " — target not found in components",
+      ))
   }
 }
 
 /// Resolve inline refs within a path item.
 fn resolve_inline_path_item(
   pi: PathItem(stage),
+  path: String,
   components: Components(stage),
-) -> PathItem(stage) {
-  PathItem(
-    ..pi,
-    get: option_map(pi.get, resolve_inline_operation(_, components)),
-    post: option_map(pi.post, resolve_inline_operation(_, components)),
-    put: option_map(pi.put, resolve_inline_operation(_, components)),
-    delete: option_map(pi.delete, resolve_inline_operation(_, components)),
-    patch: option_map(pi.patch, resolve_inline_operation(_, components)),
-    head: option_map(pi.head, resolve_inline_operation(_, components)),
-    options: option_map(pi.options, resolve_inline_operation(_, components)),
-    trace: option_map(pi.trace, resolve_inline_operation(_, components)),
-    parameters: list.map(pi.parameters, resolve_param_ref(_, components)),
+) -> Result(PathItem(stage), List(Diagnostic)) {
+  use get <- result.try(
+    option_try(pi.get, resolve_inline_operation(_, path, components)),
+  )
+  use post <- result.try(
+    option_try(pi.post, resolve_inline_operation(_, path, components)),
+  )
+  use put <- result.try(
+    option_try(pi.put, resolve_inline_operation(_, path, components)),
+  )
+  use delete <- result.try(
+    option_try(pi.delete, resolve_inline_operation(_, path, components)),
+  )
+  use patch <- result.try(
+    option_try(pi.patch, resolve_inline_operation(_, path, components)),
+  )
+  use head <- result.try(
+    option_try(pi.head, resolve_inline_operation(_, path, components)),
+  )
+  use options <- result.try(
+    option_try(pi.options, resolve_inline_operation(_, path, components)),
+  )
+  use trace <- result.try(
+    option_try(pi.trace, resolve_inline_operation(_, path, components)),
+  )
+  use parameters <- result.try(
+    list.try_map(pi.parameters, fn(p) {
+      resolve_param_ref(p, path, components)
+      |> result.map_error(fn(e) { [e] })
+    }),
+  )
+  Ok(
+    PathItem(
+      ..pi,
+      get: get,
+      post: post,
+      put: put,
+      delete: delete,
+      patch: patch,
+      head: head,
+      options: options,
+      trace: trace,
+      parameters: parameters,
+    ),
   )
 }
 
 /// Resolve inline refs within an operation.
 fn resolve_inline_operation(
   op: Operation(stage),
+  path: String,
   components: Components(stage),
-) -> Operation(stage) {
-  Operation(
-    ..op,
-    parameters: list.map(op.parameters, resolve_param_ref(_, components)),
-    request_body: option_map(op.request_body, resolve_request_body_ref(
-      _,
-      components,
-    )),
-    responses: dict.map_values(op.responses, fn(_code, ref_or) {
-      resolve_response_ref(ref_or, components)
+) -> Result(Operation(stage), List(Diagnostic)) {
+  use parameters <- result.try(
+    list.try_map(op.parameters, fn(p) {
+      resolve_param_ref(p, path, components)
+      |> result.map_error(fn(e) { [e] })
     }),
-    callbacks: dict.map_values(op.callbacks, fn(_name, cb) {
-      resolve_inline_callback(cb, components)
+  )
+  use request_body <- result.try(
+    option_try(op.request_body, fn(rb) {
+      resolve_request_body_ref(rb, path, components)
+      |> result.map_error(fn(e) { [e] })
     }),
+  )
+  use responses <- result.try(
+    try_map_values(op.responses, fn(_code, ref_or) {
+      resolve_response_ref(ref_or, path, components)
+      |> result.map_error(fn(e) { [e] })
+    }),
+  )
+  use callbacks <- result.try(
+    try_map_values(op.callbacks, fn(_name, cb) {
+      resolve_inline_callback(cb, path, components)
+    }),
+  )
+  Ok(
+    Operation(
+      ..op,
+      parameters: parameters,
+      request_body: request_body,
+      responses: responses,
+      callbacks: callbacks,
+    ),
   )
 }
 
 /// Resolve inline refs within a callback.
 fn resolve_inline_callback(
   cb: Callback(stage),
+  path: String,
   components: Components(stage),
-) -> Callback(stage) {
-  Callback(
-    entries: dict.map_values(cb.entries, fn(_url, ref_or) {
+) -> Result(Callback(stage), List(Diagnostic)) {
+  use entries <- result.try(
+    try_map_values(cb.entries, fn(_url, ref_or) {
       case ref_or {
-        Ref(ref_str) -> resolve_path_item_ref(ref_str, components)
-        Value(pi) -> Value(resolve_inline_path_item(pi, components))
+        Ref(ref_str) ->
+          resolve_path_item_ref(ref_str, path, components)
+          |> result.map_error(fn(e) { [e] })
+        Value(pi) ->
+          case resolve_inline_path_item(pi, path, components) {
+            Ok(resolved_pi) -> Ok(Value(resolved_pi))
+            Error(errs) -> Error(errs)
+          }
       }
     }),
   )
+  Ok(Callback(entries: entries))
 }
 
 /// Resolve a parameter Ref by looking it up in components.parameters.
 fn resolve_param_ref(
   ref_or: RefOr(Parameter(stage)),
+  path: String,
   components: Components(stage),
-) -> RefOr(Parameter(stage)) {
+) -> Result(RefOr(Parameter(stage)), Diagnostic) {
   case ref_or {
-    Value(_) -> ref_or
+    Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
       let ref_name = extract_ref_name(ref_str)
       case dict.get(components.parameters, ref_name) {
-        Ok(Value(p)) -> Value(p)
-        _ -> ref_or
+        Ok(Value(p)) -> Ok(Value(p))
+        _ ->
+          Error(diagnostic.resolve_error(
+            path: "paths." <> path,
+            detail: "Unresolved $ref: "
+              <> ref_str
+              <> " — target not found in components",
+          ))
       }
     }
   }
@@ -254,15 +365,22 @@ fn resolve_param_ref(
 /// Resolve a request body Ref by looking it up in components.request_bodies.
 fn resolve_request_body_ref(
   ref_or: RefOr(RequestBody(stage)),
+  path: String,
   components: Components(stage),
-) -> RefOr(RequestBody(stage)) {
+) -> Result(RefOr(RequestBody(stage)), Diagnostic) {
   case ref_or {
-    Value(_) -> ref_or
+    Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
       let ref_name = extract_ref_name(ref_str)
       case dict.get(components.request_bodies, ref_name) {
-        Ok(Value(rb)) -> Value(rb)
-        _ -> ref_or
+        Ok(Value(rb)) -> Ok(Value(rb))
+        _ ->
+          Error(diagnostic.resolve_error(
+            path: "paths." <> path,
+            detail: "Unresolved $ref: "
+              <> ref_str
+              <> " — target not found in components",
+          ))
       }
     }
   }
@@ -271,24 +389,47 @@ fn resolve_request_body_ref(
 /// Resolve a response Ref by looking it up in components.responses.
 fn resolve_response_ref(
   ref_or: RefOr(Response(stage)),
+  path: String,
   components: Components(stage),
-) -> RefOr(Response(stage)) {
+) -> Result(RefOr(Response(stage)), Diagnostic) {
   case ref_or {
-    Value(_) -> ref_or
+    Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
       let ref_name = extract_ref_name(ref_str)
       case dict.get(components.responses, ref_name) {
-        Ok(Value(r)) -> Value(r)
-        _ -> ref_or
+        Ok(Value(r)) -> Ok(Value(r))
+        _ ->
+          Error(diagnostic.resolve_error(
+            path: "paths." <> path,
+            detail: "Unresolved $ref: "
+              <> ref_str
+              <> " — target not found in components",
+          ))
       }
     }
   }
 }
 
-/// Map over an Option value.
-fn option_map(opt: Option(a), f: fn(a) -> a) -> Option(a) {
+/// Map over an Option value with a fallible function.
+fn option_try(
+  opt: Option(a),
+  f: fn(a) -> Result(a, List(Diagnostic)),
+) -> Result(Option(a), List(Diagnostic)) {
   case opt {
-    Some(v) -> Some(f(v))
-    None -> None
+    Some(v) -> result.map(f(v), Some)
+    None -> Ok(None)
   }
+}
+
+/// Map over dict values with a fallible function, collecting first error.
+fn try_map_values(
+  d: Dict(String, a),
+  f: fn(String, a) -> Result(a, List(Diagnostic)),
+) -> Result(Dict(String, a), List(Diagnostic)) {
+  dict.to_list(d)
+  |> list.try_fold(dict.new(), fn(acc, entry) {
+    let #(key, value) = entry
+    use new_value <- result.try(f(key, value))
+    Ok(dict.insert(acc, key, new_value))
+  })
 }
