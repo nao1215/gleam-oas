@@ -24,10 +24,16 @@ import oaspec/openapi/spec.{
 import simplifile
 import yay
 
+/// Source location from YAML/JSON parsing.
+pub type SourceLoc {
+  SourceLoc(line: Int, column: Int)
+  NoSourceLoc
+}
+
 /// Errors that can occur during OpenAPI spec parsing.
 pub type ParseError {
   FileError(detail: String)
-  YamlError(detail: String)
+  YamlError(detail: String, loc: SourceLoc)
   MissingField(path: String, field: String)
   InvalidValue(path: String, detail: String)
 }
@@ -49,12 +55,22 @@ pub fn parse_file(path: String) -> Result(OpenApiSpec, ParseError) {
 pub fn parse_string(content: String) -> Result(OpenApiSpec, ParseError) {
   use docs <- result.try(
     yay.parse_string(content)
-    |> result.map_error(fn(e) { YamlError(detail: yaml_error_to_string(e)) }),
+    |> result.map_error(fn(e) {
+      case e {
+        yay.ParsingError(msg:, loc:) ->
+          YamlError(
+            detail: msg,
+            loc: SourceLoc(line: loc.line, column: loc.column),
+          )
+        yay.UnexpectedParsingError ->
+          YamlError(detail: "Unexpected parsing error", loc: NoSourceLoc)
+      }
+    }),
   )
 
   use doc <- result.try(case docs {
     [first, ..] -> Ok(first)
-    [] -> Error(YamlError(detail: "Empty document"))
+    [] -> Error(YamlError(detail: "Empty document", loc: NoSourceLoc))
   })
 
   let root = yay.document_root(doc)
@@ -1489,7 +1505,17 @@ fn parse_discriminator(node: yay.Node) -> Result(Discriminator, ParseError) {
 pub fn parse_error_to_string(error: ParseError) -> String {
   case error {
     FileError(detail:) -> detail
-    YamlError(detail:) -> detail
+    YamlError(detail:, loc:) ->
+      case loc {
+        SourceLoc(line:, column:) ->
+          detail
+          <> " (line "
+          <> int.to_string(line)
+          <> ", column "
+          <> int.to_string(column)
+          <> ")"
+        NoSourceLoc -> detail
+      }
     MissingField(path:, field:) -> {
       let location = case path {
         "" -> "root"
@@ -2175,13 +2201,5 @@ fn parse_links_map(node: yay.Node) -> Result(Dict(String, Link), ParseError) {
         }
       })
     _ -> Ok(dict.new())
-  }
-}
-
-/// Convert a YAML error to a string.
-fn yaml_error_to_string(error: yay.YamlError) -> String {
-  case error {
-    yay.UnexpectedParsingError -> "Unexpected parsing error"
-    yay.ParsingError(msg:, ..) -> msg
   }
 }
