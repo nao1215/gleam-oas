@@ -15,7 +15,7 @@ import oaspec/openapi/schema.{
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
   OneOfSchema, Reference, StringSchema, Typed, Untyped,
 }
-import oaspec/openapi/spec.{type Resolved, Value}
+import oaspec/openapi/spec.{type Resolved}
 import oaspec/util/content_type
 
 /// Validate the parsed spec for unsupported patterns.
@@ -57,25 +57,17 @@ fn validate_operations(ctx: Context) -> List(Diagnostic) {
   let operations = operations.collect_operations(ctx)
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, path, _method) = op
-    let resolved_params =
-      list.filter_map(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> Ok(p)
-          _ -> Error(Nil)
-        }
-      })
+    // All refs are guaranteed to be resolved by this point
+    let resolved_params = list.map(operation.parameters, spec.unwrap_ref)
     let resolved_request_body = case operation.request_body {
-      Some(Value(rb)) -> Some(rb)
-      _ -> None
+      Some(ref_or) -> Some(spec.unwrap_ref(ref_or))
+      None -> None
     }
     let resolved_responses =
       dict.to_list(operation.responses)
-      |> list.filter_map(fn(entry) {
+      |> list.map(fn(entry) {
         let #(code, ref_or) = entry
-        case ref_or {
-          Value(resp) -> Ok(#(code, resp))
-          _ -> Error(Nil)
-        }
+        #(code, spec.unwrap_ref(ref_or))
       })
       |> dict.from_list
     let path_errors =
