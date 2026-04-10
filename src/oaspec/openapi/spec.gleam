@@ -230,6 +230,14 @@ pub type ParameterIn {
   InCookie
 }
 
+/// How a parameter carries its type information.
+pub type ParameterPayload {
+  /// Parameter defined via a JSON Schema.
+  ParameterSchema(SchemaRef)
+  /// Parameter defined via content media type map (mutually exclusive with schema).
+  ParameterContent(Dict(String, MediaType))
+}
+
 /// An API parameter. Stage parameter is phantom.
 pub type Parameter(stage) {
   Parameter(
@@ -237,14 +245,21 @@ pub type Parameter(stage) {
     in_: ParameterIn,
     description: Option(String),
     required: Bool,
-    schema: Option(SchemaRef),
+    payload: ParameterPayload,
     style: Option(ParameterStyle),
     explode: Option(Bool),
     deprecated: Bool,
     allow_reserved: Bool,
-    content: Dict(String, MediaType),
     examples: Dict(String, JsonValue),
   )
+}
+
+/// Extract the schema from a parameter's payload, if it uses schema encoding.
+pub fn parameter_schema(param: Parameter(stage)) -> Option(SchemaRef) {
+  case param.payload {
+    ParameterSchema(s) -> option.Some(s)
+    ParameterContent(_) -> option.None
+  }
 }
 
 /// A request body definition. Stage parameter is phantom.

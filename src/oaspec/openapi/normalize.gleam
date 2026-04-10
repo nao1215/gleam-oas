@@ -11,7 +11,8 @@ import oaspec/openapi/spec.{
   type Callback, type Components, type Header, type MediaType, type OpenApiSpec,
   type Operation, type Parameter, type PathItem, type RefOr, type RequestBody,
   type Response, Callback, Components, Header, MediaType, OpenApiSpec, Operation,
-  Parameter, PathItem, Ref, RequestBody, Response, Value,
+  Parameter, ParameterContent, ParameterSchema, PathItem, Ref, RequestBody,
+  Response, Value,
 }
 import oaspec/openapi/value
 
@@ -139,11 +140,14 @@ fn normalize_callback(cb: Callback(stage)) -> Callback(stage) {
 }
 
 fn normalize_parameter(p: Parameter(stage)) -> Parameter(stage) {
-  Parameter(
-    ..p,
-    schema: option.map(p.schema, normalize_schema_ref),
-    content: dict.map_values(p.content, fn(_k, mt) { normalize_media_type(mt) }),
-  )
+  let payload = case p.payload {
+    ParameterSchema(s) -> ParameterSchema(normalize_schema_ref(s))
+    ParameterContent(c) ->
+      ParameterContent(
+        dict.map_values(c, fn(_k, mt) { normalize_media_type(mt) }),
+      )
+  }
+  Parameter(..p, payload: payload)
 }
 
 fn normalize_request_body(rb: RequestBody(stage)) -> RequestBody(stage) {

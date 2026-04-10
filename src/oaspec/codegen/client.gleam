@@ -7,7 +7,7 @@ import oaspec/codegen/schema_dispatch
 import oaspec/codegen/types as type_gen
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
-import oaspec/openapi/spec.{type SpecStage, Value}
+import oaspec/openapi/spec.{type SpecStage, ParameterSchema, Value}
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -42,15 +42,15 @@ fn generate_client(ctx: Context) -> String {
     })
   let needs_bool =
     list.any(all_params, fn(p) {
-      case p.schema {
-        Some(Inline(schema.BooleanSchema(..))) -> True
+      case p.payload {
+        ParameterSchema(Inline(schema.BooleanSchema(..))) -> True
         _ -> False
       }
     })
   let needs_float =
     list.any(all_params, fn(p) {
-      case p.schema {
-        Some(Inline(schema.NumberSchema(..))) -> True
+      case p.payload {
+        ParameterSchema(Inline(schema.NumberSchema(..))) -> True
         _ -> False
       }
     })
@@ -84,9 +84,9 @@ fn generate_client(ctx: Context) -> String {
     has_form_urlencoded
     || has_multi_content_response
     || list.any(all_params, fn(p) {
-      case p.schema {
-        Some(Inline(schema.ArraySchema(..))) -> True
-        Some(Reference(..) as sr) ->
+      case p.payload {
+        ParameterSchema(Inline(schema.ArraySchema(..))) -> True
+        ParameterSchema(Reference(..) as sr) ->
           case resolver.resolve_schema_ref(sr, ctx.spec) {
             Ok(schema.ArraySchema(..)) -> True
             _ -> False
@@ -203,8 +203,8 @@ fn generate_client(ctx: Context) -> String {
         list.any(operation.parameters, fn(ref_p) {
           case ref_p {
             Value(p) ->
-              case p.schema {
-                Some(Reference(..)) -> True
+              case p.payload {
+                ParameterSchema(Reference(..)) -> True
                 _ -> False
               }
             _ -> False
@@ -1066,7 +1066,8 @@ fn build_param_list(
 
 /// Convert a parameter to its Gleam type string.
 fn param_to_type(param: spec.Parameter(SpecStage), ctx: Context) -> String {
-  let base = schema_dispatch.resolve_param_type(param.schema, ctx.spec)
+  let base =
+    schema_dispatch.resolve_param_type(spec.parameter_schema(param), ctx.spec)
   case param.required {
     True -> base
     False -> "Option(" <> base <> ")"
@@ -1079,8 +1080,8 @@ fn param_to_string_expr(
   param_name: String,
   ctx: Context,
 ) -> String {
-  case param.schema {
-    Some(Inline(schema.ArraySchema(items:, ..))) -> {
+  case param.payload {
+    ParameterSchema(Inline(schema.ArraySchema(items:, ..))) -> {
       let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
       "string.join(list.map("
       <> param_name
@@ -1088,8 +1089,8 @@ fn param_to_string_expr(
       <> item_to_str
       <> "), \",\")"
     }
-    Some(Inline(s)) -> schema_dispatch.to_string_expr(s, param_name)
-    Some(Reference(..) as schema_ref) -> {
+    ParameterSchema(Inline(s)) -> schema_dispatch.to_string_expr(s, param_name)
+    ParameterSchema(Reference(..) as schema_ref) -> {
       // Resolve the $ref to determine the actual schema type
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(schema.ArraySchema(items:, ..)) -> {
@@ -1126,13 +1127,13 @@ fn to_str_for_optional_value(
   param: spec.Parameter(SpecStage),
   ctx: Context,
 ) -> String {
-  case param.schema {
-    Some(Inline(schema.ArraySchema(items:, ..))) -> {
+  case param.payload {
+    ParameterSchema(Inline(schema.ArraySchema(items:, ..))) -> {
       let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
       "string.join(list.map(v, " <> item_to_str <> "), \",\")"
     }
-    Some(Inline(s)) -> schema_dispatch.to_string_expr(s, "v")
-    Some(Reference(..) as schema_ref) -> {
+    ParameterSchema(Inline(s)) -> schema_dispatch.to_string_expr(s, "v")
+    ParameterSchema(Reference(..) as schema_ref) -> {
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(schema.ArraySchema(items:, ..)) -> {
           let item_to_str = schema_dispatch.to_string_fn(items, ctx.spec)
@@ -1821,9 +1822,9 @@ fn is_exploded_array_param(
   param: spec.Parameter(SpecStage),
   ctx: Context,
 ) -> Bool {
-  let is_array = case param.schema {
-    Some(Inline(schema.ArraySchema(..))) -> True
-    Some(Reference(..) as sr) ->
+  let is_array = case param.payload {
+    ParameterSchema(Inline(schema.ArraySchema(..))) -> True
+    ParameterSchema(Reference(..) as sr) ->
       case resolver.resolve_schema_ref(sr, ctx.spec) {
         Ok(schema.ArraySchema(..)) -> True
         _ -> False
@@ -1854,10 +1855,10 @@ fn generate_exploded_array_query_param(
   param_name: String,
   ctx: Context,
 ) -> se.StringBuilder {
-  let item_to_str = case param.schema {
-    Some(Inline(schema.ArraySchema(items:, ..))) ->
+  let item_to_str = case param.payload {
+    ParameterSchema(Inline(schema.ArraySchema(items:, ..))) ->
       array_item_to_string_fn(items, ctx)
-    Some(Reference(..) as sr) ->
+    ParameterSchema(Reference(..) as sr) ->
       case resolver.resolve_schema_ref(sr, ctx.spec) {
         Ok(schema.ArraySchema(items:, ..)) ->
           array_item_to_string_fn(items, ctx)
@@ -1906,13 +1907,13 @@ fn generate_exploded_array_query_param(
 
 /// Check if a parameter uses deepObject style with an object schema.
 fn is_deep_object_param(param: spec.Parameter(SpecStage), ctx: Context) -> Bool {
-  case param.schema {
-    Some(Reference(..) as schema_ref) ->
+  case param.payload {
+    ParameterSchema(Reference(..) as schema_ref) ->
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(schema.ObjectSchema(..)) -> True
         _ -> False
       }
-    Some(Inline(schema.ObjectSchema(..))) -> True
+    ParameterSchema(Inline(schema.ObjectSchema(..))) -> True
     _ -> False
   }
 }
@@ -1924,8 +1925,8 @@ fn generate_deep_object_query_param(
   param_name: String,
   ctx: Context,
 ) -> se.StringBuilder {
-  let properties = case param.schema {
-    Some(Reference(..) as schema_ref) ->
+  let properties = case param.payload {
+    ParameterSchema(Reference(..) as schema_ref) ->
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(schema.ObjectSchema(properties:, required:, ..)) -> #(
           dict.to_list(properties),
@@ -1933,7 +1934,7 @@ fn generate_deep_object_query_param(
         )
         _ -> #([], [])
       }
-    Some(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
+    ParameterSchema(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
       dict.to_list(properties),
       required,
     )

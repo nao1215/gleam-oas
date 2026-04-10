@@ -176,10 +176,10 @@ fn validate_parameters(
       ]
       _ -> []
     }
-    // Parameter.schema is None when Parameter.content is used instead.
+    // Parameter.payload is ParameterContent when Parameter.content is used instead of schema.
     // We don't support the content-based parameter serialization.
-    let content_errors = case p.schema {
-      None -> [
+    let content_errors = case p.payload {
+      spec.ParameterContent(_) -> [
         diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
@@ -187,7 +187,7 @@ fn validate_parameters(
           detail: "Parameters using 'content' instead of 'schema' are not supported.",
         ),
       ]
-      _ -> []
+      spec.ParameterSchema(_) -> []
     }
     // Object/complex schemas in query/header/cookie params require deepObject
     // style. Without it, codegen cannot stringify the value and falls through
@@ -214,7 +214,7 @@ fn validate_server_structured_param(
   case ctx.config.mode {
     config.Client -> []
     _ -> {
-      let schema_obj = resolve_schema_object(param.schema, ctx)
+      let schema_obj = resolve_schema_object(spec.parameter_schema(param), ctx)
       let array_errors = case param.in_, schema_obj {
         spec.InQuery, Some(ArraySchema(items: Inline(StringSchema(..)), ..))
         | spec.InQuery, Some(ArraySchema(items: Inline(IntegerSchema(..)), ..))
@@ -256,7 +256,11 @@ fn validate_server_deep_object_param(
   param: spec.Parameter(SpecStage),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case param.in_, param.style, resolve_schema_object(param.schema, ctx) {
+  case
+    param.in_,
+    param.style,
+    resolve_schema_object(spec.parameter_schema(param), ctx)
+  {
     spec.InQuery,
       Some(spec.DeepObjectStyle),
       Some(ObjectSchema(properties:, ..))
@@ -334,7 +338,7 @@ fn validate_complex_param_schema(
       // invalid code (e.g., uri.percent_encode(filter.meta)).
       validate_deep_object_no_nested_objects(path, param, ctx)
     _ ->
-      case resolve_schema_object(param.schema, ctx) {
+      case resolve_schema_object(spec.parameter_schema(param), ctx) {
         Some(ObjectSchema(..))
         | Some(AllOfSchema(..))
         | Some(OneOfSchema(..))
@@ -372,7 +376,7 @@ fn validate_deep_object_no_nested_objects(
   param: spec.Parameter(SpecStage),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case resolve_schema_object(param.schema, ctx) {
+  case resolve_schema_object(spec.parameter_schema(param), ctx) {
     Some(ObjectSchema(properties:, ..)) ->
       dict.to_list(properties)
       |> list.flat_map(fn(entry) {

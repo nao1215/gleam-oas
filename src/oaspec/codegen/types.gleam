@@ -172,8 +172,8 @@ fn generate_request_types(ctx: Context) -> String {
         list.any(operation.parameters, fn(ref_p) {
           case ref_p {
             Value(p) ->
-              case p.schema {
-                Some(Reference(..)) -> True
+              case p.payload {
+                spec.ParameterSchema(Reference(..)) -> True
                 _ -> False
               }
             _ -> False
@@ -242,12 +242,12 @@ fn generate_request_type(
           case ref_p {
             Value(param) -> {
               let field_name = naming.to_snake_case(param.name)
-              let field_type = case param.schema {
-                Some(Inline(StringSchema(..))) -> "String"
-                Some(Inline(IntegerSchema(..))) -> "Int"
-                Some(Inline(NumberSchema(..))) -> "Float"
-                Some(Inline(BooleanSchema(..))) -> "Bool"
-                Some(Inline(ArraySchema(items:, ..))) -> {
+              let field_type = case param.payload {
+                spec.ParameterSchema(Inline(StringSchema(..))) -> "String"
+                spec.ParameterSchema(Inline(IntegerSchema(..))) -> "Int"
+                spec.ParameterSchema(Inline(NumberSchema(..))) -> "Float"
+                spec.ParameterSchema(Inline(BooleanSchema(..))) -> "Bool"
+                spec.ParameterSchema(Inline(ArraySchema(items:, ..))) -> {
                   let item_type = case items {
                     Inline(StringSchema(..)) -> "String"
                     Inline(IntegerSchema(..)) -> "Int"
@@ -258,7 +258,7 @@ fn generate_request_type(
                   }
                   "List(" <> item_type <> ")"
                 }
-                Some(Reference(name:, ..)) ->
+                spec.ParameterSchema(Reference(name:, ..)) ->
                   "types." <> naming.schema_to_type_name(name)
                 _ -> "String"
               }

@@ -460,15 +460,19 @@ fn hoist_parameters(
     case ref_or_param {
       Ref(_) -> #(list.append(params_acc, [ref_or_param]), state)
       Value(param) -> {
-        case param.schema {
-          Some(schema_ref) -> {
+        case param.payload {
+          spec.ParameterSchema(schema_ref) -> {
             let suffix = "Param" <> naming.to_pascal_case(param.name)
             let #(hoisted, state) =
               hoist_schema_ref(schema_ref, op_id, suffix, state)
-            let new_param = spec.Parameter(..param, schema: Some(hoisted))
+            let new_param =
+              spec.Parameter(..param, payload: spec.ParameterSchema(hoisted))
             #(list.append(params_acc, [Value(new_param)]), state)
           }
-          None -> #(list.append(params_acc, [ref_or_param]), state)
+          spec.ParameterContent(_) -> #(
+            list.append(params_acc, [ref_or_param]),
+            state,
+          )
         }
       }
     }

@@ -223,7 +223,7 @@ fn generate_router(ctx: Context) -> String {
       list.any(operation.parameters, fn(ref_p) {
         case ref_p {
           Value(p) ->
-            query_schema_needs_int(p.schema)
+            query_schema_needs_int(spec.parameter_schema(p))
             || deep_object_param_needs_int(p, ctx)
           _ -> False
         }
@@ -244,7 +244,7 @@ fn generate_router(ctx: Context) -> String {
       list.any(operation.parameters, fn(ref_p) {
         case ref_p {
           Value(p) ->
-            query_schema_needs_float(p.schema)
+            query_schema_needs_float(spec.parameter_schema(p))
             || deep_object_param_needs_float(p, ctx)
           _ -> False
         }
@@ -270,9 +270,9 @@ fn generate_router(ctx: Context) -> String {
             case p.in_ {
               spec.InCookie -> True
               spec.InQuery | spec.InHeader ->
-                query_schema_needs_string(p.schema)
+                query_schema_needs_string(spec.parameter_schema(p))
                 || deep_object_param_needs_string(p, ctx)
-              spec.InPath -> query_schema_needs_string(p.schema)
+              spec.InPath -> query_schema_needs_string(spec.parameter_schema(p))
             }
           _ -> False
         }
@@ -304,7 +304,7 @@ fn generate_router(ctx: Context) -> String {
       list.any(operation.parameters, fn(ref_p) {
         case ref_p {
           Value(p) ->
-            case p.in_, p.schema {
+            case p.in_, spec.parameter_schema(p) {
               spec.InQuery, Some(Inline(schema.ArraySchema(..))) -> True
               spec.InHeader, Some(Inline(schema.ArraySchema(..))) -> True
               _, _ -> False
@@ -893,7 +893,7 @@ fn param_parse_expr(
   var_name: String,
   param: spec.Parameter(SpecStage),
 ) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) -> {
       // Parse string to int; use 0 as fallback
       "{ let assert Ok(v) = int.parse(" <> var_name <> ") v }"
@@ -910,7 +910,11 @@ fn param_parse_expr(
 
 /// Generate expression for a required query parameter.
 fn query_required_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  query_required_expr_with_schema(key, param.schema, param.explode)
+  query_required_expr_with_schema(
+    key,
+    spec.parameter_schema(param),
+    param.explode,
+  )
 }
 
 fn query_required_expr_with_schema(
@@ -988,7 +992,11 @@ fn query_required_expr_with_schema(
 
 /// Generate expression for an optional query parameter.
 fn query_optional_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  query_optional_expr_with_schema(key, param.schema, param.explode)
+  query_optional_expr_with_schema(
+    key,
+    spec.parameter_schema(param),
+    param.explode,
+  )
 }
 
 fn query_optional_expr_with_schema(
@@ -1153,7 +1161,7 @@ fn body_field_kind_needs_float(kind: BodyFieldKind) -> Bool {
 }
 
 fn is_deep_object_param(param: spec.Parameter(SpecStage), ctx: Context) -> Bool {
-  case param.in_, param.style, param.schema {
+  case param.in_, param.style, spec.parameter_schema(param) {
     spec.InQuery, Some(spec.DeepObjectStyle), Some(Reference(..) as schema_ref) ->
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(ObjectSchema(..)) -> True
@@ -1169,7 +1177,7 @@ fn deep_object_properties(
   param: spec.Parameter(SpecStage),
   ctx: Context,
 ) -> List(DeepObjectProperty) {
-  let details = case param.schema {
+  let details = case spec.parameter_schema(param) {
     Some(Reference(..) as schema_ref) ->
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
@@ -1198,7 +1206,7 @@ fn deep_object_type_name(
   param: spec.Parameter(SpecStage),
   op_id: String,
 ) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Reference(name:, ..)) -> "types." <> naming.schema_to_type_name(name)
     _ ->
       "types."
@@ -1961,7 +1969,7 @@ fn multipart_body_optional_expr_with_schema(
 
 /// Generate expression for a required header parameter.
 fn header_required_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
       "{ let assert Ok(v) = dict.get(headers, \""
       <> key
@@ -2000,7 +2008,7 @@ fn header_required_expr(key: String, param: spec.Parameter(SpecStage)) -> String
 
 /// Generate expression for an optional header parameter.
 fn header_optional_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
       "case dict.get(headers, \""
       <> key
@@ -2040,7 +2048,7 @@ fn header_optional_expr(key: String, param: spec.Parameter(SpecStage)) -> String
 
 /// Generate expression for a required cookie parameter.
 fn cookie_required_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) ->
       "{ let assert Ok(v) = cookie_lookup(headers, \""
       <> key
@@ -2061,7 +2069,7 @@ fn cookie_required_expr(key: String, param: spec.Parameter(SpecStage)) -> String
 
 /// Generate expression for an optional cookie parameter.
 fn cookie_optional_expr(key: String, param: spec.Parameter(SpecStage)) -> String {
-  case param.schema {
+  case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) ->
       "case cookie_lookup(headers, \""
       <> key

@@ -548,9 +548,9 @@ fn parse_parameter(
               schema_node,
               "parameter.schema",
             ))
-            Ok(Some(sr))
+            Ok(Ok(sr))
           }
-          _ -> Ok(None)
+          _ -> Ok(Error(Nil))
         },
       )
 
@@ -579,18 +579,22 @@ fn parse_parameter(
       use content <- result.try(parse_content_map(node))
       let examples = value.extract_map(node, "examples")
 
+      let payload = case param_schema {
+        Ok(sr) -> spec.ParameterSchema(sr)
+        Error(_) -> spec.ParameterContent(content)
+      }
+
       Ok(
         Value(Parameter(
           name:,
           in_:,
           description:,
           required:,
-          schema: param_schema,
+          payload:,
           style:,
           explode:,
           deprecated:,
           allow_reserved:,
-          content:,
           examples:,
         )),
       )
