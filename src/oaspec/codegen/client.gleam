@@ -161,7 +161,10 @@ fn generate_client(ctx: Context) -> String {
       }
       list.any(security_schemes, fn(entry) {
         case entry {
-          #(_, spec.ApiKeyScheme(in_: spec.SchemeInQuery, ..)) -> True
+          #(
+            _,
+            spec.ConcreteEntry(spec.ApiKeyScheme(in_: spec.SchemeInQuery, ..)),
+          ) -> True
           _ -> False
         }
       })
@@ -269,7 +272,10 @@ fn generate_client(ctx: Context) -> String {
     Some(c) ->
       list.any(dict.to_list(c.security_schemes), fn(entry) {
         case entry {
-          #(_, spec.ApiKeyScheme(in_: spec.SchemeInCookie, ..)) -> True
+          #(
+            _,
+            spec.ConcreteEntry(spec.ApiKeyScheme(in_: spec.SchemeInCookie, ..)),
+          ) -> True
           _ -> False
         }
       })
@@ -2265,7 +2271,10 @@ fn generate_scheme_some_branch(
   case ctx.spec.components {
     Some(components) ->
       case dict.get(components.security_schemes, scheme_ref.scheme_name) {
-        Ok(spec.ApiKeyScheme(name: header_name, in_: spec.SchemeInHeader)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: header_name,
+          in_: spec.SchemeInHeader,
+        ))) ->
           sb
           |> se.indent(
             indent,
@@ -2273,7 +2282,10 @@ fn generate_scheme_some_branch(
               <> string.lowercase(header_name)
               <> "\", key)",
           )
-        Ok(spec.ApiKeyScheme(name: query_name, in_: spec.SchemeInQuery)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: query_name,
+          in_: spec.SchemeInQuery,
+        ))) ->
           sb
           |> se.indent(indent, "Some(key) -> {")
           |> se.indent(
@@ -2290,7 +2302,10 @@ fn generate_scheme_some_branch(
               <> "=\" <> key)",
           )
           |> se.indent(indent, "}")
-        Ok(spec.ApiKeyScheme(name: cookie_name, in_: spec.SchemeInCookie)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: cookie_name,
+          in_: spec.SchemeInCookie,
+        ))) ->
           sb
           |> se.indent(indent, "Some(value) -> {")
           |> se.indent(
@@ -2310,27 +2325,27 @@ fn generate_scheme_some_branch(
             "request.set_header(req, \"cookie\", new_cookie)",
           )
           |> se.indent(indent, "}")
-        Ok(spec.HttpScheme(scheme: "basic", ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "basic", ..))) ->
           sb
           |> se.indent(
             indent,
             "Some(token) -> request.set_header(req, \"authorization\", \"Basic \" <> token)",
           )
-        Ok(spec.HttpScheme(scheme: "digest", ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "digest", ..))) ->
           sb
           |> se.indent(
             indent,
             "Some(token) -> request.set_header(req, \"authorization\", \"Digest \" <> token)",
           )
-        Ok(spec.HttpScheme(scheme: "bearer", ..))
-        | Ok(spec.OAuth2Scheme(..))
-        | Ok(spec.OpenIdConnectScheme(..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "bearer", ..)))
+        | Ok(spec.ConcreteEntry(spec.OAuth2Scheme(..)))
+        | Ok(spec.ConcreteEntry(spec.OpenIdConnectScheme(..))) ->
           sb
           |> se.indent(
             indent,
             "Some(token) -> request.set_header(req, \"authorization\", \"Bearer \" <> token)",
           )
-        Ok(spec.HttpScheme(scheme: scheme_name, ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: scheme_name, ..))) ->
           sb
           |> se.indent(
             indent,
@@ -2355,7 +2370,10 @@ fn generate_scheme_apply(
   case ctx.spec.components {
     Some(components) ->
       case dict.get(components.security_schemes, scheme_ref.scheme_name) {
-        Ok(spec.ApiKeyScheme(name: header_name, in_: spec.SchemeInHeader)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: header_name,
+          in_: spec.SchemeInHeader,
+        ))) ->
           sb
           |> se.indent(
             indent,
@@ -2365,7 +2383,10 @@ fn generate_scheme_apply(
               <> val_var
               <> ")",
           )
-        Ok(spec.ApiKeyScheme(name: query_name, in_: spec.SchemeInQuery)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: query_name,
+          in_: spec.SchemeInQuery,
+        ))) ->
           sb
           |> se.indent(
             indent,
@@ -2382,7 +2403,10 @@ fn generate_scheme_apply(
               <> val_var
               <> ")",
           )
-        Ok(spec.ApiKeyScheme(name: cookie_name, in_: spec.SchemeInCookie)) ->
+        Ok(spec.ConcreteEntry(spec.ApiKeyScheme(
+          name: cookie_name,
+          in_: spec.SchemeInCookie,
+        ))) ->
           sb
           |> se.indent(
             indent,
@@ -2400,7 +2424,7 @@ fn generate_scheme_apply(
             indent,
             "let req = request.set_header(req, \"cookie\", new_cookie)",
           )
-        Ok(spec.HttpScheme(scheme: "basic", ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "basic", ..))) ->
           sb
           |> se.indent(
             indent,
@@ -2408,7 +2432,7 @@ fn generate_scheme_apply(
               <> val_var
               <> ")",
           )
-        Ok(spec.HttpScheme(scheme: "digest", ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "digest", ..))) ->
           sb
           |> se.indent(
             indent,
@@ -2416,9 +2440,9 @@ fn generate_scheme_apply(
               <> val_var
               <> ")",
           )
-        Ok(spec.HttpScheme(scheme: "bearer", ..))
-        | Ok(spec.OAuth2Scheme(..))
-        | Ok(spec.OpenIdConnectScheme(..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: "bearer", ..)))
+        | Ok(spec.ConcreteEntry(spec.OAuth2Scheme(..)))
+        | Ok(spec.ConcreteEntry(spec.OpenIdConnectScheme(..))) ->
           sb
           |> se.indent(
             indent,
@@ -2426,7 +2450,7 @@ fn generate_scheme_apply(
               <> val_var
               <> ")",
           )
-        Ok(spec.HttpScheme(scheme: scheme_name, ..)) ->
+        Ok(spec.ConcreteEntry(spec.HttpScheme(scheme: scheme_name, ..))) ->
           sb
           |> se.indent(
             indent,

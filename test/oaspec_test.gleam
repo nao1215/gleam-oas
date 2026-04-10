@@ -206,7 +206,7 @@ components:
   let assert Some(components) = spec.components
   let assert Ok(scheme) = dict.get(components.security_schemes, "BasicAuth")
   case scheme {
-    spec.HttpScheme(scheme: "basic", bearer_format: None) ->
+    spec.ConcreteEntry(spec.HttpScheme(scheme: "basic", bearer_format: None)) ->
       should.be_true(True)
     _ -> should.fail()
   }
@@ -230,7 +230,7 @@ components:
   let assert Some(components) = spec.components
   let assert Ok(scheme) = dict.get(components.security_schemes, "DigestAuth")
   case scheme {
-    spec.HttpScheme(scheme: "digest", bearer_format: None) ->
+    spec.ConcreteEntry(spec.HttpScheme(scheme: "digest", bearer_format: None)) ->
       should.be_true(True)
     _ -> should.fail()
   }
@@ -1419,8 +1419,10 @@ components:
   let assert Some(components) = parsed.components
   let assert Ok(scheme) = dict.get(components.security_schemes, "oauth2Auth")
   case scheme {
-    spec.OAuth2Scheme(description: Some("OAuth2 authorization code"), ..) ->
-      should.be_true(True)
+    spec.ConcreteEntry(spec.OAuth2Scheme(
+      description: Some("OAuth2 authorization code"),
+      ..,
+    )) -> should.be_true(True)
     _ -> should.fail()
   }
 }
@@ -1449,8 +1451,10 @@ components:
   let assert Some(components) = parsed.components
   let assert Ok(scheme) = dict.get(components.security_schemes, "cookieAuth")
   case scheme {
-    spec.ApiKeyScheme(name: "session_id", in_: spec.SchemeInCookie) ->
-      should.be_true(True)
+    spec.ConcreteEntry(spec.ApiKeyScheme(
+      name: "session_id",
+      in_: spec.SchemeInCookie,
+    )) -> should.be_true(True)
     _ -> should.fail()
   }
 }
@@ -2897,7 +2901,7 @@ security:
   // OAuth2 scheme must preserve flow URLs and scopes.
   // Currently OAuth2Scheme only has description, losing all flow data.
   case scheme {
-    spec.OAuth2Scheme(flows:, ..) -> {
+    spec.ConcreteEntry(spec.OAuth2Scheme(flows:, ..)) -> {
       // flows must not be empty — must contain the authorizationCode flow
       { flows != dict.new() }
       |> should.be_true()
@@ -4583,15 +4587,18 @@ components:
   let assert Ok(q) = dict.get(c.security_schemes, "queryKey")
   let assert Ok(k) = dict.get(c.security_schemes, "cookieKey")
   case h {
-    spec.ApiKeyScheme(in_: spec.SchemeInHeader, ..) -> should.be_ok(Ok(Nil))
+    spec.ConcreteEntry(spec.ApiKeyScheme(in_: spec.SchemeInHeader, ..)) ->
+      should.be_ok(Ok(Nil))
     _ -> should.fail()
   }
   case q {
-    spec.ApiKeyScheme(in_: spec.SchemeInQuery, ..) -> should.be_ok(Ok(Nil))
+    spec.ConcreteEntry(spec.ApiKeyScheme(in_: spec.SchemeInQuery, ..)) ->
+      should.be_ok(Ok(Nil))
     _ -> should.fail()
   }
   case k {
-    spec.ApiKeyScheme(in_: spec.SchemeInCookie, ..) -> should.be_ok(Ok(Nil))
+    spec.ConcreteEntry(spec.ApiKeyScheme(in_: spec.SchemeInCookie, ..)) ->
+      should.be_ok(Ok(Nil))
     _ -> should.fail()
   }
 }

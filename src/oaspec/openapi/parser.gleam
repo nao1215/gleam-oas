@@ -11,15 +11,15 @@ import oaspec/openapi/schema.{
   NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
 }
 import oaspec/openapi/spec.{
-  type Callback, type Components, type Contact, type Encoding, type ExternalDoc,
-  type Header, type HttpMethod, type Info, type License, type Link,
-  type MediaType, type OpenApiSpec, type Operation, type Parameter,
-  type ParameterIn, type PathItem, type RequestBody, type Response,
-  type SecurityRequirement, type Server, type ServerVariable, type Tag, Callback,
-  Components, Contact, Delete, Encoding, ExternalDoc, Get, Head, Header, Info,
-  License, Link, MediaType, OpenApiSpec, Operation, Options, Parameter, Patch,
-  PathItem, Post, Put, RequestBody, Response, SecurityRequirement, Server,
-  ServerVariable, Tag, Trace,
+  type Callback, type ComponentEntry, type Components, type Contact,
+  type Encoding, type ExternalDoc, type Header, type HttpMethod, type Info,
+  type License, type Link, type MediaType, type OpenApiSpec, type Operation,
+  type Parameter, type ParameterIn, type PathItem, type RequestBody,
+  type Response, type SecurityRequirement, type Server, type ServerVariable,
+  type Tag, AliasEntry, Callback, Components, ConcreteEntry, Contact, Delete,
+  Encoding, ExternalDoc, Get, Head, Header, Info, License, Link, MediaType,
+  OpenApiSpec, Operation, Options, Parameter, Patch, PathItem, Post, Put,
+  RequestBody, Response, SecurityRequirement, Server, ServerVariable, Tag, Trace,
 }
 import simplifile
 import yay
@@ -607,7 +607,12 @@ fn resolve_parameter_ref(
   case components {
     Some(comps) ->
       case dict.get(comps.parameters, ref_name) {
-        Ok(param) -> Ok(param)
+        Ok(ConcreteEntry(param)) -> Ok(param)
+        Ok(AliasEntry(_)) ->
+          Error(InvalidValue(
+            path: "parameter.$ref",
+            detail: "Parameter reference points to an alias: " <> ref_str,
+          ))
         Error(_) ->
           Error(InvalidValue(
             path: "parameter.$ref",
@@ -636,7 +641,12 @@ fn resolve_request_body_ref(
   case components {
     Some(comps) ->
       case dict.get(comps.request_bodies, ref_name) {
-        Ok(rb) -> Ok(rb)
+        Ok(ConcreteEntry(rb)) -> Ok(rb)
+        Ok(AliasEntry(_)) ->
+          Error(InvalidValue(
+            path: "requestBody.$ref",
+            detail: "RequestBody reference points to an alias: " <> ref_str,
+          ))
         Error(_) ->
           Error(InvalidValue(
             path: "requestBody.$ref",
@@ -665,7 +675,12 @@ fn resolve_response_ref(
   case components {
     Some(comps) ->
       case dict.get(comps.responses, ref_name) {
-        Ok(resp) -> Ok(resp)
+        Ok(ConcreteEntry(resp)) -> Ok(resp)
+        Ok(AliasEntry(_)) ->
+          Error(InvalidValue(
+            path: "response.$ref",
+            detail: "Response reference points to an alias: " <> ref_str,
+          ))
         Error(_) ->
           Error(InvalidValue(
             path: "response.$ref",
@@ -987,21 +1002,19 @@ fn parse_schemas_map(
 /// Parse the parameters map from components.
 fn parse_parameters_map(
   components_node: yay.Node,
-) -> Result(Dict(String, Parameter), ParseError) {
+) -> Result(Dict(String, ComponentEntry(Parameter)), ParseError) {
   case yay.select_sugar(from: components_node, selector: "parameters") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level —
-            // they reference sibling entries and cannot be resolved during
-            // component parsing (components are not yet fully built).
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
+              Ok(Some(ref_str)) ->
+                Ok(dict.insert(acc, name, AliasEntry(ref: ref_str)))
               _ -> {
                 use param <- result.try(parse_parameter(value_node, None))
-                Ok(dict.insert(acc, name, param))
+                Ok(dict.insert(acc, name, ConcreteEntry(param)))
               }
             }
           }
@@ -1016,22 +1029,22 @@ fn parse_parameters_map(
 /// Parse the requestBodies map from components.
 fn parse_request_bodies_map(
   components_node: yay.Node,
-) -> Result(Dict(String, RequestBody), ParseError) {
+) -> Result(Dict(String, ComponentEntry(RequestBody)), ParseError) {
   case yay.select_sugar(from: components_node, selector: "requestBodies") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
+              Ok(Some(ref_str)) ->
+                Ok(dict.insert(acc, name, AliasEntry(ref: ref_str)))
               _ -> {
                 use rb <- result.try(parse_request_body(
                   value_node,
                   "components.requestBodies." <> name,
                 ))
-                Ok(dict.insert(acc, name, rb))
+                Ok(dict.insert(acc, name, ConcreteEntry(rb)))
               }
             }
           }
@@ -1046,19 +1059,19 @@ fn parse_request_bodies_map(
 /// Parse the responses map from components.
 fn parse_responses_map(
   components_node: yay.Node,
-) -> Result(Dict(String, Response), ParseError) {
+) -> Result(Dict(String, ComponentEntry(Response)), ParseError) {
   case yay.select_sugar(from: components_node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
+              Ok(Some(ref_str)) ->
+                Ok(dict.insert(acc, name, AliasEntry(ref: ref_str)))
               _ -> {
                 use resp <- result.try(parse_response(value_node, None))
-                Ok(dict.insert(acc, name, resp))
+                Ok(dict.insert(acc, name, ConcreteEntry(resp)))
               }
             }
           }
@@ -1125,6 +1138,12 @@ pub fn parse_schema_object(
     yay.extract_optional_string(node, "example")
     |> result.unwrap(None)
 
+  let const_value =
+    yay.extract_optional_string(node, "const")
+    |> result.unwrap(None)
+
+  let unsupported_keywords = detect_unsupported_keywords(node)
+
   let metadata =
     schema.SchemaMetadata(
       description:,
@@ -1135,9 +1154,10 @@ pub fn parse_schema_object(
       write_only:,
       default:,
       example:,
+      const_value:,
+      raw_type: None,
+      unsupported_keywords:,
     )
-
-  use _ <- result.try(check_unsupported_schema_keywords(node, path))
 
   // Check for composition keywords first
   case yay.select_sugar(from: node, selector: "allOf") {
@@ -1187,34 +1207,21 @@ pub fn parse_schema_object(
   }
 }
 
-/// Check for unsupported JSON Schema 2020-12 keywords and return an error
-/// if any are found.
-fn check_unsupported_schema_keywords(
-  node: yay.Node,
-  path: String,
-) -> Result(Nil, ParseError) {
-  let unsupported_keywords = [
-    "const", "$defs", "prefixItems", "if", "then", "else", "dependentSchemas",
+/// Detect unsupported JSON Schema 2020-12 keywords present in a schema node.
+/// Returns a list of keyword names found (does NOT fail — stores them for later).
+/// Note: `const` is NOT in this list because it is parsed into `const_value`.
+fn detect_unsupported_keywords(node: yay.Node) -> List(String) {
+  let keywords = [
+    "$defs", "prefixItems", "if", "then", "else", "dependentSchemas",
     "unevaluatedProperties", "unevaluatedItems", "contentEncoding",
     "contentMediaType", "contentSchema", "not",
   ]
-  let found =
-    list.filter(unsupported_keywords, fn(keyword) {
-      case yay.select_sugar(from: node, selector: keyword) {
-        Ok(_) -> True
-        Error(_) -> False
-      }
-    })
-  case found {
-    [] -> Ok(Nil)
-    keywords ->
-      Error(InvalidValue(
-        path: path,
-        detail: "Unsupported JSON Schema keyword '"
-          <> string.join(keywords, "', '")
-          <> "' found. This keyword is not supported for code generation. Remove it or model the constraint differently.",
-      ))
-  }
+  list.filter(keywords, fn(keyword) {
+    case yay.select_sugar(from: node, selector: keyword) {
+      Ok(_) -> True
+      Error(_) -> False
+    }
+  })
 }
 
 /// Parse a typed schema (string, integer, number, boolean, array, object).
@@ -1255,13 +1262,21 @@ fn parse_typed_schema(
                 nullable: metadata.nullable || has_null,
               ),
             ))
-          _ ->
-            Error(InvalidValue(
-              path: path <> ".type",
-              detail: "Multi-type unions (type: ["
-                <> string.join(non_null_types, ", ")
-                <> "]) are not supported; use oneOf instead",
-            ))
+          _ -> {
+            // Store multi-type for normalize pass
+            let updated_meta =
+              schema.SchemaMetadata(
+                ..metadata,
+                raw_type: Some(non_null_types),
+                nullable: metadata.nullable || has_null,
+              )
+            // Default to first type for now; normalize will convert to oneOf
+            let primary = case non_null_types {
+              [first, ..] -> first
+              [] -> "object"
+            }
+            Ok(#(primary, updated_meta))
+          }
         }
       }
       Ok(yay.NodeStr(s)) -> Ok(#(s, metadata))
@@ -1501,19 +1516,19 @@ pub fn parse_error_to_string(error: ParseError) -> String {
 /// malformed.
 fn parse_security_schemes_map(
   components_node: yay.Node,
-) -> Result(Dict(String, spec.SecurityScheme), ParseError) {
+) -> Result(Dict(String, ComponentEntry(spec.SecurityScheme)), ParseError) {
   case yay.select_sugar(from: components_node, selector: "securitySchemes") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
+              Ok(Some(ref_str)) ->
+                Ok(dict.insert(acc, name, AliasEntry(ref: ref_str)))
               _ -> {
                 use scheme <- result.try(parse_security_scheme(value_node))
-                Ok(dict.insert(acc, name, scheme))
+                Ok(dict.insert(acc, name, ConcreteEntry(scheme)))
               }
             }
           }
@@ -1528,19 +1543,25 @@ fn parse_security_schemes_map(
 /// Parse the pathItems map from components.
 fn parse_path_items_map(
   components_node: yay.Node,
-) -> Result(Dict(String, PathItem), ParseError) {
+) -> Result(Dict(String, ComponentEntry(PathItem)), ParseError) {
   case yay.select_sugar(from: components_node, selector: "pathItems") {
     Ok(yay.NodeMap(entries)) -> {
       list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(name) -> {
-            use path_item <- result.try(parse_path_item(
-              value_node,
-              "components.pathItems." <> name,
-              None,
-            ))
-            Ok(dict.insert(acc, name, path_item))
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(ref_str)) ->
+                Ok(dict.insert(acc, name, AliasEntry(ref: ref_str)))
+              _ -> {
+                use path_item <- result.try(parse_path_item(
+                  value_node,
+                  "components.pathItems." <> name,
+                  None,
+                ))
+                Ok(dict.insert(acc, name, ConcreteEntry(path_item)))
+              }
+            }
           }
           _ -> Ok(acc)
         }
@@ -1564,7 +1585,12 @@ fn resolve_path_item_ref(
   case components {
     Some(comps) ->
       case dict.get(comps.path_items, ref_name) {
-        Ok(path_item) -> Ok(path_item)
+        Ok(ConcreteEntry(path_item)) -> Ok(path_item)
+        Ok(AliasEntry(_)) ->
+          Error(InvalidValue(
+            path: "pathItem.$ref",
+            detail: "PathItem reference points to an alias: " <> ref_str,
+          ))
         Error(_) ->
           Error(InvalidValue(
             path: "pathItem.$ref",

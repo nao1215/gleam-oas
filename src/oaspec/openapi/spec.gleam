@@ -2,6 +2,12 @@ import gleam/dict.{type Dict}
 import gleam/option.{type Option}
 import oaspec/openapi/schema.{type SchemaRef}
 
+/// A component entry that may be a concrete definition or a $ref alias.
+pub type ComponentEntry(a) {
+  ConcreteEntry(a)
+  AliasEntry(ref: String)
+}
+
 /// Top-level OpenAPI 3.x specification.
 pub type OpenApiSpec {
   OpenApiSpec(
@@ -77,11 +83,11 @@ pub type Tag {
 pub type Components {
   Components(
     schemas: Dict(String, SchemaRef),
-    parameters: Dict(String, Parameter),
-    request_bodies: Dict(String, RequestBody),
-    responses: Dict(String, Response),
-    security_schemes: Dict(String, SecurityScheme),
-    path_items: Dict(String, PathItem),
+    parameters: Dict(String, ComponentEntry(Parameter)),
+    request_bodies: Dict(String, ComponentEntry(RequestBody)),
+    responses: Dict(String, ComponentEntry(Response)),
+    security_schemes: Dict(String, ComponentEntry(SecurityScheme)),
+    path_items: Dict(String, ComponentEntry(PathItem)),
     headers: Dict(String, Header),
     examples: Dict(String, String),
     links: Dict(String, Link),
