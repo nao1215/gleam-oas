@@ -1,0 +1,13 @@
+openapi: "3.0.0"
+info:
+  title: Malformed Server Variable Test
+  version: 1.0.0
+servers:
+  - url: https://{env}.example.com
+    variables:
+      env:
+        enum:
+          - staging
+          - production
+        description: Environment name
+paths: {}

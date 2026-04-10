@@ -88,8 +88,8 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec, ParseError) {
   use servers <- result.try(parse_servers(node))
   use security <- result.try(parse_security_requirements(node, ""))
   use webhooks <- result.try(parse_webhooks(node, components))
-  let tags = parse_tags(node)
-  let external_docs = parse_optional_external_docs(node)
+  use tags <- result.try(parse_tags(node))
+  use external_docs <- result.try(parse_optional_external_docs(node))
   let json_schema_dialect =
     yay.extract_optional_string(node, "jsonSchemaDialect")
     |> result.unwrap(None)
@@ -152,7 +152,7 @@ fn parse_info(root: yay.Node) -> Result(Info, ParseError) {
     |> result.unwrap(None)
 
   let contact = parse_optional_contact(info_node)
-  let license = parse_optional_license(info_node)
+  use license <- result.try(parse_optional_license(info_node))
 
   Ok(Info(
     title:,
@@ -184,7 +184,7 @@ fn parse_server(node: yay.Node) -> Result(Server, ParseError) {
     yay.extract_optional_string(node, "description")
     |> result.unwrap(None)
 
-  let variables = parse_server_variables(node)
+  use variables <- result.try(parse_server_variables(node))
 
   Ok(Server(url:, description:, variables:))
 }
@@ -403,7 +403,7 @@ fn parse_operation(
 
   use callbacks <- result.try(parse_callbacks(node, context, components))
   use op_servers <- result.try(parse_servers(node))
-  let external_docs = parse_optional_external_docs(node)
+  use external_docs <- result.try(parse_optional_external_docs(node))
 
   Ok(Operation(
     operation_id:,
@@ -2027,35 +2027,47 @@ fn parse_optional_contact(info_node: yay.Node) -> Option(Contact) {
 }
 
 /// Parse optional license from an info node.
-fn parse_optional_license(info_node: yay.Node) -> Option(License) {
+/// If `license` is present, `name` is required per OpenAPI 3.x.
+fn parse_optional_license(
+  info_node: yay.Node,
+) -> Result(Option(License), ParseError) {
   case yay.select_sugar(from: info_node, selector: "license") {
     Ok(license_node) -> {
-      case yay.extract_string(license_node, "name") {
-        Ok(name) -> {
-          let url =
-            yay.extract_optional_string(license_node, "url")
-            |> result.unwrap(None)
-          Some(License(name:, url:))
-        }
-        _ -> None
-      }
+      use name <- result.try(
+        yay.extract_string(license_node, "name")
+        |> result.map_error(fn(_) {
+          MissingField(path: "info.license", field: "name")
+        }),
+      )
+      let url =
+        yay.extract_optional_string(license_node, "url")
+        |> result.unwrap(None)
+      Ok(Some(License(name:, url:)))
     }
-    _ -> None
+    _ -> Ok(None)
   }
 }
 
 /// Parse server variables from a server node.
-fn parse_server_variables(node: yay.Node) -> Dict(String, ServerVariable) {
+/// `default` is required per OpenAPI 3.x for each server variable.
+fn parse_server_variables(
+  node: yay.Node,
+) -> Result(Dict(String, ServerVariable), ParseError) {
   case yay.select_sugar(from: node, selector: "variables") {
     Ok(yay.NodeMap(entries)) ->
-      list.fold(entries, dict.new(), fn(acc, entry) {
+      list.try_fold(entries, dict.new(), fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
           yay.NodeStr(var_name) -> {
-            let default =
-              yay.extract_optional_string(value_node, "default")
-              |> result.unwrap(None)
-              |> option.unwrap("")
+            use default <- result.try(
+              yay.extract_string(value_node, "default")
+              |> result.map_error(fn(_) {
+                MissingField(
+                  path: "servers.variables." <> var_name,
+                  field: "default",
+                )
+              }),
+            )
             let enum_values = case yay.extract_string_list(value_node, "enum") {
               Ok(values) -> values
               _ -> []
@@ -2063,54 +2075,59 @@ fn parse_server_variables(node: yay.Node) -> Dict(String, ServerVariable) {
             let description =
               yay.extract_optional_string(value_node, "description")
               |> result.unwrap(None)
-            dict.insert(
+            Ok(dict.insert(
               acc,
               var_name,
               ServerVariable(default:, enum_values:, description:),
-            )
+            ))
           }
-          _ -> acc
+          _ -> Ok(acc)
         }
       })
-    _ -> dict.new()
+    _ -> Ok(dict.new())
   }
 }
 
 /// Parse optional external docs from a node.
-fn parse_optional_external_docs(node: yay.Node) -> Option(ExternalDoc) {
+/// If `externalDocs` is present, `url` is required per OpenAPI 3.x.
+fn parse_optional_external_docs(
+  node: yay.Node,
+) -> Result(Option(ExternalDoc), ParseError) {
   case yay.select_sugar(from: node, selector: "externalDocs") {
     Ok(doc_node) -> {
-      case yay.extract_string(doc_node, "url") {
-        Ok(url) -> {
-          let description =
-            yay.extract_optional_string(doc_node, "description")
-            |> result.unwrap(None)
-          Some(ExternalDoc(url:, description:))
-        }
-        _ -> None
-      }
+      use url <- result.try(
+        yay.extract_string(doc_node, "url")
+        |> result.map_error(fn(_) {
+          MissingField(path: "externalDocs", field: "url")
+        }),
+      )
+      let description =
+        yay.extract_optional_string(doc_node, "description")
+        |> result.unwrap(None)
+      Ok(Some(ExternalDoc(url:, description:)))
     }
-    _ -> None
+    _ -> Ok(None)
   }
 }
 
 /// Parse tags array from root.
-fn parse_tags(node: yay.Node) -> List(Tag) {
+fn parse_tags(node: yay.Node) -> Result(List(Tag), ParseError) {
   case yay.select_sugar(from: node, selector: "tags") {
     Ok(yay.NodeSeq(items)) ->
-      list.filter_map(items, fn(tag_node) {
-        case yay.extract_string(tag_node, "name") {
-          Ok(name) -> {
-            let description =
-              yay.extract_optional_string(tag_node, "description")
-              |> result.unwrap(None)
-            let external_docs = parse_optional_external_docs(tag_node)
-            Ok(Tag(name:, description:, external_docs:))
-          }
-          _ -> Error(Nil)
-        }
+      list.try_map(items, fn(tag_node) {
+        use name <- result.try(
+          yay.extract_string(tag_node, "name")
+          |> result.map_error(fn(_) {
+            MissingField(path: "tags", field: "name")
+          }),
+        )
+        let description =
+          yay.extract_optional_string(tag_node, "description")
+          |> result.unwrap(None)
+        use external_docs <- result.try(parse_optional_external_docs(tag_node))
+        Ok(Tag(name:, description:, external_docs:))
       })
-    _ -> []
+    _ -> Ok([])
   }
 }
 

@@ -8859,3 +8859,36 @@ pub fn unknown_param_style_rejects_test() {
     _ -> should.fail()
   }
 }
+
+// ---------------------------------------------------------------------------
+// Strict parsing of malformed optional objects
+// ---------------------------------------------------------------------------
+
+/// License without required 'name' should be rejected.
+pub fn malformed_license_no_name_rejects_test() {
+  let result = parser.parse_file("test/fixtures/malformed_license_no_name.yaml")
+  case result {
+    Error(parser.MissingField(_, "name")) -> should.be_true(True)
+    _ -> should.fail()
+  }
+}
+
+/// ExternalDocs without required 'url' should be rejected.
+pub fn malformed_external_docs_no_url_rejects_test() {
+  let result =
+    parser.parse_file("test/fixtures/malformed_external_docs_no_url.yaml")
+  case result {
+    Error(parser.MissingField(_, "url")) -> should.be_true(True)
+    _ -> should.fail()
+  }
+}
+
+/// Server variable without required 'default' should be rejected.
+pub fn malformed_server_var_no_default_rejects_test() {
+  let result =
+    parser.parse_file("test/fixtures/malformed_server_var_no_default.yaml")
+  case result {
+    Error(parser.MissingField(_, "default")) -> should.be_true(True)
+    _ -> should.fail()
+  }
+}
