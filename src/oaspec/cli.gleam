@@ -147,7 +147,7 @@ fn run_generate(
       io.println("Parsing OpenAPI spec: " <> cfg.input)
       case parser.parse_file(cfg.input) {
         Error(e) -> {
-          io.println("Error: " <> parse_error_to_string(e))
+          io.println("Error: " <> parser.parse_error_to_string(e))
           halt(1)
         }
         Ok(spec) -> {
@@ -221,18 +221,6 @@ fn load_config(
   config.validate_output_package_match(cfg)
   |> result.map(fn(_) { cfg })
   |> result.map_error(config.error_to_string)
-}
-
-/// Convert a parse error to a human-readable string.
-fn parse_error_to_string(e: parser.ParseError) -> String {
-  case e {
-    parser.FileError(detail:) -> detail
-    parser.YamlError(detail:) -> detail
-    parser.MissingField(path:, field:) ->
-      "Missing field '" <> field <> "' at " <> path
-    parser.InvalidValue(path:, detail:) ->
-      "Invalid value at " <> path <> ": " <> detail
-  }
 }
 
 /// Exit the process with a status code.
