@@ -8784,6 +8784,30 @@ pub fn schema_no_type_with_properties_parses_test() {
 }
 
 // ---------------------------------------------------------------------------
+// Component $ref alias resolution
+// ---------------------------------------------------------------------------
+
+/// Component parameter $ref alias should resolve to the target entry.
+pub fn component_param_alias_resolves_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/component_param_alias.yaml")
+  let assert Some(components) = spec.components
+  // Both BaseLimit and AliasedLimit should be present
+  dict.size(components.parameters) |> should.equal(2)
+  let assert Ok(aliased) = dict.get(components.parameters, "AliasedLimit")
+  aliased.name |> should.equal("limit")
+}
+
+/// Component response $ref alias should resolve to the target entry.
+pub fn component_response_alias_resolves_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/component_response_alias.yaml")
+  let assert Some(components) = spec.components
+  // Both BaseOk and AliasedOk should be present
+  dict.size(components.responses) |> should.equal(2)
+}
+
+// ---------------------------------------------------------------------------
 // $ref prefix validation
 // ---------------------------------------------------------------------------
 

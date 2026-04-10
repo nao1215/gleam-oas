@@ -985,26 +985,54 @@ fn parse_schemas_map(
 }
 
 /// Parse the parameters map from components.
+/// Uses two passes: first parse concrete entries, then resolve $ref aliases.
 fn parse_parameters_map(
   components_node: yay.Node,
 ) -> Result(Dict(String, Parameter), ParseError) {
   case yay.select_sugar(from: components_node, selector: "parameters") {
     Ok(yay.NodeMap(entries)) -> {
-      list.try_fold(entries, dict.new(), fn(acc, entry) {
+      // Pass 1: parse concrete (non-$ref) entries
+      use concrete <- result.try(
+        list.try_fold(entries, dict.new(), fn(acc, entry) {
+          let #(key_node, value_node) = entry
+          case key_node {
+            yay.NodeStr(name) ->
+              case yay.extract_optional_string(value_node, "$ref") {
+                Ok(Some(_)) -> Ok(acc)
+                _ -> {
+                  use param <- result.try(parse_parameter(value_node, None))
+                  Ok(dict.insert(acc, name, param))
+                }
+              }
+            _ -> Ok(acc)
+          }
+        }),
+      )
+      // Pass 2: resolve $ref aliases against concrete entries
+      list.try_fold(entries, concrete, fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level —
-            // they reference sibling entries and cannot be resolved during
-            // component parsing (components are not yet fully built).
+          yay.NodeStr(name) ->
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
-              _ -> {
-                use param <- result.try(parse_parameter(value_node, None))
-                Ok(dict.insert(acc, name, param))
+              Ok(Some(ref_str)) -> {
+                use ref_name <- result.try(validate_ref_prefix(
+                  ref_str,
+                  "#/components/parameters/",
+                  "components.parameters." <> name,
+                ))
+                case dict.get(acc, ref_name) {
+                  Ok(target) -> Ok(dict.insert(acc, name, target))
+                  Error(_) ->
+                    Error(InvalidValue(
+                      path: "components.parameters." <> name,
+                      detail: "Component alias references '"
+                        <> ref_str
+                        <> "' which is not defined.",
+                    ))
+                }
               }
+              _ -> Ok(acc)
             }
-          }
           _ -> Ok(acc)
         }
       })
@@ -1014,27 +1042,55 @@ fn parse_parameters_map(
 }
 
 /// Parse the requestBodies map from components.
+/// Uses two passes: first parse concrete entries, then resolve $ref aliases.
 fn parse_request_bodies_map(
   components_node: yay.Node,
 ) -> Result(Dict(String, RequestBody), ParseError) {
   case yay.select_sugar(from: components_node, selector: "requestBodies") {
     Ok(yay.NodeMap(entries)) -> {
-      list.try_fold(entries, dict.new(), fn(acc, entry) {
+      use concrete <- result.try(
+        list.try_fold(entries, dict.new(), fn(acc, entry) {
+          let #(key_node, value_node) = entry
+          case key_node {
+            yay.NodeStr(name) ->
+              case yay.extract_optional_string(value_node, "$ref") {
+                Ok(Some(_)) -> Ok(acc)
+                _ -> {
+                  use rb <- result.try(parse_request_body(
+                    value_node,
+                    "components.requestBodies." <> name,
+                  ))
+                  Ok(dict.insert(acc, name, rb))
+                }
+              }
+            _ -> Ok(acc)
+          }
+        }),
+      )
+      list.try_fold(entries, concrete, fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
+          yay.NodeStr(name) ->
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
-              _ -> {
-                use rb <- result.try(parse_request_body(
-                  value_node,
+              Ok(Some(ref_str)) -> {
+                use ref_name <- result.try(validate_ref_prefix(
+                  ref_str,
+                  "#/components/requestBodies/",
                   "components.requestBodies." <> name,
                 ))
-                Ok(dict.insert(acc, name, rb))
+                case dict.get(acc, ref_name) {
+                  Ok(target) -> Ok(dict.insert(acc, name, target))
+                  Error(_) ->
+                    Error(InvalidValue(
+                      path: "components.requestBodies." <> name,
+                      detail: "Component alias references '"
+                        <> ref_str
+                        <> "' which is not defined.",
+                    ))
+                }
               }
+              _ -> Ok(acc)
             }
-          }
           _ -> Ok(acc)
         }
       })
@@ -1044,24 +1100,52 @@ fn parse_request_bodies_map(
 }
 
 /// Parse the responses map from components.
+/// Uses two passes: first parse concrete entries, then resolve $ref aliases.
 fn parse_responses_map(
   components_node: yay.Node,
 ) -> Result(Dict(String, Response), ParseError) {
   case yay.select_sugar(from: components_node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
-      list.try_fold(entries, dict.new(), fn(acc, entry) {
+      use concrete <- result.try(
+        list.try_fold(entries, dict.new(), fn(acc, entry) {
+          let #(key_node, value_node) = entry
+          case key_node {
+            yay.NodeStr(name) ->
+              case yay.extract_optional_string(value_node, "$ref") {
+                Ok(Some(_)) -> Ok(acc)
+                _ -> {
+                  use resp <- result.try(parse_response(value_node, None))
+                  Ok(dict.insert(acc, name, resp))
+                }
+              }
+            _ -> Ok(acc)
+          }
+        }),
+      )
+      list.try_fold(entries, concrete, fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
+          yay.NodeStr(name) ->
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
-              _ -> {
-                use resp <- result.try(parse_response(value_node, None))
-                Ok(dict.insert(acc, name, resp))
+              Ok(Some(ref_str)) -> {
+                use ref_name <- result.try(validate_ref_prefix(
+                  ref_str,
+                  "#/components/responses/",
+                  "components.responses." <> name,
+                ))
+                case dict.get(acc, ref_name) {
+                  Ok(target) -> Ok(dict.insert(acc, name, target))
+                  Error(_) ->
+                    Error(InvalidValue(
+                      path: "components.responses." <> name,
+                      detail: "Component alias references '"
+                        <> ref_str
+                        <> "' which is not defined.",
+                    ))
+                }
               }
+              _ -> Ok(acc)
             }
-          }
           _ -> Ok(acc)
         }
       })
@@ -1504,19 +1588,46 @@ fn parse_security_schemes_map(
 ) -> Result(Dict(String, spec.SecurityScheme), ParseError) {
   case yay.select_sugar(from: components_node, selector: "securitySchemes") {
     Ok(yay.NodeMap(entries)) -> {
-      list.try_fold(entries, dict.new(), fn(acc, entry) {
+      use concrete <- result.try(
+        list.try_fold(entries, dict.new(), fn(acc, entry) {
+          let #(key_node, value_node) = entry
+          case key_node {
+            yay.NodeStr(name) ->
+              case yay.extract_optional_string(value_node, "$ref") {
+                Ok(Some(_)) -> Ok(acc)
+                _ -> {
+                  use scheme <- result.try(parse_security_scheme(value_node))
+                  Ok(dict.insert(acc, name, scheme))
+                }
+              }
+            _ -> Ok(acc)
+          }
+        }),
+      )
+      list.try_fold(entries, concrete, fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            // Skip $ref aliases at component definition level
+          yay.NodeStr(name) ->
             case yay.extract_optional_string(value_node, "$ref") {
-              Ok(Some(_)) -> Ok(acc)
-              _ -> {
-                use scheme <- result.try(parse_security_scheme(value_node))
-                Ok(dict.insert(acc, name, scheme))
+              Ok(Some(ref_str)) -> {
+                use ref_name <- result.try(validate_ref_prefix(
+                  ref_str,
+                  "#/components/securitySchemes/",
+                  "components.securitySchemes." <> name,
+                ))
+                case dict.get(acc, ref_name) {
+                  Ok(target) -> Ok(dict.insert(acc, name, target))
+                  Error(_) ->
+                    Error(InvalidValue(
+                      path: "components.securitySchemes." <> name,
+                      detail: "Component alias references '"
+                        <> ref_str
+                        <> "' which is not defined.",
+                    ))
+                }
               }
+              _ -> Ok(acc)
             }
-          }
           _ -> Ok(acc)
         }
       })
@@ -1526,22 +1637,56 @@ fn parse_security_schemes_map(
 }
 
 /// Parse the pathItems map from components.
+/// Uses two passes: first parse concrete entries, then resolve $ref aliases.
 fn parse_path_items_map(
   components_node: yay.Node,
 ) -> Result(Dict(String, PathItem), ParseError) {
   case yay.select_sugar(from: components_node, selector: "pathItems") {
     Ok(yay.NodeMap(entries)) -> {
-      list.try_fold(entries, dict.new(), fn(acc, entry) {
+      use concrete <- result.try(
+        list.try_fold(entries, dict.new(), fn(acc, entry) {
+          let #(key_node, value_node) = entry
+          case key_node {
+            yay.NodeStr(name) ->
+              case yay.extract_optional_string(value_node, "$ref") {
+                Ok(Some(_)) -> Ok(acc)
+                _ -> {
+                  use path_item <- result.try(parse_path_item(
+                    value_node,
+                    "components.pathItems." <> name,
+                    None,
+                  ))
+                  Ok(dict.insert(acc, name, path_item))
+                }
+              }
+            _ -> Ok(acc)
+          }
+        }),
+      )
+      list.try_fold(entries, concrete, fn(acc, entry) {
         let #(key_node, value_node) = entry
         case key_node {
-          yay.NodeStr(name) -> {
-            use path_item <- result.try(parse_path_item(
-              value_node,
-              "components.pathItems." <> name,
-              None,
-            ))
-            Ok(dict.insert(acc, name, path_item))
-          }
+          yay.NodeStr(name) ->
+            case yay.extract_optional_string(value_node, "$ref") {
+              Ok(Some(ref_str)) -> {
+                use ref_name <- result.try(validate_ref_prefix(
+                  ref_str,
+                  "#/components/pathItems/",
+                  "components.pathItems." <> name,
+                ))
+                case dict.get(acc, ref_name) {
+                  Ok(target) -> Ok(dict.insert(acc, name, target))
+                  Error(_) ->
+                    Error(InvalidValue(
+                      path: "components.pathItems." <> name,
+                      detail: "Component alias references '"
+                        <> ref_str
+                        <> "' which is not defined.",
+                    ))
+                }
+              }
+              _ -> Ok(acc)
+            }
           _ -> Ok(acc)
         }
       })
