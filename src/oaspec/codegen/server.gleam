@@ -3,6 +3,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/ir_build
 import oaspec/codegen/server_request_decode as decode_helpers
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{Inline, Reference}
@@ -117,10 +118,10 @@ fn generate_callback_handlers(
   op_id: String,
   operation: spec.Operation(Resolved),
 ) -> se.StringBuilder {
-  let callbacks = dict.to_list(operation.callbacks)
+  let callbacks = ir_build.sorted_entries(operation.callbacks)
   list.fold(callbacks, sb, fn(sb, entry) {
     let #(callback_name, callback) = entry
-    let callback_entries = dict.to_list(callback.entries)
+    let callback_entries = ir_build.sorted_entries(callback.entries)
     list.fold(callback_entries, sb, fn(sb, cb_entry) {
       let #(url_expression, _path_item) = cb_entry
       let fn_name =

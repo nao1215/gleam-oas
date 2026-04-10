@@ -147,12 +147,12 @@ fn generate_anonymous_response_decoders(
   operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> se.StringBuilder {
-  let responses = dict.to_list(operation.responses)
+  let responses = http.sort_response_entries(dict.to_list(operation.responses))
   list.fold(responses, sb, fn(sb, entry) {
     let #(status_code, ref_or_response) = entry
     case ref_or_response {
       Value(response) -> {
-        let content_entries = dict.to_list(response.content)
+        let content_entries = ir_build.sorted_entries(response.content)
         case content_entries {
           [#(_, media_type), ..] ->
             case media_type.schema {
@@ -188,7 +188,7 @@ fn generate_anonymous_request_body_decoder(
 ) -> se.StringBuilder {
   case operation.request_body {
     Some(Value(rb)) -> {
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = ir_build.sorted_entries(rb.content)
       case content_entries {
         [#(_, media_type), ..] ->
           case media_type.schema {
@@ -235,7 +235,7 @@ fn generate_inline_enum_decoders(
   ctx: Context,
 ) -> se.StringBuilder {
   let props = case schema_ref {
-    Inline(ObjectSchema(properties:, ..)) -> dict.to_list(properties)
+    Inline(ObjectSchema(properties:, ..)) -> ir_build.sorted_entries(properties)
     Inline(AllOfSchema(schemas:, ..)) -> {
       let merged =
         list.fold(schemas, dict.new(), fn(acc, s_ref) {
@@ -249,7 +249,7 @@ fn generate_inline_enum_decoders(
             _ -> acc
           }
         })
-      dict.to_list(merged)
+      ir_build.sorted_entries(merged)
     }
     _ -> []
   }
@@ -297,7 +297,7 @@ fn generate_decoder(
           <> ") {",
         )
 
-      let props = dict.to_list(properties)
+      let props = ir_build.sorted_entries(properties)
       let deduped_names =
         dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
       let sb =
@@ -1263,7 +1263,7 @@ fn generate_inline_enum_encoders(
   ctx: Context,
 ) -> se.StringBuilder {
   let props = case schema_ref {
-    Inline(ObjectSchema(properties:, ..)) -> dict.to_list(properties)
+    Inline(ObjectSchema(properties:, ..)) -> ir_build.sorted_entries(properties)
     Inline(AllOfSchema(schemas:, ..)) -> {
       let merged =
         list.fold(schemas, dict.new(), fn(acc, s_ref) {
@@ -1277,7 +1277,7 @@ fn generate_inline_enum_encoders(
             _ -> acc
           }
         })
-      dict.to_list(merged)
+      ir_build.sorted_entries(merged)
     }
     _ -> []
   }
@@ -1317,7 +1317,7 @@ fn generate_anonymous_request_body_encoder(
 ) -> se.StringBuilder {
   case operation.request_body {
     Some(Value(rb)) -> {
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = ir_build.sorted_entries(rb.content)
       case content_entries {
         [#(_, media_type), ..] ->
           case media_type.schema {
@@ -1377,7 +1377,7 @@ fn generate_encoder(
       }
 
       // Filter out readOnly properties -- they should not be sent to the server
-      let all_props = dict.to_list(properties)
+      let all_props = ir_build.sorted_entries(properties)
       let all_deduped_names =
         dedup.dedup_property_names(list.map(all_props, fn(e) { e.0 }))
       // Build list of (prop_name, prop_ref, field_name) with readOnly filtered out
