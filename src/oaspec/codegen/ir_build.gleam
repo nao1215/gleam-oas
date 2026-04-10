@@ -3,10 +3,10 @@
 /// into Gleam source text.  This replaces the direct string-concatenation
 /// approach formerly used in types.gleam's generate_types function.
 import gleam/dict
-import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import oaspec/codegen/allof_merge
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/ir.{
   type Declaration, type Module, Declaration, EnumType, Field, Module,
@@ -17,9 +17,8 @@ import oaspec/openapi/dedup
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type AdditionalProperties, type SchemaObject, type SchemaRef, AllOfSchema,
-  AnyOfSchema, Forbidden, Inline, ObjectSchema, OneOfSchema, Reference,
-  StringSchema, Typed, Untyped,
+  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, Forbidden, Inline,
+  ObjectSchema, OneOfSchema, Reference, StringSchema, Typed, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
@@ -306,7 +305,7 @@ fn schema_type_decls(
     }
 
     AllOfSchema(metadata:, schemas:) -> {
-      let merged = merge_allof_schemas(schemas, ctx)
+      let merged = allof_merge.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         ObjectSchema(
           metadata:,
@@ -452,7 +451,7 @@ fn anonymous_type_for_schema(
     }
     AnyOfSchema(..) -> schema_type_decls(type_name, raw_name, schema_obj, ctx)
     AllOfSchema(metadata:, schemas:) -> {
-      let merged = merge_allof_schemas(schemas, ctx)
+      let merged = allof_merge.merge_allof_schemas(schemas, ctx)
       let merged_schema =
         ObjectSchema(
           metadata:,
@@ -563,63 +562,6 @@ fn schema_has_untyped_additional_properties(
 }
 
 /// Result of merging allOf sub-schemas.
-type MergedAllOf {
-  MergedAllOf(
-    properties: dict.Dict(String, SchemaRef),
-    required: List(String),
-    additional_properties: AdditionalProperties,
-  )
-}
-
-fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
-  list.index_fold(
-    schemas,
-    MergedAllOf(
-      properties: dict.new(),
-      required: [],
-      additional_properties: Forbidden,
-    ),
-    fn(acc, s_ref, idx) {
-      let resolved = case s_ref {
-        Inline(obj) -> Ok(obj)
-        Reference(..) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
-      }
-      case resolved {
-        Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
-          let merged_ap = case
-            acc.additional_properties,
-            additional_properties
-          {
-            Forbidden, ap -> ap
-            existing, _ -> existing
-          }
-          MergedAllOf(
-            properties: dict.merge(acc.properties, properties),
-            required: list.append(acc.required, required),
-            additional_properties: merged_ap,
-          )
-        }
-        Ok(schema_obj) -> {
-          let field_name = case idx {
-            0 -> "value"
-            n -> "value_" <> int.to_string(n)
-          }
-          MergedAllOf(
-            ..acc,
-            properties: dict.insert(
-              acc.properties,
-              field_name,
-              Inline(schema_obj),
-            ),
-            required: [field_name, ..acc.required],
-          )
-        }
-        _ -> acc
-      }
-    },
-  )
-}
-
 fn filter_write_only_properties(
   schema_obj: SchemaObject,
   ctx: Context,
