@@ -997,5 +997,115 @@ fn validate_preserved_but_unused(ctx: Context) -> List(ValidationError) {
         ])
       })
     })
-  list.flatten([webhook_warnings, response_warnings])
+  // Warn about external docs
+  let external_docs_warnings = case ctx.spec.external_docs {
+    Some(_) -> [
+      ValidationError(
+        severity: SeverityWarning,
+        target: TargetBoth,
+        path: "externalDocs",
+        detail: "External docs are parsed but not used by code generation.",
+      ),
+    ]
+    None -> []
+  }
+
+  // Warn about top-level tags
+  let tag_warnings = case list.is_empty(ctx.spec.tags) {
+    True -> []
+    False -> [
+      ValidationError(
+        severity: SeverityWarning,
+        target: TargetBoth,
+        path: "tags",
+        detail: "Top-level tags are parsed but not used by code generation.",
+      ),
+    ]
+  }
+
+  // Warn about operation-level servers (client only uses top-level servers)
+  let operation_server_warnings =
+    list.flat_map(operations, fn(op) {
+      let #(op_id, operation, _path, _method) = op
+      case list.is_empty(operation.servers) {
+        True -> []
+        False -> [
+          ValidationError(
+            severity: SeverityWarning,
+            target: TargetClient,
+            path: op_id <> ".servers",
+            detail: "Operation-level servers are parsed but client code generation uses only the top-level server URL.",
+          ),
+        ]
+      }
+    })
+
+  // Warn about path-level servers
+  let path_server_warnings =
+    dict.to_list(ctx.spec.paths)
+    |> list.flat_map(fn(entry) {
+      let #(path, path_item) = entry
+      case list.is_empty(path_item.servers) {
+        True -> []
+        False -> [
+          ValidationError(
+            severity: SeverityWarning,
+            target: TargetClient,
+            path: "paths." <> path <> ".servers",
+            detail: "Path-level servers are parsed but client code generation uses only the top-level server URL.",
+          ),
+        ]
+      }
+    })
+
+  // Warn about component-level headers, examples, and links
+  let component_warnings = case ctx.spec.components {
+    Some(components) -> {
+      let header_w = case dict.is_empty(components.headers) {
+        True -> []
+        False -> [
+          ValidationError(
+            severity: SeverityWarning,
+            target: TargetBoth,
+            path: "components.headers",
+            detail: "Component headers are parsed but not used by code generation.",
+          ),
+        ]
+      }
+      let example_w = case dict.is_empty(components.examples) {
+        True -> []
+        False -> [
+          ValidationError(
+            severity: SeverityWarning,
+            target: TargetBoth,
+            path: "components.examples",
+            detail: "Component examples are parsed but not used by code generation.",
+          ),
+        ]
+      }
+      let link_w = case dict.is_empty(components.links) {
+        True -> []
+        False -> [
+          ValidationError(
+            severity: SeverityWarning,
+            target: TargetBoth,
+            path: "components.links",
+            detail: "Component links are parsed but not used by code generation.",
+          ),
+        ]
+      }
+      list.flatten([header_w, example_w, link_w])
+    }
+    None -> []
+  }
+
+  list.flatten([
+    webhook_warnings,
+    response_warnings,
+    external_docs_warnings,
+    tag_warnings,
+    operation_server_warnings,
+    path_server_warnings,
+    component_warnings,
+  ])
 }
