@@ -8908,6 +8908,29 @@ pub fn unsupported_nested_const_normalized_test() {
   dict.size(components.schemas) |> should.not_equal(0)
 }
 
+/// Inline unsupported keyword 'not' in request body must be rejected by capability_check.
+pub fn inline_not_keyword_rejected_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/inline_not_keyword.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      let has_not =
+        list.any(errors, fn(e) { string.contains(e.message, "not") })
+      should.be_true(has_not)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
 /// Schema without type but with properties should still parse as object.
 pub fn schema_no_type_with_properties_parses_test() {
   let assert Ok(spec) =
