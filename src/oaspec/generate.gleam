@@ -29,7 +29,6 @@ pub type GenerationSummary {
 /// Errors from the pure generation pipeline.
 pub type GenerateError {
   ValidationErrors(errors: List(Diagnostic))
-  ResolveError(detail: String)
 }
 
 /// Pure generation pipeline: parse → normalize → resolve → capability_check → hoist → dedup → validate → codegen.
@@ -47,9 +46,7 @@ pub fn generate(
   // Resolve component entry aliases ($ref within components)
   use spec <- result.try(
     resolve.resolve(spec)
-    |> result.map_error(fn(e) {
-      ResolveError(detail: diagnostic.to_short_string(e))
-    }),
+    |> result.map_error(fn(errors) { ValidationErrors(errors:) }),
   )
 
   // Check for unsupported features using capability registry

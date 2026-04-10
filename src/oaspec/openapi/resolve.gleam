@@ -14,32 +14,39 @@ import oaspec/openapi/spec.{
 /// Resolve all RefOr aliases in the spec.
 /// Call after parse and normalize, before capability_check and codegen.
 /// Resolves both component-level aliases and inline $ref within operations.
+/// OpenApiSpec(Unresolved) → Result(OpenApiSpec(Resolved), List(Diagnostic))
 pub fn resolve(
   spec: OpenApiSpec(SpecStage),
-) -> Result(OpenApiSpec(SpecStage), Diagnostic) {
+) -> Result(OpenApiSpec(SpecStage), List(Diagnostic)) {
   case spec.components {
     None -> Ok(spec)
     Some(components) -> {
-      use parameters <- result.try(resolve_component_dict(
-        components.parameters,
-        "components.parameters",
-      ))
-      use request_bodies <- result.try(resolve_component_dict(
-        components.request_bodies,
-        "components.requestBodies",
-      ))
-      use responses <- result.try(resolve_component_dict(
-        components.responses,
-        "components.responses",
-      ))
-      use security_schemes <- result.try(resolve_component_dict(
-        components.security_schemes,
-        "components.securitySchemes",
-      ))
-      use path_items <- result.try(resolve_component_dict(
-        components.path_items,
-        "components.pathItems",
-      ))
+      use parameters <- result.try(
+        resolve_component_dict(components.parameters, "components.parameters")
+        |> result.map_error(fn(e) { [e] }),
+      )
+      use request_bodies <- result.try(
+        resolve_component_dict(
+          components.request_bodies,
+          "components.requestBodies",
+        )
+        |> result.map_error(fn(e) { [e] }),
+      )
+      use responses <- result.try(
+        resolve_component_dict(components.responses, "components.responses")
+        |> result.map_error(fn(e) { [e] }),
+      )
+      use security_schemes <- result.try(
+        resolve_component_dict(
+          components.security_schemes,
+          "components.securitySchemes",
+        )
+        |> result.map_error(fn(e) { [e] }),
+      )
+      use path_items <- result.try(
+        resolve_component_dict(components.path_items, "components.pathItems")
+        |> result.map_error(fn(e) { [e] }),
+      )
       let resolved_components =
         Components(
           ..components,

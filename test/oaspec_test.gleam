@@ -693,7 +693,7 @@ pub fn validate_missing_responses_rejects_test() {
         list.any(error_details, fn(d) { string.contains(d, "no responses") })
       should.be_true(has_missing)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -7487,7 +7487,7 @@ pub fn oss_libopenapi_burgershop_rejects_not_keyword_test() {
       let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
       should.be_true(has_not)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -7550,7 +7550,6 @@ pub fn oss_oapi_codegen_nullable_generates_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7580,7 +7579,6 @@ pub fn oss_oapi_codegen_allof_additional_generates_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7632,7 +7630,6 @@ pub fn oss_oapi_codegen_issue_312_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7663,7 +7660,6 @@ pub fn oss_oapi_codegen_issue_52_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7687,7 +7683,6 @@ pub fn oss_oapi_codegen_issue_1168_rejects_problem_json_test() {
       list.length(errors) |> should.not_equal(0)
     // If codegen succeeds with warnings, that's also acceptable
     Ok(summary) -> list.length(summary.warnings) |> should.not_equal(0)
-    _ -> should.be_true(True)
   }
 }
 
@@ -7717,7 +7712,6 @@ pub fn oss_oapi_codegen_issue_579_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7739,7 +7733,6 @@ pub fn oss_oapi_codegen_issue_2185_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7771,7 +7764,6 @@ pub fn oss_openapi_gen_issue_9719_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7822,7 +7814,6 @@ pub fn oss_openapi_gen_petstore_server_generates_client_test() {
     Error(generate.ValidationErrors(errors)) ->
       list.length(errors) |> should.not_equal(0)
     Ok(summary) -> list.length(summary.warnings) |> should.not_equal(0)
-    _ -> should.be_true(True)
   }
 }
 
@@ -7845,7 +7836,6 @@ pub fn oss_kiota_discriminator_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7866,7 +7856,6 @@ pub fn oss_kiota_derived_types_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -7888,7 +7877,6 @@ pub fn oss_kiota_multi_security_generates_test() {
     Error(generate.ValidationErrors(errors:)) -> {
       list.length(validate.errors_only(errors)) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8041,7 +8029,6 @@ pub fn oss_openapi_gen_issue_11897_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8068,7 +8055,6 @@ pub fn oss_openapi_gen_issue_1666_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8095,7 +8081,6 @@ pub fn oss_openapi_gen_issue_18516_generates_test() {
     Ok(summary) -> list.length(summary.files) |> should.not_equal(0)
     Error(generate.ValidationErrors(errors:)) ->
       list.length(validate.errors_only(errors)) |> should.equal(0)
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -8733,7 +8718,7 @@ pub fn oss_swagger_parser_java_31_schema_siblings_rejects_test() {
         list.any(error_details, fn(d) { string.contains(d, "dependentSchemas") })
       should.be_true(has_dependent)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8790,7 +8775,7 @@ pub fn unsupported_if_then_else_capability_check_test() {
       let has_if = list.any(error_details, fn(d) { string.contains(d, "if") })
       should.be_true(has_if)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8809,7 +8794,7 @@ pub fn unsupported_prefix_items_capability_check_test() {
         list.any(error_details, fn(d) { string.contains(d, "prefixItems") })
       should.be_true(has_prefix)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8826,7 +8811,7 @@ pub fn unsupported_not_capability_check_test() {
       let has_not = list.any(error_details, fn(d) { string.contains(d, "not") })
       should.be_true(has_not)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8844,7 +8829,7 @@ pub fn unsupported_defs_capability_check_test() {
         list.any(error_details, fn(d) { string.contains(d, "$defs") })
       should.be_true(has_defs)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8884,7 +8869,7 @@ pub fn validate_invalid_security_ref_rejects_test() {
         })
       should.be_true(has_security)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
+
     Ok(_) -> should.fail()
   }
 }
@@ -8997,7 +8982,6 @@ pub fn resolve_component_alias_test() {
         list.filter(errors, fn(e) { e.severity == diagnostic.SeverityError })
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
 
@@ -9058,6 +9042,5 @@ pub fn pipeline_end_to_end_test() {
       let blocking = validate.errors_only(errors)
       list.length(blocking) |> should.equal(0)
     }
-    Error(generate.ResolveError(_)) -> should.fail()
   }
 }
