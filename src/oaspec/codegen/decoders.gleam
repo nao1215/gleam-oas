@@ -8,9 +8,10 @@ import oaspec/codegen/types as type_gen
 import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema,
+  type SchemaObject, type SchemaRef, AdditionalPropertiesForbidden,
+  AdditionalPropertiesTyped, AdditionalPropertiesUntyped, AllOfSchema,
+  AnyOfSchema, ArraySchema, BooleanSchema, Inline, IntegerSchema, NumberSchema,
+  ObjectSchema, OneOfSchema, Reference, StringSchema,
 }
 import oaspec/openapi/spec
 import oaspec/util/http
@@ -289,7 +290,6 @@ fn generate_decoder(
       properties:,
       required:,
       additional_properties:,
-      additional_properties_untyped:,
       metadata:,
       ..,
     )) -> {
@@ -389,8 +389,8 @@ fn generate_decoder(
       // For additionalProperties, decode the raw dict with dynamic values first
       // to avoid forcing the value decoder on known properties (which may have
       // incompatible types). Then drop known keys and decode remaining values.
-      let sb = case additional_properties, additional_properties_untyped {
-        Some(ap_ref), _ -> {
+      let sb = case additional_properties {
+        AdditionalPropertiesTyped(ap_ref) -> {
           let inner_decoder =
             schema_ref_to_decoder(ap_ref, name, "additional_properties", ctx)
           sb
@@ -429,7 +429,7 @@ fn generate_decoder(
           )
           |> se.indent(1, "})")
         }
-        None, True -> {
+        AdditionalPropertiesUntyped -> {
           sb
           |> se.indent(
             1,
@@ -442,7 +442,7 @@ fn generate_decoder(
               <> ")",
           )
         }
-        None, False -> sb
+        AdditionalPropertiesForbidden -> sb
       }
 
       let param_names =
@@ -454,19 +454,12 @@ fn generate_decoder(
         })
 
       // Add additional_properties to param names if present
-      let param_names = case
-        additional_properties,
-        additional_properties_untyped
-      {
-        Some(_), _ ->
+      let param_names = case additional_properties {
+        AdditionalPropertiesTyped(_) | AdditionalPropertiesUntyped ->
           list.append(param_names, [
             "additional_properties: additional_properties",
           ])
-        None, True ->
-          list.append(param_names, [
-            "additional_properties: additional_properties",
-          ])
-        None, False -> param_names
+        AdditionalPropertiesForbidden -> param_names
       }
 
       let sb =
@@ -601,7 +594,6 @@ fn generate_decoder(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: option.None,
           max_properties: option.None,
         ))
@@ -1180,8 +1172,14 @@ fn generate_encoders(ctx: Context) -> String {
     list.any(schemas, fn(entry) {
       let #(_, schema_ref) = entry
       case schema_ref {
-        Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
-        Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+        Inline(ObjectSchema(
+          additional_properties: AdditionalPropertiesTyped(_),
+          ..,
+        )) -> True
+        Inline(ObjectSchema(
+          additional_properties: AdditionalPropertiesUntyped,
+          ..,
+        )) -> True
         _ -> False
       }
     })
@@ -1191,7 +1189,10 @@ fn generate_encoders(ctx: Context) -> String {
     list.any(schemas, fn(entry) {
       let #(_, schema_ref) = entry
       case schema_ref {
-        Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+        Inline(ObjectSchema(
+          additional_properties: AdditionalPropertiesUntyped,
+          ..,
+        )) -> True
         _ -> False
       }
     })
@@ -1357,13 +1358,7 @@ fn generate_encoder(
   let json_fn_name = fn_name <> "_json"
 
   case schema_ref {
-    Inline(ObjectSchema(
-      properties:,
-      required:,
-      additional_properties:,
-      additional_properties_untyped:,
-      ..,
-    )) -> {
+    Inline(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
       // _json version: returns json.Json
       let sb =
         sb
@@ -1376,8 +1371,10 @@ fn generate_encoder(
         )
 
       // When additional_properties exist, we merge fixed props with dict entries
-      let has_ap =
-        option.is_some(additional_properties) || additional_properties_untyped
+      let has_ap = case additional_properties {
+        AdditionalPropertiesForbidden -> False
+        _ -> True
+      }
       let sb = case has_ap {
         True ->
           sb
@@ -1449,8 +1446,8 @@ fn generate_encoder(
           }
         })
 
-      let sb = case additional_properties, additional_properties_untyped {
-        Some(ap_ref), _ -> {
+      let sb = case additional_properties {
+        AdditionalPropertiesTyped(ap_ref) -> {
           let inner_encoder_fn =
             schema_ref_to_json_encoder_fn(
               ap_ref,
@@ -1468,7 +1465,7 @@ fn generate_encoder(
           )
           |> se.indent(1, "json.object(list.append(base_props, extra_props))")
         }
-        None, True -> {
+        AdditionalPropertiesUntyped -> {
           // Untyped additional_properties (Dynamic) are re-encoded using
           // dynamic type inspection to preserve round-trip fidelity.
           sb
@@ -1479,7 +1476,7 @@ fn generate_encoder(
           )
           |> se.indent(1, "json.object(list.append(base_props, extra_props))")
         }
-        None, False ->
+        AdditionalPropertiesForbidden ->
           sb
           |> se.indent(1, "])")
       }
@@ -1589,7 +1586,6 @@ fn generate_encoder(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: option.None,
           max_properties: option.None,
         ))

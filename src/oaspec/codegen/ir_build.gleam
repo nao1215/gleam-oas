@@ -5,7 +5,7 @@
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
 import oaspec/codegen/ir.{
@@ -16,8 +16,9 @@ import oaspec/codegen/schema_dispatch
 import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, Inline,
-  ObjectSchema, OneOfSchema, Reference, StringSchema,
+  type SchemaObject, type SchemaRef, AdditionalPropertiesForbidden,
+  AdditionalPropertiesTyped, AdditionalPropertiesUntyped, AllOfSchema,
+  AnyOfSchema, Inline, ObjectSchema, OneOfSchema, Reference, StringSchema,
 }
 import oaspec/openapi/spec
 import oaspec/util/http
@@ -200,14 +201,7 @@ fn schema_type_decls(
   ctx: Context,
 ) -> List(Declaration) {
   case schema {
-    ObjectSchema(
-      metadata:,
-      properties:,
-      required:,
-      additional_properties:,
-      additional_properties_untyped:,
-      ..,
-    ) -> {
+    ObjectSchema(metadata:, properties:, required:, additional_properties:, ..) -> {
       let props = dict.to_list(properties)
       let deduped_names =
         dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
@@ -235,8 +229,8 @@ fn schema_type_decls(
         })
 
       // Add additional_properties field if present
-      let fields = case additional_properties, additional_properties_untyped {
-        Some(ap_ref), _ -> {
+      let fields = case additional_properties {
+        AdditionalPropertiesTyped(ap_ref) -> {
           let inner_type = schema_ref_to_type(ap_ref, ctx)
           list.append(fields, [
             Field(
@@ -245,7 +239,7 @@ fn schema_type_decls(
             ),
           ])
         }
-        None, True -> {
+        AdditionalPropertiesUntyped -> {
           list.append(fields, [
             Field(
               name: "additional_properties",
@@ -253,7 +247,7 @@ fn schema_type_decls(
             ),
           ])
         }
-        None, False -> fields
+        AdditionalPropertiesForbidden -> fields
       }
 
       [
@@ -318,7 +312,6 @@ fn schema_type_decls(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: None,
           max_properties: None,
         )
@@ -454,7 +447,6 @@ fn anonymous_type_for_schema(
           properties: merged.properties,
           required: merged.required,
           additional_properties: merged.additional_properties,
-          additional_properties_untyped: merged.additional_properties_untyped,
           min_properties: None,
           max_properties: None,
         )
@@ -524,8 +516,10 @@ fn schema_has_optional_fields(schema_ref: SchemaRef, ctx: Context) -> Bool {
 
 fn schema_has_additional_properties(schema_ref: SchemaRef, ctx: Context) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties: Some(_), ..)) -> True
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: AdditionalPropertiesTyped(_), ..)) ->
+      True
+    Inline(ObjectSchema(additional_properties: AdditionalPropertiesUntyped, ..)) ->
+      True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_additional_properties(s, ctx) })
     Reference(..) ->
@@ -543,7 +537,8 @@ fn schema_has_untyped_additional_properties(
   ctx: Context,
 ) -> Bool {
   case schema_ref {
-    Inline(ObjectSchema(additional_properties_untyped: True, ..)) -> True
+    Inline(ObjectSchema(additional_properties: AdditionalPropertiesUntyped, ..)) ->
+      True
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) {
         schema_has_untyped_additional_properties(s, ctx)
@@ -563,8 +558,7 @@ type MergedAllOf {
   MergedAllOf(
     properties: dict.Dict(String, SchemaRef),
     required: List(String),
-    additional_properties: Option(SchemaRef),
-    additional_properties_untyped: Bool,
+    additional_properties: schema.AdditionalProperties,
   )
 }
 
@@ -574,8 +568,7 @@ fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
     MergedAllOf(
       properties: dict.new(),
       required: [],
-      additional_properties: None,
-      additional_properties_untyped: False,
+      additional_properties: AdditionalPropertiesForbidden,
     ),
     fn(acc, s_ref, idx) {
       let resolved = case s_ref {
@@ -583,27 +576,18 @@ fn merge_allof_schemas(schemas: List(SchemaRef), ctx: Context) -> MergedAllOf {
         Reference(..) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
       }
       case resolved {
-        Ok(ObjectSchema(
-          properties:,
-          required:,
-          additional_properties:,
-          additional_properties_untyped:,
-          ..,
-        )) -> {
+        Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
           let merged_ap = case
             acc.additional_properties,
             additional_properties
           {
-            None, ap -> ap
+            AdditionalPropertiesForbidden, ap -> ap
             existing, _ -> existing
           }
-          let merged_ap_untyped =
-            acc.additional_properties_untyped || additional_properties_untyped
           MergedAllOf(
             properties: dict.merge(acc.properties, properties),
             required: list.append(acc.required, required),
             additional_properties: merged_ap,
-            additional_properties_untyped: merged_ap_untyped,
           )
         }
         Ok(schema_obj) -> {
@@ -691,15 +675,7 @@ fn filter_write_only_properties(
   ctx: Context,
 ) -> SchemaObject {
   case schema_obj {
-    ObjectSchema(
-      metadata:,
-      properties:,
-      required:,
-      additional_properties:,
-      additional_properties_untyped:,
-      min_properties:,
-      max_properties:,
-    ) -> {
+    ObjectSchema(properties:, required:, ..) as obj -> {
       let filtered_props =
         dict.filter(properties, fn(_name, prop_ref) {
           !schema_ref_is_write_only(prop_ref, ctx)
@@ -712,13 +688,9 @@ fn filter_write_only_properties(
           }
         })
       ObjectSchema(
-        metadata:,
+        ..obj,
         properties: filtered_props,
         required: filtered_required,
-        additional_properties:,
-        additional_properties_untyped:,
-        min_properties:,
-        max_properties:,
       )
     }
     _ -> schema_obj
@@ -730,15 +702,7 @@ fn filter_read_only_properties(
   ctx: Context,
 ) -> SchemaObject {
   case schema_obj {
-    ObjectSchema(
-      metadata:,
-      properties:,
-      required:,
-      additional_properties:,
-      additional_properties_untyped:,
-      min_properties:,
-      max_properties:,
-    ) -> {
+    ObjectSchema(properties:, required:, ..) as obj -> {
       let filtered_props =
         dict.filter(properties, fn(_name, prop_ref) {
           !schema_ref_is_read_only(prop_ref, ctx)
@@ -751,13 +715,9 @@ fn filter_read_only_properties(
           }
         })
       ObjectSchema(
-        metadata:,
+        ..obj,
         properties: filtered_props,
         required: filtered_required,
-        additional_properties:,
-        additional_properties_untyped:,
-        min_properties:,
-        max_properties:,
       )
     }
     _ -> schema_obj

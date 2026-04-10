@@ -9,9 +9,9 @@ import oaspec/config
 import oaspec/openapi/diagnostic
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
-  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema,
+  type SchemaObject, type SchemaRef, AdditionalPropertiesTyped, AllOfSchema,
+  AnyOfSchema, ArraySchema, BooleanSchema, Inline, IntegerSchema, NumberSchema,
+  ObjectSchema, OneOfSchema, Reference, StringSchema,
 }
 import oaspec/openapi/spec
 import oaspec/util/content_type
@@ -884,24 +884,18 @@ fn validate_schema_recursive(
   ctx: Context,
 ) -> List(ValidationError) {
   case schema_obj {
-    ObjectSchema(
-      properties:,
-      additional_properties:,
-      additional_properties_untyped:,
-      ..,
-    ) -> {
+    ObjectSchema(properties:, additional_properties:, ..) -> {
       // additionalProperties: true is supported via Dict(String, Dynamic)
       let ap_errors = []
-      let _ = additional_properties_untyped
       // Recurse into typed additionalProperties schema
       let typed_ap_errors = case additional_properties {
-        Some(ap_ref) ->
+        AdditionalPropertiesTyped(ap_ref) ->
           validate_schema_ref_recursive(
             path <> ".additionalProperties",
             ap_ref,
             ctx,
           )
-        None -> []
+        _ -> []
       }
       // Recurse into properties
       let prop_errors =

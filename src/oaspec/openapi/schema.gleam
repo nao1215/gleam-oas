@@ -76,8 +76,7 @@ pub type SchemaObject {
     metadata: SchemaMetadata,
     properties: Dict(String, SchemaRef),
     required: List(String),
-    additional_properties: Option(SchemaRef),
-    additional_properties_untyped: Bool,
+    additional_properties: AdditionalProperties,
     min_properties: Option(Int),
     max_properties: Option(Int),
   )
@@ -92,6 +91,16 @@ pub type SchemaObject {
     schemas: List(SchemaRef),
     discriminator: Option(Discriminator),
   )
+}
+
+/// How an object handles properties not listed in `properties`.
+pub type AdditionalProperties {
+  /// additionalProperties not specified or false — no extra properties
+  AdditionalPropertiesForbidden
+  /// additionalProperties: true — any extra properties allowed (Dict(String, Dynamic))
+  AdditionalPropertiesUntyped
+  /// additionalProperties: <schema> — extra properties must match schema
+  AdditionalPropertiesTyped(SchemaRef)
 }
 
 /// A reference to a schema, either inline or via $ref.

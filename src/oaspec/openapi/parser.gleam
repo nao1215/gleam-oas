@@ -7,9 +7,11 @@ import gleam/result
 import gleam/string
 import oaspec/openapi/diagnostic
 import oaspec/openapi/schema.{
-  type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
-  AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
-  NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
+  type Discriminator, type SchemaObject, type SchemaRef,
+  AdditionalPropertiesForbidden, AdditionalPropertiesTyped,
+  AdditionalPropertiesUntyped, AllOfSchema, AnyOfSchema, ArraySchema,
+  BooleanSchema, Discriminator, Inline, IntegerSchema, NumberSchema,
+  ObjectSchema, OneOfSchema, StringSchema,
 }
 import oaspec/openapi/spec.{
   type Callback, type Components, type Contact, type Encoding, type ExternalDoc,
@@ -1390,18 +1392,18 @@ fn parse_typed_schema(
         Ok(r) -> r
         _ -> []
       }
-      use #(additional_properties, additional_properties_untyped) <- result.try(
+      use additional_properties <- result.try(
         case yay.select_sugar(from: node, selector: "additionalProperties") {
-          Ok(yay.NodeBool(True)) -> Ok(#(None, True))
-          Ok(yay.NodeBool(False)) -> Ok(#(None, False))
+          Ok(yay.NodeBool(True)) -> Ok(AdditionalPropertiesUntyped)
+          Ok(yay.NodeBool(False)) -> Ok(AdditionalPropertiesForbidden)
           Ok(ap_node) -> {
             use sr <- result.try(parse_schema_ref(
               ap_node,
               path <> ".additionalProperties",
             ))
-            Ok(#(Some(sr), False))
+            Ok(AdditionalPropertiesTyped(sr))
           }
-          _ -> Ok(#(None, False))
+          _ -> Ok(AdditionalPropertiesForbidden)
         },
       )
       let min_properties =
@@ -1415,7 +1417,6 @@ fn parse_typed_schema(
         properties:,
         required:,
         additional_properties:,
-        additional_properties_untyped:,
         min_properties:,
         max_properties:,
       ))
