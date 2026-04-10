@@ -30,8 +30,38 @@ fn coerce_stage(spec: OpenApiSpec(a)) -> OpenApiSpec(b)
 fn resolve_internal(
   spec: OpenApiSpec(stage),
 ) -> Result(OpenApiSpec(stage), List(Diagnostic)) {
+  let empty_components =
+    Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
   case spec.components {
-    None -> Ok(spec)
+    None -> {
+      // Even without components, paths/webhooks may contain inline $ref
+      // that must be resolved (or reported as errors).
+      use resolved_paths <- result.try(resolve_inline_paths(
+        spec.paths,
+        empty_components,
+      ))
+      use resolved_webhooks <- result.try(resolve_inline_paths(
+        spec.webhooks,
+        empty_components,
+      ))
+      Ok(
+        spec.OpenApiSpec(
+          ..spec,
+          paths: resolved_paths,
+          webhooks: resolved_webhooks,
+        ),
+      )
+    }
     Some(components) -> {
       use parameters <- result.try(
         resolve_component_dict(components.parameters, "components.parameters")
@@ -154,6 +184,27 @@ fn extract_ref_name(ref: String) -> String {
   |> result.unwrap("unknown")
 }
 
+/// Validate that a $ref string points to the expected component kind.
+/// Returns Ok(name) if valid, Error(diagnostic) if wrong kind or external.
+fn validate_ref_kind(
+  ref_str: String,
+  expected_prefix: String,
+  context_path: String,
+) -> Result(String, Diagnostic) {
+  case string.starts_with(ref_str, expected_prefix) {
+    True -> Ok(extract_ref_name(ref_str))
+    False ->
+      Error(diagnostic.resolve_error(
+        path: context_path,
+        detail: "$ref '"
+          <> ref_str
+          <> "' points to wrong component kind; expected prefix '"
+          <> expected_prefix
+          <> "'",
+      ))
+  }
+}
+
 // ============================================================================
 // Inline ref resolution: resolve Ref(...) within paths, operations, etc.
 // ============================================================================
@@ -187,7 +238,11 @@ fn resolve_path_item_ref(
   path: String,
   components: Components(stage),
 ) -> Result(RefOr(PathItem(stage)), Diagnostic) {
-  let ref_name = extract_ref_name(ref_str)
+  use ref_name <- result.try(validate_ref_kind(
+    ref_str,
+    "#/components/pathItems/",
+    "paths." <> path,
+  ))
   case dict.get(components.path_items, ref_name) {
     Ok(Value(pi)) ->
       case resolve_inline_path_item(pi, path, components) {
@@ -347,7 +402,11 @@ fn resolve_param_ref(
   case ref_or {
     Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
-      let ref_name = extract_ref_name(ref_str)
+      use ref_name <- result.try(validate_ref_kind(
+        ref_str,
+        "#/components/parameters/",
+        "paths." <> path,
+      ))
       case dict.get(components.parameters, ref_name) {
         Ok(Value(p)) -> Ok(Value(p))
         _ ->
@@ -355,7 +414,7 @@ fn resolve_param_ref(
             path: "paths." <> path,
             detail: "Unresolved $ref: "
               <> ref_str
-              <> " — target not found in components",
+              <> " — target not found in components.parameters",
           ))
       }
     }
@@ -371,7 +430,11 @@ fn resolve_request_body_ref(
   case ref_or {
     Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
-      let ref_name = extract_ref_name(ref_str)
+      use ref_name <- result.try(validate_ref_kind(
+        ref_str,
+        "#/components/requestBodies/",
+        "paths." <> path,
+      ))
       case dict.get(components.request_bodies, ref_name) {
         Ok(Value(rb)) -> Ok(Value(rb))
         _ ->
@@ -379,7 +442,7 @@ fn resolve_request_body_ref(
             path: "paths." <> path,
             detail: "Unresolved $ref: "
               <> ref_str
-              <> " — target not found in components",
+              <> " — target not found in components.requestBodies",
           ))
       }
     }
@@ -395,7 +458,11 @@ fn resolve_response_ref(
   case ref_or {
     Value(_) -> Ok(ref_or)
     Ref(ref_str) -> {
-      let ref_name = extract_ref_name(ref_str)
+      use ref_name <- result.try(validate_ref_kind(
+        ref_str,
+        "#/components/responses/",
+        "paths." <> path,
+      ))
       case dict.get(components.responses, ref_name) {
         Ok(Value(r)) -> Ok(Value(r))
         _ ->
@@ -403,7 +470,7 @@ fn resolve_response_ref(
             path: "paths." <> path,
             detail: "Unresolved $ref: "
               <> ref_str
-              <> " — target not found in components",
+              <> " — target not found in components.responses",
           ))
       }
     }

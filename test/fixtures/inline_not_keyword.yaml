@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Inline Not Keyword Test
+  version: 1.0.0
+paths:
+  /items:
+    post:
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  not:
+                    type: integer
+      responses:
+        '200':
+          description: ok

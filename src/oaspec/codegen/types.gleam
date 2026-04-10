@@ -1,7 +1,7 @@
 import gleam/dict
-import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import oaspec/codegen/allof_merge
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/ir_build
 import oaspec/codegen/ir_render
@@ -9,10 +9,9 @@ import oaspec/codegen/schema_dispatch
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
-  type AdditionalProperties, type SchemaObject, type SchemaRef, AllOfSchema,
-  AnyOfSchema, ArraySchema, BooleanSchema, Forbidden, Inline, IntegerSchema,
-  NumberSchema, ObjectSchema, OneOfSchema, Reference, StringSchema, Typed,
-  Untyped,
+  type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
+  BooleanSchema, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
+  Reference, StringSchema, Typed, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
@@ -443,71 +442,16 @@ fn status_code_to_variant(code: String, type_name: String) -> String {
 }
 
 /// Result of merging allOf sub-schemas.
-pub type MergedAllOf {
-  MergedAllOf(
-    properties: dict.Dict(String, SchemaRef),
-    required: List(String),
-    additional_properties: AdditionalProperties,
-  )
-}
+/// Re-export from allof_merge for backward compatibility.
+pub type MergedAllOf =
+  allof_merge.MergedAllOf
 
-/// Merge allOf sub-schemas: properties, required, and additionalProperties.
-/// Non-object sub-schemas (primitives, arrays) are included as a synthetic
-/// "value" property to preserve their constraints.
+/// Re-export merge_allof_schemas.
 pub fn merge_allof_schemas(
   schemas: List(SchemaRef),
   ctx: Context,
 ) -> MergedAllOf {
-  list.index_fold(
-    schemas,
-    MergedAllOf(
-      properties: dict.new(),
-      required: [],
-      additional_properties: Forbidden,
-    ),
-    fn(acc, s_ref, idx) {
-      let resolved = case s_ref {
-        Inline(obj) -> Ok(obj)
-        Reference(..) -> resolver.resolve_schema_ref(s_ref, ctx.spec)
-      }
-      case resolved {
-        Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
-          let merged_ap = case
-            additional_properties,
-            acc.additional_properties
-          {
-            Typed(x), _ -> Typed(x)
-            _, Typed(x) -> Typed(x)
-            Untyped, _ -> Untyped
-            _, Untyped -> Untyped
-            Forbidden, Forbidden -> Forbidden
-          }
-          MergedAllOf(
-            properties: dict.merge(acc.properties, properties),
-            required: list.append(acc.required, required),
-            additional_properties: merged_ap,
-          )
-        }
-        // Non-object sub-schemas: add as a synthetic "value" field
-        Ok(schema_obj) -> {
-          let field_name = case idx {
-            0 -> "value"
-            n -> "value_" <> int.to_string(n)
-          }
-          MergedAllOf(
-            ..acc,
-            properties: dict.insert(
-              acc.properties,
-              field_name,
-              Inline(schema_obj),
-            ),
-            required: [field_name, ..acc.required],
-          )
-        }
-        _ -> acc
-      }
-    },
-  )
+  allof_merge.merge_allof_schemas(schemas, ctx)
 }
 
 /// Check if a schema has typed or untyped additionalProperties that would need Dict.

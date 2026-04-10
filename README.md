@@ -10,7 +10,7 @@ Generate usable Gleam code from OpenAPI 3.x specifications.
 - Generate client and server-side modules from a single spec
 - Produce readable Gleam types, encoders, decoders, request types, and response types
 - Handle real-world OpenAPI patterns: unions, nullable fields, `additionalProperties`, form bodies, multipart, and security
-- Backed by 364 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 94 OSS-derived fixtures (134 total)
+- Backed by 368 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 94 OSS-derived fixtures (134 total)
 
 ## Why oaspec
 
@@ -30,7 +30,7 @@ gen/my_api/
   request_types.gleam
   response_types.gleam
   middleware.gleam
-  guards.gleam
+  guards.gleam          (only if schemas have validation constraints)
   handlers.gleam
   router.gleam
 
@@ -41,7 +41,7 @@ gen_client/my_api/
   request_types.gleam
   response_types.gleam
   middleware.gleam
-  guards.gleam
+  guards.gleam          (only if schemas have validation constraints)
   client.gleam
 ```
 

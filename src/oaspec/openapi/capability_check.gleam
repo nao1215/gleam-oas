@@ -26,8 +26,9 @@ pub fn check(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
 }
 
 /// Check all schemas for unsupported keywords stored during lossless parse.
+/// Covers both component schemas and inline schemas in operations.
 fn check_schemas(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
-  case spec.components {
+  let component_errors = case spec.components {
     None -> []
     Some(components) ->
       dict.to_list(components.schemas)
@@ -36,6 +37,85 @@ fn check_schemas(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
         check_schema_ref("components.schemas." <> name, schema_ref)
       })
   }
+  let inline_errors = check_inline_schemas(spec)
+  list.append(component_errors, inline_errors)
+}
+
+/// Check inline schemas within operations (request bodies, responses, parameters).
+fn check_inline_schemas(spec: OpenApiSpec(Resolved)) -> List(Diagnostic) {
+  dict.to_list(spec.paths)
+  |> list.flat_map(fn(path_entry) {
+    let #(path, ref_or) = path_entry
+    case ref_or {
+      Value(path_item) -> check_path_item_schemas("paths." <> path, path_item)
+      _ -> []
+    }
+  })
+}
+
+fn check_path_item_schemas(
+  base_path: String,
+  pi: spec.PathItem(Resolved),
+) -> List(Diagnostic) {
+  let method_ops = [
+    #("get", pi.get),
+    #("post", pi.post),
+    #("put", pi.put),
+    #("delete", pi.delete),
+    #("patch", pi.patch),
+    #("head", pi.head),
+    #("options", pi.options),
+    #("trace", pi.trace),
+  ]
+  list.flat_map(method_ops, fn(entry) {
+    let #(method, maybe_op) = entry
+    case maybe_op {
+      Some(op) -> check_operation_schemas(base_path <> "." <> method, op)
+      None -> []
+    }
+  })
+}
+
+fn check_operation_schemas(
+  base_path: String,
+  op: spec.Operation(Resolved),
+) -> List(Diagnostic) {
+  // Check request body schemas
+  let rb_errors = case op.request_body {
+    Some(Value(rb)) ->
+      dict.to_list(rb.content)
+      |> list.flat_map(fn(entry) {
+        let #(ct, mt) = entry
+        case mt.schema {
+          Some(sr) -> check_schema_ref(base_path <> ".requestBody." <> ct, sr)
+          None -> []
+        }
+      })
+    _ -> []
+  }
+  // Check response schemas
+  let resp_errors =
+    dict.to_list(op.responses)
+    |> list.flat_map(fn(entry) {
+      let #(code, ref_or) = entry
+      case ref_or {
+        Value(resp) ->
+          dict.to_list(resp.content)
+          |> list.flat_map(fn(ct_entry) {
+            let #(ct, mt) = ct_entry
+            case mt.schema {
+              Some(sr) ->
+                check_schema_ref(
+                  base_path <> ".responses." <> code <> "." <> ct,
+                  sr,
+                )
+              None -> []
+            }
+          })
+        _ -> []
+      }
+    })
+  list.append(rb_errors, resp_errors)
 }
 
 /// Check a SchemaRef recursively for unsupported keywords.

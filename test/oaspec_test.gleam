@@ -520,6 +520,29 @@ pub fn parse_additional_properties_untyped_test() {
   ))) = dict.get(props, "payload")
 }
 
+/// Per JSON Schema, absent additionalProperties means allowed (Untyped),
+/// not forbidden.
+pub fn parse_absent_additional_properties_is_untyped_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info: { title: T, version: 1.0.0 }
+paths: {}
+components:
+  schemas:
+    Bag:
+      type: object
+      properties:
+        name: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(additional_properties: ap, ..))) =
+    dict.get(components.schemas, "Bag")
+  // Absent additionalProperties MUST be Untyped (allowed), not Forbidden
+  ap |> should.equal(schema.Untyped)
+}
+
 // --- Validation Tests ---
 
 fn make_ctx(spec_path: String) -> context.Context {
@@ -1665,8 +1688,8 @@ components:
   // It should use dynamic.dynamic for the initial dict read.
   string.contains(content, "decode.dict(decode.string, decode.string)")
   |> should.be_false()
-  // It should decode the dict with dynamic values first
-  string.contains(content, "dynamic.dynamic")
+  // It should decode the dict with a dynamic primitive decoder first
+  string.contains(content, "new_primitive_decoder")
   |> should.be_true()
 }
 
@@ -8908,6 +8931,29 @@ pub fn unsupported_nested_const_normalized_test() {
   dict.size(components.schemas) |> should.not_equal(0)
 }
 
+/// Inline unsupported keyword 'not' in request body must be rejected by capability_check.
+pub fn inline_not_keyword_rejected_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/inline_not_keyword.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      let has_not =
+        list.any(errors, fn(e) { string.contains(e.message, "not") })
+      should.be_true(has_not)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
 /// Schema without type but with properties should still parse as object.
 pub fn schema_no_type_with_properties_parses_test() {
   let assert Ok(spec) =
@@ -8939,19 +8985,57 @@ pub fn validate_invalid_security_ref_rejects_test() {
   }
 }
 
-/// External file $ref for parameter should be rejected.
+/// External file $ref for parameter should produce a resolve error, not a panic.
 pub fn external_param_ref_rejects_test() {
-  // With lazy ref resolution, external refs are stored as Ref(...) at parse time.
-  // Validation/resolution will catch them later.
-  let result = parser.parse_file("test/fixtures/external_param_ref.yaml")
-  let assert Ok(_spec) = result
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/external_param_ref.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  // Must produce a diagnostic error, not panic
+  let result = generate.generate(spec, cfg)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_ref_error =
+        list.any(errors, fn(e) { string.contains(e.message, "Limit") })
+      should.be_true(has_ref_error)
+    }
+    Ok(_) -> should.fail()
+  }
 }
 
-/// $ref pointing to wrong component kind is now stored as Ref(...) at parse time.
-/// Validation/resolution will catch wrong-kind refs later.
+/// $ref pointing to wrong component kind (schemas instead of parameters)
+/// must produce a diagnostic error, not silently resolve from a different kind.
 pub fn wrong_kind_ref_rejects_test() {
-  let result = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
-  let assert Ok(_spec) = result
+  let assert Ok(spec) = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+    )
+  let result = generate.generate(spec, cfg)
+  case result {
+    Error(generate.ValidationErrors(errors:)) -> {
+      // Must report wrong-kind ref, not silently resolve as parameter
+      let has_kind_error =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "schemas")
+          || string.contains(e.message, "wrong")
+          || string.contains(e.message, "kind")
+        })
+      should.be_true(has_kind_error)
+    }
+    Ok(_) -> should.fail()
+  }
 }
 
 /// Unknown parameter style should be rejected with clear error.

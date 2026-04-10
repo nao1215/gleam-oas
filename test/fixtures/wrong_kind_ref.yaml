@@ -5,7 +5,10 @@ info:
 paths:
   /test:
     get:
+      operationId: getTest
       parameters:
+        # This ref points to schemas, but resolve looks in parameters by name only.
+        # If components.parameters also has "Pet", it would shadow silently.
         - $ref: "#/components/schemas/Pet"
       responses:
         "200":
@@ -17,3 +20,9 @@ components:
       properties:
         name:
           type: string
+  parameters:
+    Pet:
+      name: pet_id
+      in: query
+      schema:
+        type: string
