@@ -91,6 +91,41 @@ fn write_files(
   })
 }
 
+/// Resolve generated files to their full output paths and content.
+/// Used by --check to compare against existing files without writing.
+pub fn resolve_paths(
+  files: List(GeneratedFile),
+  cfg: config.Config,
+) -> List(#(String, String)) {
+  let shared_files =
+    list.filter(files, fn(f) { f.target == context.SharedTarget })
+  let server_files =
+    list.filter(files, fn(f) { f.target == context.ServerTarget })
+  let client_files =
+    list.filter(files, fn(f) { f.target == context.ClientTarget })
+
+  let server_path = cfg.output_server
+  let client_path = cfg.output_client
+
+  let server_entries = case cfg.mode {
+    Server | Both ->
+      list.map(list.append(shared_files, server_files), fn(f) {
+        #(server_path <> "/" <> f.path, f.content)
+      })
+    Client -> []
+  }
+
+  let client_entries = case cfg.mode {
+    Client | Both ->
+      list.map(list.append(shared_files, client_files), fn(f) {
+        #(client_path <> "/" <> f.path, f.content)
+      })
+    Server -> []
+  }
+
+  list.append(server_entries, client_entries)
+}
+
 /// Convert a write error to a human-readable string.
 pub fn error_to_string(error: WriteError) -> String {
   case error {
