@@ -1,0 +1,89 @@
+openapi: "3.0.3"
+info:
+  title: Mixed Parameters API
+  version: "1.0.0"
+  description: API with path, query, header, and cookie parameters
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /search/{category}:
+    get:
+      operationId: searchByCategory
+      summary: Search items within a category
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: true
+          description: Search query string
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Correlation ID for request tracing
+          schema:
+            type: string
+            format: uuid
+        - name: preferences
+          in: cookie
+          required: false
+          description: User preference token
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResult"
+components:
+  schemas:
+    SearchResult:
+      type: object
+      required:
+        - total
+        - items
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchItem"
+    SearchItem:
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        snippet:
+          type: string
+        relevance:
+          type: number
+          format: float

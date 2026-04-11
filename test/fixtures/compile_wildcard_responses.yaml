@@ -1,0 +1,82 @@
+openapi: "3.0.3"
+info:
+  title: Wildcard Responses API
+  version: "1.0.0"
+  description: API demonstrating wildcard status code ranges
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /resources/{id}:
+    get:
+      operationId: getResource
+      summary: Retrieve a resource by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Successful retrieval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resource"
+        "4XX":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientError"
+        "5XX":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerError"
+components:
+  schemas:
+    Resource:
+      type: object
+      required:
+        - id
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ClientError:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: integer
+        message:
+          type: string
+        details:
+          type: string
+    ServerError:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: integer
+        message:
+          type: string
+        retry_after:
+          type: integer
+          description: Seconds to wait before retrying

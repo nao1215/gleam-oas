@@ -1,0 +1,100 @@
+openapi: "3.0.3"
+info:
+  title: Optional Required Combinations API
+  version: "1.0.0"
+paths:
+  /records:
+    post:
+      operationId: createRecord
+      summary: Create a record testing required/optional combos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FullRecord"
+      responses:
+        "201":
+          description: Record created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FullRecord"
+components:
+  schemas:
+    AllRequired:
+      type: object
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+    AllOptional:
+      type: object
+      properties:
+        nickname:
+          type: string
+        bio:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+    MixedRequirements:
+      type: object
+      required:
+        - title
+        - status
+      properties:
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - archived
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    NestedInner:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+    NestedOuter:
+      type: object
+      required:
+        - primary
+      properties:
+        primary:
+          $ref: "#/components/schemas/NestedInner"
+        secondary:
+          $ref: "#/components/schemas/NestedInner"
+    FullRecord:
+      type: object
+      required:
+        - mandatory
+        - classified
+      properties:
+        mandatory:
+          $ref: "#/components/schemas/AllRequired"
+        optional:
+          $ref: "#/components/schemas/AllOptional"
+        classified:
+          $ref: "#/components/schemas/MixedRequirements"
+        nested:
+          $ref: "#/components/schemas/NestedOuter"

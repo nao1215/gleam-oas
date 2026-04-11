@@ -1,0 +1,70 @@
+openapi: "3.0.3"
+info:
+  title: Multiple Response Content Types API
+  version: "1.0.0"
+paths:
+  /documents/{id}:
+    get:
+      operationId: getDocument
+      summary: Get a document in various formats
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  title:
+                    type: string
+                  body:
+                    type: string
+                  revision:
+                    type: integer
+            text/plain:
+              schema:
+                type: string
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    put:
+      operationId: updateDocument
+      summary: Update a document accepting various formats
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                body:
+                  type: string
+          text/plain:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                body:
+                  type: string
+      responses:
+        "204":
+          description: Document updated

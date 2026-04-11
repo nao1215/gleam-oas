@@ -1,0 +1,86 @@
+openapi: "3.0.3"
+info:
+  title: Complex Discriminator API
+  version: "1.0.0"
+paths:
+  /shapes:
+    post:
+      operationId: createShape
+      summary: Create a shape using discriminator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Shape"
+      responses:
+        "201":
+          description: Shape created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shape"
+components:
+  schemas:
+    ShapeBase:
+      type: object
+      required:
+        - shapeType
+      properties:
+        shapeType:
+          type: string
+        color:
+          type: string
+    Shape:
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Rectangle"
+        - $ref: "#/components/schemas/Triangle"
+      discriminator:
+        propertyName: shapeType
+        mapping:
+          circle: "#/components/schemas/Circle"
+          rect: "#/components/schemas/Rectangle"
+          tri: "#/components/schemas/Triangle"
+    Circle:
+      allOf:
+        - $ref: "#/components/schemas/ShapeBase"
+        - type: object
+          required:
+            - radius
+          properties:
+            radius:
+              type: number
+              format: double
+    Rectangle:
+      allOf:
+        - $ref: "#/components/schemas/ShapeBase"
+        - type: object
+          required:
+            - width
+            - height
+          properties:
+            width:
+              type: number
+              format: double
+            height:
+              type: number
+              format: double
+    Triangle:
+      allOf:
+        - $ref: "#/components/schemas/ShapeBase"
+        - type: object
+          required:
+            - sideA
+            - sideB
+            - sideC
+          properties:
+            sideA:
+              type: number
+              format: double
+            sideB:
+              type: number
+              format: double
+            sideC:
+              type: number
+              format: double

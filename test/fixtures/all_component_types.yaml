@@ -1,0 +1,102 @@
+openapi: "3.0.3"
+info:
+  title: All Component Types API
+  version: "1.0.0"
+paths:
+  /items/{itemId}:
+    get:
+      operationId: getItem
+      summary: Get item using all component types
+      parameters:
+        - $ref: "#/components/parameters/ItemId"
+      responses:
+        "200":
+          $ref: "#/components/responses/ItemResponse"
+      callbacks:
+        onItemUpdate:
+          $ref: "#/components/callbacks/ItemUpdate"
+    put:
+      operationId: updateItem
+      summary: Update an item
+      parameters:
+        - $ref: "#/components/parameters/ItemId"
+      requestBody:
+        $ref: "#/components/requestBodies/ItemBody"
+      responses:
+        "200":
+          $ref: "#/components/responses/ItemResponse"
+components:
+  schemas:
+    Item:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+  parameters:
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    ItemResponse:
+      description: Single item response
+      headers:
+        X-Rate-Limit:
+          $ref: "#/components/headers/RateLimit"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Item"
+          examples:
+            sample:
+              $ref: "#/components/examples/SampleItem"
+      links:
+        updateItem:
+          $ref: "#/components/links/UpdateItem"
+  requestBodies:
+    ItemBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Item"
+  headers:
+    RateLimit:
+      description: Number of requests remaining
+      schema:
+        type: integer
+  examples:
+    SampleItem:
+      summary: A sample item
+      value:
+        id: "item-001"
+        name: "Widget"
+        price: 9.99
+  links:
+    UpdateItem:
+      operationId: updateItem
+      parameters:
+        itemId: "$response.body#/id"
+  callbacks:
+    ItemUpdate:
+      "{$request.body#/callbackUrl}":
+        post:
+          summary: Item update notification
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Item"
+          responses:
+            "200":
+              description: Callback acknowledged

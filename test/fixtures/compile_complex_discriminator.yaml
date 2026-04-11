@@ -1,0 +1,124 @@
+openapi: "3.0.3"
+info:
+  title: Discriminated Notifications API
+  version: "1.0.0"
+  description: API with discriminated union using oneOf and discriminator
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /notifications:
+    post:
+      operationId: sendNotification
+      summary: Send a notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Notification"
+      responses:
+        "201":
+          description: Notification sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationResponse"
+  /notifications/{id}:
+    get:
+      operationId: getNotification
+      summary: Retrieve a notification by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notification found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "404":
+          description: Not found
+components:
+  schemas:
+    NotificationBase:
+      type: object
+      required:
+        - channel
+        - created_at
+      properties:
+        channel:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Notification:
+      oneOf:
+        - $ref: "#/components/schemas/EmailNotification"
+        - $ref: "#/components/schemas/SmsNotification"
+        - $ref: "#/components/schemas/PushNotification"
+      discriminator:
+        propertyName: channel
+        mapping:
+          email: "#/components/schemas/EmailNotification"
+          sms: "#/components/schemas/SmsNotification"
+          push: "#/components/schemas/PushNotification"
+    EmailNotification:
+      allOf:
+        - $ref: "#/components/schemas/NotificationBase"
+        - type: object
+          required:
+            - to
+            - subject
+            - body
+          properties:
+            to:
+              type: string
+              format: email
+            subject:
+              type: string
+            body:
+              type: string
+    SmsNotification:
+      allOf:
+        - $ref: "#/components/schemas/NotificationBase"
+        - type: object
+          required:
+            - phone_number
+            - text
+          properties:
+            phone_number:
+              type: string
+            text:
+              type: string
+              maxLength: 160
+    PushNotification:
+      allOf:
+        - $ref: "#/components/schemas/NotificationBase"
+        - type: object
+          required:
+            - device_token
+            - title
+          properties:
+            device_token:
+              type: string
+            title:
+              type: string
+            badge:
+              type: integer
+    NotificationResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        delivered_at:
+          type: string
+          format: date-time

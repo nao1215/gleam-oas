@@ -1,0 +1,96 @@
+openapi: "3.0.3"
+info:
+  title: Multiple Content Types API
+  version: "1.0.0"
+  description: API with multiple request and response content types
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /report:
+    get:
+      operationId: getReport
+      summary: Retrieve a report in JSON or CSV
+      responses:
+        "200":
+          description: Report data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+            text/csv:
+              schema:
+                type: string
+  /data:
+    post:
+      operationId: submitData
+      summary: Submit data as JSON or form-urlencoded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataInput"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/DataInput"
+      responses:
+        "201":
+          description: Data accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataReceipt"
+components:
+  schemas:
+    Report:
+      type: object
+      required:
+        - title
+        - generated_at
+        - rows
+      properties:
+        title:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        rows:
+          type: array
+          items:
+            type: object
+            required:
+              - label
+              - value
+            properties:
+              label:
+                type: string
+              value:
+                type: number
+              unit:
+                type: string
+    DataInput:
+      type: object
+      required:
+        - source
+        - payload
+      properties:
+        source:
+          type: string
+        payload:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    DataReceipt:
+      type: object
+      required:
+        - receipt_id
+        - accepted
+      properties:
+        receipt_id:
+          type: string
+        accepted:
+          type: boolean
+        processed_at:
+          type: string
+          format: date-time

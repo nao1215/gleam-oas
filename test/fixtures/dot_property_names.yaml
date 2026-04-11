@@ -1,0 +1,34 @@
+openapi: "3.0.3"
+info:
+  title: Dot Property Names API
+  version: "1.0.0"
+paths:
+  /config:
+    get:
+      operationId: getConfig
+      responses:
+        "200":
+          description: Configuration with dotted property names
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfig"
+components:
+  schemas:
+    AppConfig:
+      type: object
+      properties:
+        "app.name":
+          type: string
+        "app.version":
+          type: string
+        "config.db.host":
+          type: string
+        "config.db.port":
+          type: integer
+        "config.cache.enabled":
+          type: boolean
+      required:
+        - "app.name"
+        - "app.version"
+        - "config.db.host"

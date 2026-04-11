@@ -1,0 +1,49 @@
+openapi: "3.0.3"
+info:
+  title: Server Variables API
+  version: "1.0.0"
+servers:
+  - url: "https://{environment}.example.com:{port}/v1"
+    description: Main API server
+    variables:
+      environment:
+        default: dev
+        enum:
+          - dev
+          - staging
+          - prod
+        description: Deployment environment
+      port:
+        default: "443"
+        enum:
+          - "443"
+          - "8443"
+        description: Server port
+  - url: "https://{environment}.internal.example.com:{port}/v1"
+    description: Internal API server
+    variables:
+      environment:
+        default: dev
+        enum:
+          - dev
+          - staging
+          - prod
+      port:
+        default: "8443"
+        enum:
+          - "443"
+          - "8443"
+paths:
+  /health:
+    get:
+      operationId: checkHealth
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
