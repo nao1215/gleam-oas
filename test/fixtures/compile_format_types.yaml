@@ -1,0 +1,89 @@
+openapi: "3.0.3"
+info:
+  title: Format Types API
+  version: "1.0.0"
+  description: API demonstrating various string and number format types
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /users/{id}:
+    get:
+      operationId: getUser
+      summary: Get a user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+  /users:
+    post:
+      operationId: createUser
+      summary: Create a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        homepage:
+          type: string
+          format: uri
+        ip_address:
+          type: string
+          format: ipv4
+        created_at:
+          type: string
+          format: date-time
+        age:
+          type: integer
+          format: int32
+        score:
+          type: number
+          format: double
+    UserCreate:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        homepage:
+          type: string
+          format: uri
+        age:
+          type: integer
+          format: int32

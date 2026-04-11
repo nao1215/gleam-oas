@@ -1,0 +1,58 @@
+openapi: "3.0.3"
+info:
+  title: Array Parameter Styles API
+  version: "1.0.0"
+paths:
+  /search/{categories}:
+    get:
+      operationId: searchItems
+      parameters:
+        - name: tags
+          in: query
+          description: Filter by tags (form exploded)
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: statuses
+          in: query
+          description: Filter by statuses (form non-exploded)
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: categories
+          in: path
+          required: true
+          description: Category path (simple style)
+          style: simple
+          schema:
+            type: array
+            items:
+              type: string
+        - name: X-Request-Ids
+          in: header
+          description: Request correlation IDs (header simple style)
+          style: simple
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string

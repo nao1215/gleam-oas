@@ -1,0 +1,65 @@
+openapi: "3.0.3"
+info:
+  title: Format Types API
+  version: "1.0.0"
+paths:
+  /records:
+    get:
+      operationId: getRecord
+      responses:
+        "200":
+          description: A record with diverse formats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+components:
+  schemas:
+    Record:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        website:
+          type: string
+          format: uri
+        contactEmail:
+          type: string
+          format: email
+        internalIp:
+          type: string
+          format: ipv4
+        internalIpV6:
+          type: string
+          format: ipv6
+        birthDate:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+        encodedData:
+          type: string
+          format: byte
+        fileContent:
+          type: string
+          format: binary
+        secret:
+          type: string
+          format: password
+        serverHost:
+          type: string
+          format: hostname
+        count:
+          type: integer
+          format: int32
+        bigCount:
+          type: integer
+          format: int64
+        score:
+          type: number
+          format: float
+        preciseScore:
+          type: number
+          format: double

@@ -1,0 +1,62 @@
+openapi: "3.0.3"
+info:
+  title: Mixed Parameter Locations API
+  version: "1.0.0"
+paths:
+  /resources/{id}:
+    get:
+      operationId: getResource
+      summary: Get resource with params in all locations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: filter
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Trace-Id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: session_token
+          in: cookie
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resource found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string

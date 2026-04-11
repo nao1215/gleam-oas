@@ -1,0 +1,86 @@
+openapi: "3.0.3"
+info:
+  title: Enum Edge Cases API
+  version: "1.0.0"
+paths:
+  /entities:
+    get:
+      operationId: listEntities
+      parameters:
+        - name: status
+          in: query
+          description: Status filter including empty string
+          schema:
+            type: string
+            enum:
+              - active
+              - inactive
+              - ""
+        - name: kind
+          in: query
+          description: Single-value enum acting as a constant
+          schema:
+            type: string
+            enum:
+              - fixed_value
+        - name: accept
+          in: query
+          description: Content type with special characters
+          schema:
+            type: string
+            enum:
+              - application/json
+              - text/plain
+        - name: priority
+          in: query
+          description: Integer enum
+          schema:
+            type: integer
+            enum:
+              - 1
+              - 2
+              - 3
+        - name: verbose
+          in: query
+          description: Boolean parameter (not an enum)
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Filtered entity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Entity"
+components:
+  schemas:
+    Entity:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - ""
+        kind:
+          type: string
+          enum:
+            - fixed_value
+        contentType:
+          type: string
+          enum:
+            - application/json
+            - text/plain
+        priority:
+          type: integer
+          enum:
+            - 1
+            - 2
+            - 3
+        enabled:
+          type: boolean

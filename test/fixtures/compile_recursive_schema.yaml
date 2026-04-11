@@ -1,0 +1,64 @@
+openapi: "3.0.3"
+info:
+  title: Recursive Schema API
+  version: "1.0.0"
+  description: API with recursive type references
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /menu:
+    get:
+      operationId: listMenuItems
+      summary: List all menu items
+      responses:
+        "200":
+          description: List of menu items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MenuItem"
+  /categories:
+    get:
+      operationId: listCategories
+      summary: List all categories as a tree
+      responses:
+        "200":
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+components:
+  schemas:
+    Category:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        subcategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+    MenuItem:
+      type: object
+      required:
+        - name
+        - price
+      properties:
+        name:
+          type: string
+        price:
+          type: number
+          format: double
+        available:
+          type: boolean
+        category:
+          $ref: "#/components/schemas/Category"

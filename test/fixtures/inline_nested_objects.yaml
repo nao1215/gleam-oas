@@ -1,0 +1,51 @@
+openapi: "3.0.3"
+info:
+  title: Inline Nested Objects API
+  version: "1.0.0"
+paths:
+  /organizations:
+    get:
+      operationId: listOrganizations
+      responses:
+        "200":
+          description: List of organizations with deeply nested inline schemas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    departments:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          departmentName:
+                            type: string
+                          budget:
+                            type: number
+                          members:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                firstName:
+                                  type: string
+                                lastName:
+                                  type: string
+                                role:
+                                  type: string
+                                address:
+                                  type: object
+                                  properties:
+                                    street:
+                                      type: string
+                                    city:
+                                      type: string
+                                    postalCode:
+                                      type: string
+                                    country:
+                                      type: string

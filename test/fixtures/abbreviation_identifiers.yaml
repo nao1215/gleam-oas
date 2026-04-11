@@ -1,0 +1,86 @@
+openapi: "3.0.3"
+info:
+  title: Abbreviation Identifiers API
+  version: "1.0.0"
+paths:
+  /parse:
+    post:
+      operationId: parseContent
+      summary: Parse content with abbreviated type names
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HTTPRequest"
+      responses:
+        "200":
+          description: Parsed result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentPayload"
+components:
+  schemas:
+    HTTPRequest:
+      type: object
+      properties:
+        method:
+          type: string
+        url:
+          type: string
+          format: uri
+    URLParser:
+      type: object
+      properties:
+        scheme:
+          type: string
+        host:
+          type: string
+        path:
+          type: string
+    APIKey:
+      type: object
+      required:
+        - key
+      properties:
+        key:
+          type: string
+        scope:
+          type: string
+    OAuth2Token:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+    UUIDGenerator:
+      type: object
+      properties:
+        version:
+          type: integer
+          enum: [1, 4, 5]
+        namespace:
+          type: string
+    IOStream:
+      type: object
+      properties:
+        encoding:
+          type: string
+        bufferSize:
+          type: integer
+    ContentPayload:
+      type: object
+      properties:
+        htmlContent:
+          type: string
+        xmlData:
+          type: string
+        cssClass:
+          type: string
+        jsonPayload:
+          type: object
+          additionalProperties: true

@@ -1,0 +1,33 @@
+openapi: "3.0.3"
+info:
+  title: Default Response Only API
+  version: "1.0.0"
+paths:
+  /proxy:
+    get:
+      operationId: proxyRequest
+      summary: Proxy endpoint with only a default response
+      parameters:
+        - name: target
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+      responses:
+        default:
+          description: Any response from the proxied service
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  body:
+                    type: object
+                    additionalProperties: true
+                  headers:
+                    type: object
+                    additionalProperties:
+                      type: string

@@ -1,0 +1,76 @@
+openapi: "3.0.3"
+info:
+  title: Recursive AnyOf Schema API
+  version: "1.0.0"
+paths:
+  /trees:
+    post:
+      operationId: createTree
+      summary: Create a tree structure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TreeNode"
+      responses:
+        "201":
+          description: Tree created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TreeNode"
+  /filesystem:
+    get:
+      operationId: listFilesystem
+      summary: List filesystem entries
+      responses:
+        "200":
+          description: Filesystem listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileSystemEntry"
+components:
+  schemas:
+    TreeNode:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+        children:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/TreeNode"
+    FileSystemEntry:
+      oneOf:
+        - $ref: "#/components/schemas/File"
+        - $ref: "#/components/schemas/Directory"
+    File:
+      type: object
+      required:
+        - name
+        - size
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+    Directory:
+      type: object
+      required:
+        - name
+        - items
+      properties:
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileSystemEntry"

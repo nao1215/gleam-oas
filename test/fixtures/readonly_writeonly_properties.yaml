@@ -1,0 +1,83 @@
+openapi: "3.0.3"
+info:
+  title: ReadOnly WriteOnly Properties API
+  version: "1.0.0"
+paths:
+  /accounts:
+    post:
+      operationId: createAccount
+      summary: Create an account (accepts writeOnly fields)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountWrite"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountRead"
+  /accounts/{id}:
+    get:
+      operationId: getAccount
+      summary: Get an account (returns readOnly fields)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountRead"
+components:
+  schemas:
+    AccountBase:
+      type: object
+      required:
+        - email
+        - display_name
+      properties:
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+    AccountRead:
+      allOf:
+        - $ref: "#/components/schemas/AccountBase"
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            created_at:
+              type: string
+              format: date-time
+              readOnly: true
+            last_login:
+              type: string
+              format: date-time
+              readOnly: true
+    AccountWrite:
+      allOf:
+        - $ref: "#/components/schemas/AccountBase"
+        - type: object
+          required:
+            - password
+          properties:
+            password:
+              type: string
+              writeOnly: true
+              minLength: 8
+            secret:
+              type: string
+              writeOnly: true

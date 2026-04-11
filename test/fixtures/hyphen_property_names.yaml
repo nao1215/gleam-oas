@@ -1,0 +1,42 @@
+openapi: "3.0.3"
+info:
+  title: Hyphen Property Names API
+  version: "1.0.0"
+paths:
+  /contacts:
+    post:
+      operationId: createContact
+      summary: Create a contact with kebab-case fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Contact"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+components:
+  schemas:
+    Contact:
+      type: object
+      required:
+        - full-name
+        - is-active
+      properties:
+        content-type:
+          type: string
+        x-request-id:
+          type: string
+          format: uuid
+        created-at:
+          type: string
+          format: date-time
+        is-active:
+          type: boolean
+        full-name:
+          type: string
