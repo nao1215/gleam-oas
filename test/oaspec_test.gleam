@@ -10529,3 +10529,510 @@ pub fn golden_idempotency_test() {
   })
   Nil
 }
+
+// ===========================================================================
+// Resolve error path tests (issue #60)
+// ===========================================================================
+
+/// Circular component alias chain (A → B → A) should produce a resolve error.
+pub fn resolve_circular_component_alias_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.from_list([
+        #("A", spec.Ref("#/components/parameters/B")),
+        #("B", spec.Ref("#/components/parameters/A")),
+      ]),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.new(),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_circular =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "Circular component alias")
+        })
+      should.be_true(has_circular)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Unresolved $ref target in components should produce a resolve error.
+pub fn resolve_unresolved_ref_target_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.from_list([
+        #("Missing", spec.Ref("#/components/parameters/DoesNotExist")),
+      ]),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.new(),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_unresolved =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "Unresolved component alias")
+          && string.contains(e.message, "DoesNotExist")
+        })
+      should.be_true(has_unresolved)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Wrong-kind $ref (e.g., schema ref in parameter position) should produce a
+/// resolve error when resolving inline refs in operations.
+pub fn resolve_wrong_kind_ref_in_parameter_position_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let operation =
+    spec.Operation(
+      operation_id: Some("getUser"),
+      summary: None,
+      description: None,
+      tags: [],
+      parameters: [spec.Ref("#/components/schemas/SomeSchema")],
+      request_body: None,
+      responses: dict.new(),
+      deprecated: False,
+      security: None,
+      callbacks: dict.new(),
+      servers: [],
+      external_docs: None,
+    )
+  let path_item =
+    spec.PathItem(
+      summary: None,
+      description: None,
+      get: Some(operation),
+      post: None,
+      put: None,
+      delete: None,
+      patch: None,
+      head: None,
+      options: None,
+      trace: None,
+      parameters: [],
+      servers: [],
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.from_list([#("/users", spec.Value(path_item))]),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_wrong_kind =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "wrong component kind")
+        })
+      should.be_true(has_wrong_kind)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Wrong-kind $ref for request body (e.g., response ref in requestBody position)
+/// should produce a resolve error.
+pub fn resolve_wrong_kind_ref_in_request_body_position_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let operation =
+    spec.Operation(
+      operation_id: Some("createUser"),
+      summary: None,
+      description: None,
+      tags: [],
+      parameters: [],
+      request_body: Some(spec.Ref("#/components/responses/SomeResponse")),
+      responses: dict.new(),
+      deprecated: False,
+      security: None,
+      callbacks: dict.new(),
+      servers: [],
+      external_docs: None,
+    )
+  let path_item =
+    spec.PathItem(
+      summary: None,
+      description: None,
+      get: None,
+      post: Some(operation),
+      put: None,
+      delete: None,
+      patch: None,
+      head: None,
+      options: None,
+      trace: None,
+      parameters: [],
+      servers: [],
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.from_list([#("/users", spec.Value(path_item))]),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_wrong_kind =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "wrong component kind")
+        })
+      should.be_true(has_wrong_kind)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Unresolved $ref in inline path operation response should produce an error.
+pub fn resolve_unresolved_inline_response_ref_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let operation =
+    spec.Operation(
+      operation_id: Some("getUser"),
+      summary: None,
+      description: None,
+      tags: [],
+      parameters: [],
+      request_body: None,
+      responses: dict.from_list([
+        #(
+          http.Status(200),
+          spec.Ref("#/components/responses/NonExistentResponse"),
+        ),
+      ]),
+      deprecated: False,
+      security: None,
+      callbacks: dict.new(),
+      servers: [],
+      external_docs: None,
+    )
+  let path_item =
+    spec.PathItem(
+      summary: None,
+      description: None,
+      get: Some(operation),
+      post: None,
+      put: None,
+      delete: None,
+      patch: None,
+      head: None,
+      options: None,
+      trace: None,
+      parameters: [],
+      servers: [],
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.from_list([#("/users", spec.Value(path_item))]),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_unresolved =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "Unresolved $ref")
+          && string.contains(e.message, "NonExistentResponse")
+        })
+      should.be_true(has_unresolved)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Unresolved path-level $ref pointing to missing pathItem should produce error.
+pub fn resolve_unresolved_path_item_ref_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.from_list([
+        #("/users", spec.Ref("#/components/pathItems/MissingPathItem")),
+      ]),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_unresolved =
+        list.any(errors, fn(e) { string.contains(e.message, "Unresolved $ref") })
+      should.be_true(has_unresolved)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Wrong-kind $ref at path level (e.g., schemas ref instead of pathItems)
+/// should produce a resolve error.
+pub fn resolve_wrong_kind_path_item_ref_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.new(),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.from_list([
+        #("/users", spec.Ref("#/components/schemas/SomeSchema")),
+      ]),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_wrong_kind =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "wrong component kind")
+        })
+      should.be_true(has_wrong_kind)
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Three-way circular alias chain (A → B → C → A) should produce a resolve error.
+pub fn resolve_three_way_circular_alias_error_test() {
+  let components =
+    spec.Components(
+      schemas: dict.new(),
+      parameters: dict.new(),
+      request_bodies: dict.new(),
+      responses: dict.from_list([
+        #("A", spec.Ref("#/components/responses/B")),
+        #("B", spec.Ref("#/components/responses/C")),
+        #("C", spec.Ref("#/components/responses/A")),
+      ]),
+      security_schemes: dict.new(),
+      path_items: dict.new(),
+      headers: dict.new(),
+      examples: dict.new(),
+      links: dict.new(),
+    )
+  let test_spec =
+    spec.OpenApiSpec(
+      openapi: "3.0.3",
+      info: spec.Info(
+        title: "Test",
+        description: None,
+        version: "1.0.0",
+        summary: None,
+        terms_of_service: None,
+        contact: None,
+        license: None,
+      ),
+      paths: dict.new(),
+      components: Some(components),
+      servers: [],
+      security: [],
+      webhooks: dict.new(),
+      tags: [],
+      external_docs: None,
+      json_schema_dialect: None,
+    )
+  let result = resolve.resolve(test_spec)
+  case result {
+    Error(errors) -> {
+      list.length(errors) |> should.not_equal(0)
+      let has_circular =
+        list.any(errors, fn(e) {
+          string.contains(e.message, "Circular component alias")
+        })
+      should.be_true(has_circular)
+    }
+    Ok(_) -> should.fail()
+  }
+}
