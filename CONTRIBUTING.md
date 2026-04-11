@@ -32,8 +32,10 @@ gleam deps download
 ### Verification
 
 ```bash
-just ci
+just all
 ```
+
+> **Note**: `just ci` runs only format check, typecheck, build, and unit tests. Use `just all` to also run ShellSpec CLI tests and integration tests.
 
 ## Development Workflow
 
@@ -108,7 +110,7 @@ We actively encourage the use of AI coding assistants to improve productivity an
 
 1. **Review all generated code**: Always review and understand AI-generated code before committing
 2. **Maintain consistency**: Ensure AI-generated code follows the coding standards described in this document and the project's conventions
-3. **Test thoroughly**: AI-generated code must pass `just ci`
+3. **Test thoroughly**: AI-generated code must pass `just all`
 
 ## Creating Pull Requests
 
