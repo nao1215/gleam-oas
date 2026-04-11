@@ -118,7 +118,12 @@ fn validate_path_template_params(
   list.filter_map(template_names, fn(name) {
     case list.contains(path_param_names, name) {
       True -> Error(Nil)
-      False ->
+      False -> {
+        let defined = case path_param_names {
+          [] -> ""
+          names ->
+            " Defined path parameters: " <> string.join(names, ", ") <> "."
+        }
         Ok(diagnostic.validation(
           severity: SeverityError,
           target: TargetBoth,
@@ -129,9 +134,11 @@ fn validate_path_template_params(
             <> path
             <> "' has no corresponding parameter definition.",
           hint: Some(
-            "Add a parameter definition with 'in: path' for this variable, or remove it from the path template.",
+            "Add a parameter definition with 'in: path' for this variable, or remove it from the path template."
+            <> defined,
           ),
         ))
+      }
     }
   })
 }
@@ -723,7 +730,7 @@ fn validate_server_multipart_request_body(
                       path: op_id <> ".requestBody.multipart." <> field_name,
                       detail: "multipart/form-data server request bodies only support primitive scalar fields.",
                       hint: Some(
-                        "Use primitive scalar types (string, integer, number, boolean) for multipart form fields.",
+                        "Use primitive scalar types or arrays of primitive scalars (string, integer, number, boolean) for multipart form fields.",
                       ),
                     ),
                   ]
