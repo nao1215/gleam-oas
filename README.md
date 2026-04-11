@@ -1,6 +1,7 @@
 # oaspec
 
 [![Hex](https://img.shields.io/hexpm/v/oaspec)](https://hex.pm/packages/oaspec)
+[![Hex Downloads](https://img.shields.io/hexpm/dt/oaspec)](https://hex.pm/packages/oaspec)
 [![CI](https://github.com/nao1215/oaspec/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/oaspec/actions/workflows/ci.yml)
 
 Generate usable Gleam code from OpenAPI 3.x specifications.
