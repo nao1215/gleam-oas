@@ -102,7 +102,7 @@ pub fn registry() -> List(Capability) {
     Capability("contentSchema", "schema", Unsupported, "Not supported"),
     // Security
     Capability("apiKey", "security", Supported, "Header, query, cookie"),
-    Capability("http", "security", Supported, "Bearer and basic auth"),
+    Capability("http", "security", Supported, "Bearer, basic, and digest auth"),
     Capability(
       "oauth2",
       "security",
