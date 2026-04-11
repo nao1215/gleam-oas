@@ -374,8 +374,8 @@ pub fn deep_object_optional_expr(
     props
     |> list.map(fn(prop) { "\"" <> prop.name <> "\"" })
     |> string.join(", ")
-  let has_ap = deep_object_has_additional_properties(param, ctx)
-  let presence_check = case has_ap {
+  let has_untyped_ap = deep_object_has_untyped_additional_properties(param, ctx)
+  let presence_check = case has_untyped_ap {
     True -> "deep_object_present_any(query, \"" <> key <> "\")"
     False ->
       "deep_object_present(query, \"" <> key <> "\", [" <> prop_names <> "])"

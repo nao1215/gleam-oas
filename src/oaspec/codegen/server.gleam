@@ -189,7 +189,9 @@ fn generate_router(
         }
       })
     })
-  // Whether any optional deep object param does NOT have additional_properties
+  // Whether any optional deep object param does NOT use deep_object_present_any.
+  // deep_object_present_any is only used for Untyped AP; all other optional
+  // deep object params (no AP or Typed AP) use deep_object_present.
   let needs_deep_object_present =
     list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
@@ -198,7 +200,10 @@ fn generate_router(
           Value(p) ->
             decode_helpers.is_deep_object_param(p, ctx)
             && !p.required
-            && !decode_helpers.deep_object_has_additional_properties(p, ctx)
+            && !decode_helpers.deep_object_has_untyped_additional_properties(
+              p,
+              ctx,
+            )
           _ -> False
         }
       })
