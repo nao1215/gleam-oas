@@ -103,8 +103,18 @@ pub fn registry() -> List(Capability) {
     // Security
     Capability("apiKey", "security", Supported, "Header, query, cookie"),
     Capability("http", "security", Supported, "Bearer and basic auth"),
-    Capability("oauth2", "security", Supported, "OAuth2 flows with scopes"),
-    Capability("openIdConnect", "security", Supported, "OpenID Connect"),
+    Capability(
+      "oauth2",
+      "security",
+      Supported,
+      "Bearer token attachment only; token acquisition and refresh are not generated",
+    ),
+    Capability(
+      "openIdConnect",
+      "security",
+      Supported,
+      "Bearer token attachment only; discovery and token acquisition are not generated",
+    ),
     Capability("mutualTLS", "security", Unsupported, "Not supported"),
     // Parameters
     Capability(
