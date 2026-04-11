@@ -3,6 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
+import oaspec/codegen/ir_build
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type AdditionalProperties, type SchemaRef, Forbidden, Inline, ObjectSchema,
@@ -327,7 +328,7 @@ fn deep_object_properties(
     _ -> #(dict.new(), [])
   }
   let #(properties, required_fields) = details
-  dict.to_list(properties)
+  ir_build.sorted_entries(properties)
   |> list.map(fn(entry) {
     let #(prop_name, prop_ref) = entry
     DeepObjectProperty(
@@ -502,7 +503,7 @@ pub fn object_properties_from_schema_ref(
     _ -> #(dict.new(), [])
   }
   let #(properties, required_fields) = details
-  dict.to_list(properties)
+  ir_build.sorted_entries(properties)
   |> list.map(fn(entry) {
     let #(prop_name, prop_ref) = entry
     DeepObjectProperty(

@@ -233,7 +233,7 @@ fn generate_guards_for_schema_object(
           min_properties,
           max_properties,
         )
-      let props = dict.to_list(properties)
+      let props = ir_build.sorted_entries(properties)
       list.fold(props, sb, fn(sb, entry) {
         let #(prop_name, prop_ref) = entry
         generate_field_guard(sb, name, prop_name, prop_ref, ctx)
@@ -252,7 +252,7 @@ fn generate_guards_for_schema_object(
             _ -> acc
           }
         })
-      let props = dict.to_list(merged_props)
+      let props = ir_build.sorted_entries(merged_props)
       list.fold(props, sb, fn(sb, entry) {
         let #(prop_name, prop_ref) = entry
         generate_field_guard(sb, name, prop_name, prop_ref, ctx)
@@ -1151,7 +1151,7 @@ fn collect_guard_calls(
       ..,
     )) -> {
       let prop_calls =
-        dict.to_list(properties)
+        ir_build.sorted_entries(properties)
         |> list.flat_map(fn(entry) {
           let #(prop_name, prop_ref) = entry
           let is_required = list.contains(required, prop_name)
@@ -1167,7 +1167,7 @@ fn collect_guard_calls(
     }
     Ok(AllOfSchema(schemas:, ..)) -> {
       let merged = merge_allof_props_and_required(schemas, ctx)
-      dict.to_list(merged.properties)
+      ir_build.sorted_entries(merged.properties)
       |> list.flat_map(fn(entry) {
         let #(prop_name, prop_ref) = entry
         let is_required = list.contains(merged.required, prop_name)

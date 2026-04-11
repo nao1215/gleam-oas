@@ -1689,6 +1689,112 @@ components:
   string.contains(content, "admin_user_part") |> should.be_false()
 }
 
+// --- Feature: Deterministic output ordering (idempotency) ---
+
+pub fn generation_is_idempotent_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '400': { description: bad request }
+        '500': { description: internal error }
+components:
+  schemas:
+    User:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        age: { type: integer }
+        score: { type: number }
+        active: { type: boolean }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx1 = make_ctx_from_spec(spec)
+
+  // Generate types twice and compare
+  let files1 = types.generate(ctx1)
+  let assert Ok(spec2) = parser.parse_string(yaml)
+  let spec2 = hoist.hoist(spec2)
+  let ctx2 = make_ctx_from_spec(spec2)
+  let files2 = types.generate(ctx2)
+
+  // Types output must be identical across runs
+  let assert [t1, ..] = files1
+  let assert [t2, ..] = files2
+  t1.content |> should.equal(t2.content)
+
+  // Decoders output must be identical across runs
+  let dec1 = decoders.generate(ctx1)
+  let dec2 = decoders.generate(ctx2)
+  let assert [d1, ..] = dec1
+  let assert [d2, ..] = dec2
+  d1.content |> should.equal(d2.content)
+}
+
+pub fn generated_type_fields_are_alphabetically_ordered_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /x:
+    get:
+      operationId: getX
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Widget:
+      type: object
+      required: [id]
+      properties:
+        zebra: { type: string }
+        alpha: { type: string }
+        middle: { type: integer }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = types.generate(ctx)
+  let assert [types_file, ..] = files
+  let content = types_file.content
+
+  // Fields must appear in sorted order, not dict iteration order
+  let assert Ok(alpha_pos) = string_index(content, "alpha:")
+  let assert Ok(middle_pos) = string_index(content, "middle:")
+  let assert Ok(zebra_pos) = string_index(content, "zebra:")
+  { alpha_pos < middle_pos } |> should.be_true()
+  { middle_pos < zebra_pos } |> should.be_true()
+}
+
+fn string_index(haystack: String, needle: String) -> Result(Int, Nil) {
+  case string.split(haystack, needle) {
+    [before, ..] if before != haystack -> Ok(string.length(before))
+    _ -> Error(Nil)
+  }
+}
+
 // --- Feature: Validation constraints generate guards (Phase 4-3) ---
 
 pub fn validate_constraints_generate_guards_test() {

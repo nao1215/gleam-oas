@@ -146,7 +146,7 @@ fn inline_enums_from_properties(
   properties: dict.Dict(String, SchemaRef),
   _ctx: Context,
 ) -> List(Declaration) {
-  let entries = dict.to_list(properties)
+  let entries = sorted_entries(properties)
   list.filter_map(entries, fn(entry) {
     let #(prop_name, prop_ref) = entry
     case prop_ref {
@@ -203,7 +203,7 @@ fn schema_type_decls(
 ) -> List(Declaration) {
   case schema {
     ObjectSchema(metadata:, properties:, required:, additional_properties:, ..) -> {
-      let props = dict.to_list(properties)
+      let props = sorted_entries(properties)
       let deduped_names =
         dedup.dedup_property_names(list.map(props, fn(e) { e.0 }))
 
@@ -355,12 +355,12 @@ fn anonymous_response_type_decls(
   operation: spec.Operation(Resolved),
   ctx: Context,
 ) -> List(Declaration) {
-  let responses = dict.to_list(operation.responses)
+  let responses = http.sort_response_entries(dict.to_list(operation.responses))
   list.flat_map(responses, fn(entry) {
     let #(status_code, ref_or) = entry
     case ref_or {
       Value(response) -> {
-        let content_entries = dict.to_list(response.content)
+        let content_entries = sorted_entries(response.content)
         case content_entries {
           [#(_media_type, media_type), ..] ->
             case media_type.schema {
@@ -391,7 +391,7 @@ fn anonymous_request_body_type_decls(
 ) -> List(Declaration) {
   case operation.request_body {
     Some(Value(rb)) -> {
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = sorted_entries(rb.content)
       case content_entries {
         [#(_media_type, media_type), ..] ->
           case media_type.schema {
@@ -665,6 +665,13 @@ fn list_at_or(lst: List(String), idx: Int, default: String) -> String {
     [head, ..], 0 -> head
     [_, ..rest], n -> list_at_or(rest, n - 1, default)
   }
+}
+
+/// Sort dict entries by key for deterministic output ordering.
+/// Gleam Dict does not guarantee iteration order, so all codegen paths
+/// that produce output from dict entries must sort first.
+pub fn sorted_entries(d: dict.Dict(String, v)) -> List(#(String, v)) {
+  dict.to_list(d) |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
 /// Check if a schema ref is marked as internal (allOf helper type).

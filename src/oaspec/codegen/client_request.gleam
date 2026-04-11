@@ -1,8 +1,8 @@
-import gleam/dict
 import gleam/list
 import gleam/option.{Some}
 import gleam/string
 import oaspec/codegen/context.{type Context}
+import oaspec/codegen/ir_build
 import oaspec/codegen/schema_dispatch
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
@@ -40,7 +40,7 @@ pub fn build_param_list(
         True -> body_type
         False -> "Option(" <> body_type <> ")"
       }
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = ir_build.sorted_entries(rb.content)
       case content_entries {
         // Multi-content: add content_type param before body
         [_, _, ..] -> [", content_type: String", ", body: " <> wrapped_type]
@@ -138,7 +138,7 @@ pub fn to_str_for_optional_value(
 
 /// Get the Gleam type for a request body parameter.
 pub fn get_body_type(rb: spec.RequestBody(Resolved), op_id: String) -> String {
-  let content_entries = dict.to_list(rb.content)
+  let content_entries = ir_build.sorted_entries(rb.content)
   case content_entries {
     // Multiple content types: use pre-serialized String
     [_, _, ..] -> "String"
@@ -164,7 +164,7 @@ pub fn get_body_encode_expr(
   op_id: String,
   _ctx: Context,
 ) -> String {
-  let content_entries = dict.to_list(rb.content)
+  let content_entries = ir_build.sorted_entries(rb.content)
   case content_entries {
     [#(_, media_type), ..] ->
       case media_type.schema {
@@ -198,18 +198,18 @@ pub fn generate_multipart_body(
   ctx: Context,
 ) -> se.StringBuilder {
   let boundary = "----oaspec-boundary"
-  let content_entries = dict.to_list(rb.content)
+  let content_entries = ir_build.sorted_entries(rb.content)
   let #(properties, required_fields) = case content_entries {
     [#(_, media_type), ..] ->
       case media_type.schema {
         Some(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
-          dict.to_list(properties),
+          ir_build.sorted_entries(properties),
           required,
         )
         Some(Reference(..) as schema_ref) ->
           case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
             Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
-              #(dict.to_list(properties), required)
+              #(ir_build.sorted_entries(properties), required)
             }
             _ -> #([], [])
           }
@@ -354,7 +354,7 @@ pub fn generate_form_nested_object(
   }
   let sub_props = case resolved {
     Ok(schema.ObjectSchema(properties:, required:, ..)) -> #(
-      dict.to_list(properties),
+      ir_build.sorted_entries(properties),
       required,
     )
     _ -> #([], [])
@@ -492,7 +492,7 @@ pub fn generate_form_bracket_fields(
   }
   case resolved {
     Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
-      let props = dict.to_list(properties)
+      let props = ir_build.sorted_entries(properties)
       list.fold(props, sb, fn(sb, entry) {
         let #(prop_name, prop_ref) = entry
         let prop_field = naming.to_snake_case(prop_name)
@@ -584,18 +584,18 @@ pub fn generate_form_urlencoded_body(
   _op_id: String,
   ctx: Context,
 ) -> se.StringBuilder {
-  let content_entries = dict.to_list(rb.content)
+  let content_entries = ir_build.sorted_entries(rb.content)
   let #(properties, required_fields) = case content_entries {
     [#(_, media_type), ..] ->
       case media_type.schema {
         Some(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
-          dict.to_list(properties),
+          ir_build.sorted_entries(properties),
           required,
         )
         Some(Reference(..) as schema_ref) ->
           case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
             Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
-              #(dict.to_list(properties), required)
+              #(ir_build.sorted_entries(properties), required)
             }
             _ -> #([], [])
           }
@@ -853,13 +853,13 @@ pub fn generate_deep_object_query_param(
     ParameterSchema(Reference(..) as schema_ref) ->
       case resolver.resolve_schema_ref(schema_ref, ctx.spec) {
         Ok(schema.ObjectSchema(properties:, required:, ..)) -> #(
-          dict.to_list(properties),
+          ir_build.sorted_entries(properties),
           required,
         )
         _ -> #([], [])
       }
     ParameterSchema(Inline(schema.ObjectSchema(properties:, required:, ..))) -> #(
-      dict.to_list(properties),
+      ir_build.sorted_entries(properties),
       required,
     )
     _ -> #([], [])

@@ -367,7 +367,7 @@ fn generate_response_type(
   ctx: Context,
 ) -> se.StringBuilder {
   let type_name = naming.schema_to_type_name(op_id) <> "Response"
-  let responses = dict.to_list(operation.responses)
+  let responses = http.sort_response_entries(dict.to_list(operation.responses))
 
   case list.is_empty(responses) {
     True -> sb
@@ -380,7 +380,7 @@ fn generate_response_type(
           case ref_or {
             Value(response) -> {
               let variant_name = status_code_to_variant(status_code, type_name)
-              let content_entries = dict.to_list(response.content)
+              let content_entries = ir_build.sorted_entries(response.content)
 
               case content_entries {
                 [] -> sb |> se.indent(1, variant_name)
@@ -640,7 +640,7 @@ fn extract_request_body_type(
   op_id: String,
   ctx: Context,
 ) -> String {
-  let content_entries = dict.to_list(rb.content)
+  let content_entries = ir_build.sorted_entries(rb.content)
   case content_entries {
     [#(_media_type, media_type), ..] ->
       case media_type.schema {

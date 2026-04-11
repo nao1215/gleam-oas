@@ -6,6 +6,7 @@ import oaspec/codegen/client_request
 import oaspec/codegen/client_response
 import oaspec/codegen/client_security
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/ir_build
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
@@ -319,7 +320,7 @@ fn generate_client(ctx: Context) -> String {
 
   // Collect security schemes
   let security_schemes = case ctx.spec.components {
-    Some(components) -> dict.to_list(components.security_schemes)
+    Some(components) -> ir_build.sorted_entries(components.security_schemes)
     _ -> []
   }
 
@@ -430,7 +431,7 @@ fn generate_default_base_url(
 ) -> se.StringBuilder {
   case ctx.spec.servers {
     [first_server, ..] -> {
-      let variables = dict.to_list(first_server.variables)
+      let variables = ir_build.sorted_entries(first_server.variables)
       let resolved_url =
         substitute_server_variables(first_server.url, variables)
       let defaults_doc = case variables {
@@ -490,7 +491,7 @@ fn generate_client_function(
   // Add doc comment listing supported content types for multi-content request bodies
   let sb = case operation.request_body {
     Some(Value(rb)) -> {
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = ir_build.sorted_entries(rb.content)
       case content_entries {
         [_, _, ..] -> {
           let ct_names =
@@ -699,7 +700,7 @@ fn generate_client_function(
         False -> 2
       }
       let _ = indent_offset
-      let content_entries = dict.to_list(rb.content)
+      let content_entries = ir_build.sorted_entries(rb.content)
       let sb = case content_entries {
         // Multiple content types: accept pre-serialized String body
         // with a content_type parameter
@@ -886,7 +887,7 @@ fn generate_client_function(
             <> naming.schema_to_type_name(op_id)
             <> "Response"
             <> http.status_code_suffix(status_code)
-          let content_entries = dict.to_list(response.content)
+          let content_entries = ir_build.sorted_entries(response.content)
           case content_entries {
             [] ->
               sb
