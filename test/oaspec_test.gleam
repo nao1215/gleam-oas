@@ -13110,8 +13110,10 @@ paths:
   let files = client_gen.generate(ctx)
   let assert [client_file] = files
   let content = client_file.content
-  // No with_* helpers should be present
-  string.contains(content, "pub fn with_")
+  // No auth with_* helpers should be present
+  string.contains(content, "pub fn with_api_key_auth(")
+  |> should.be_false()
+  string.contains(content, "pub fn with_bearer_auth(")
   |> should.be_false()
 }
 
@@ -13144,10 +13146,13 @@ security:
   let files = client_gen.generate(ctx)
   let assert [client_file] = files
   let content = client_file.content
-  // with_bearer_auth must come before default_base_url
+  // new must come before with_bearer_auth, which must come before default_base_url
+  let assert Ok(new_pos) =
+    find_substring_index(content, "pub fn new(")
   let assert Ok(with_pos) =
     find_substring_index(content, "pub fn with_bearer_auth(")
   let assert Ok(base_url_pos) =
     find_substring_index(content, "pub fn default_base_url(")
+  should.be_true(new_pos < with_pos)
   should.be_true(with_pos < base_url_pos)
 }
