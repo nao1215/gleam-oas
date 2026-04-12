@@ -55,11 +55,18 @@ pub fn collect_operations(
               Some(sec) -> sec
               None -> ctx.spec.security
             }
+            // Inherit path-level servers when operation doesn't define its own.
+            // OpenAPI precedence: operation.servers > path_item.servers > spec.servers
+            let effective_servers = case operation.servers {
+              [_, ..] -> operation.servers
+              [] -> path_item.servers
+            }
             let operation =
               spec.Operation(
                 ..operation,
                 parameters: merged_params,
                 security: Some(effective_security),
+                servers: effective_servers,
               )
 
             let op_id = case operation.operation_id {
