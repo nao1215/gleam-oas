@@ -16,6 +16,20 @@ import oaspec/openapi/schema.{
 import oaspec/util/naming
 import oaspec/util/string_extra as se
 
+/// Check whether a named component schema has a composite validator.
+/// Used by server/client generators to decide whether to emit guard calls.
+pub fn schema_has_validator(name: String, ctx: Context) -> Bool {
+  case ctx.spec.components {
+    Some(components) ->
+      case dict.get(components.schemas, name) {
+        Ok(schema_ref) ->
+          !list.is_empty(collect_guard_calls(name, schema_ref, ctx))
+        Error(_) -> False
+      }
+    None -> False
+  }
+}
+
 /// Generate guard/validation functions from OpenAPI schemas that have constraints.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
   let content = generate_guards(ctx)

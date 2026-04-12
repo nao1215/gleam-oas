@@ -13,6 +13,7 @@ pub type Config {
     output_client: String,
     package: String,
     mode: GenerateMode,
+    validate: Bool,
   )
 }
 
@@ -114,12 +115,23 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
     },
   )
 
-  Ok(Config(input:, output_server:, output_client:, package:, mode:))
+  let validate = case yay.select_sugar(from: root, selector: "validate") {
+    Ok(yay.NodeBool(True)) -> True
+    Ok(yay.NodeStr("true")) -> True
+    _ -> False
+  }
+
+  Ok(Config(input:, output_server:, output_client:, package:, mode:, validate:))
 }
 
 /// Apply CLI overrides to a config.
 pub fn with_mode(config: Config, mode: GenerateMode) -> Config {
   Config(..config, mode:)
+}
+
+/// Apply validation mode override.
+pub fn with_validate(config: Config, validate: Bool) -> Config {
+  Config(..config, validate:)
 }
 
 /// Apply output base directory override.

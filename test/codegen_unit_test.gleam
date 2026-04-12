@@ -943,6 +943,7 @@ fn make_security_ctx(
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(test_spec, cfg)
 }

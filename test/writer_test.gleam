@@ -22,6 +22,7 @@ fn test_config(mode: config.GenerateMode) -> config.Config {
     output_client: "./gen_client/api",
     package: "api",
     mode: mode,
+    validate: False,
   )
 }
 
