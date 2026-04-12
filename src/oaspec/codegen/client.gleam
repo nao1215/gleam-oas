@@ -623,6 +623,24 @@ fn generate_client_function(
     None -> sb
   }
 
+  // Determine effective base URL for this operation.
+  // OpenAPI precedence: operation.servers > path_item.servers > top-level servers.
+  // operation.servers is already populated with path-level servers by collect_operations.
+  let effective_server_url = case operation.servers {
+    [first_server, ..] -> {
+      let variables = ir_build.sorted_entries(first_server.variables)
+      let resolved = substitute_server_variables(first_server.url, variables)
+      Some(resolved)
+    }
+    [] -> None
+  }
+
+  // Add doc comment when this operation uses a server override
+  let sb = case effective_server_url {
+    Some(url) -> sb |> se.indent(1, "// Server override: " <> url)
+    None -> sb
+  }
+
   // Build URL with path params
   let sb = sb |> se.indent(1, "let path = \"" <> path <> "\"")
   let sb =
@@ -732,9 +750,16 @@ fn generate_client_function(
     spec.Trace -> "http.Trace"
   }
 
+  let base_url_expr = case effective_server_url {
+    Some(url) -> "\"" <> url <> "\""
+    None -> "config.base_url"
+  }
   let sb =
     sb
-    |> se.indent(1, "let assert Ok(req) = request.to(config.base_url <> path)")
+    |> se.indent(
+      1,
+      "let assert Ok(req) = request.to(" <> base_url_expr <> " <> path)",
+    )
     |> se.indent(1, "let req = request.set_method(req, " <> http_method <> ")")
 
   // Only set content-type for requests with body

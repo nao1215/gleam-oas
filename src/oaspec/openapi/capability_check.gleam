@@ -7,8 +7,7 @@ import oaspec/capability
 import oaspec/codegen/context.{type Context}
 import oaspec/config
 import oaspec/openapi/diagnostic.{
-  type Diagnostic, SeverityError, SeverityWarning, TargetBoth, TargetClient,
-  TargetServer,
+  type Diagnostic, SeverityError, SeverityWarning, TargetBoth, TargetServer,
 }
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{
@@ -346,47 +345,10 @@ pub fn check_preserved(ctx: Context) -> List(Diagnostic) {
       ),
     ]
   }
-  let operation_server_warnings =
-    list.flat_map(ops, fn(op) {
-      let #(op_id, operation, _path, _method) = op
-      case list.is_empty(operation.servers) {
-        True -> []
-        False -> [
-          diagnostic.capability(
-            severity: SeverityWarning,
-            target: TargetClient,
-            path: op_id <> ".servers",
-            detail: "Operation-level servers are parsed but client code generation uses only the top-level server URL.",
-            hint: Some(
-              "Only the first top-level server URL is used for default_base_url(). Override at runtime via ClientConfig if needed.",
-            ),
-          ),
-        ]
-      }
-    })
-  let path_server_warnings =
-    dict.to_list(ctx.spec.paths)
-    |> list.flat_map(fn(entry) {
-      let #(path, ref_or) = entry
-      case ref_or {
-        Value(path_item) ->
-          case list.is_empty(path_item.servers) {
-            True -> []
-            False -> [
-              diagnostic.capability(
-                severity: SeverityWarning,
-                target: TargetClient,
-                path: "paths." <> path <> ".servers",
-                detail: "Path-level servers are parsed but client code generation uses only the top-level server URL.",
-                hint: Some(
-                  "Only the first top-level server URL is used for default_base_url(). Override at runtime via ClientConfig if needed.",
-                ),
-              ),
-            ]
-          }
-        _ -> []
-      }
-    })
+  // Operation-level and path-level server overrides are now supported in client
+  // code generation (server precedence: operation > path > top-level).
+  let operation_server_warnings = []
+  let path_server_warnings = []
   let component_warnings = case ctx.spec.components {
     Some(components) -> {
       let header_w = case dict.is_empty(components.headers) {

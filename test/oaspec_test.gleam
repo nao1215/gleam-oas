@@ -10894,3 +10894,187 @@ pub fn config_validate_default_false_test() {
   let _ = simplifile.delete(temp_path)
   Nil
 }
+
+// ===========================================================================
+// Server override tests (issue #96)
+// ===========================================================================
+
+/// Client should use operation-level server override when present.
+pub fn server_override_operation_level_test() {
+  let ctx = make_ctx("test/fixtures/operation_server_override.yaml")
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // listItems (GET /items) should use config.base_url (no override)
+  // createItem (POST /items) should use https://write.example.com/v1
+
+  // The client should contain the override URL for createItem
+  string.contains(client_file.content, "\"https://write.example.com/v1\"")
+  |> should.be_true()
+
+  // The client should still use config.base_url for listItems
+  string.contains(client_file.content, "config.base_url")
+  |> should.be_true()
+
+  // Should have server override comment
+  string.contains(client_file.content, "Server override")
+  |> should.be_true()
+}
+
+/// Client should use path-level server override for all operations on that path.
+pub fn server_override_path_level_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Path Server Override Test
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+paths:
+  /admin:
+    servers:
+      - url: https://admin.example.com
+    get:
+      operationId: listAdminItems
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: createAdminItem
+      responses:
+        '201':
+          description: Created
+  /public:
+    get:
+      operationId: listPublicItems
+      responses:
+        '200':
+          description: OK
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: False,
+    )
+  let ctx = context.new(resolved, cfg)
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // Admin operations should use path-level server
+  string.contains(client_file.content, "\"https://admin.example.com\"")
+  |> should.be_true()
+
+  // Public operation should use config.base_url
+  string.contains(client_file.content, "config.base_url")
+  |> should.be_true()
+}
+
+/// Operation-level server should override path-level server.
+pub fn server_override_operation_takes_precedence_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Precedence Test
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+paths:
+  /items:
+    servers:
+      - url: https://path.example.com
+    get:
+      operationId: listItems
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: createItem
+      servers:
+        - url: https://operation.example.com
+      responses:
+        '201':
+          description: Created
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: False,
+    )
+  let ctx = context.new(resolved, cfg)
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // createItem (POST) should use operation-level server, NOT path-level
+  string.contains(client_file.content, "\"https://operation.example.com\"")
+  |> should.be_true()
+
+  // listItems (GET) should use path-level server (inherited)
+  string.contains(client_file.content, "\"https://path.example.com\"")
+  |> should.be_true()
+}
+
+/// Top-level-only specs should keep using config.base_url unchanged.
+pub fn server_override_top_level_only_unchanged_test() {
+  let ctx = make_ctx("test/fixtures/petstore.yaml")
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // Should use config.base_url in all operations
+  string.contains(client_file.content, "config.base_url <> path")
+  |> should.be_true()
+
+  // Should NOT have any server override comments
+  string.contains(client_file.content, "Server override")
+  |> should.be_false()
+}
+
+/// No capability warnings should be emitted for operation/path-level servers.
+pub fn server_override_no_capability_warnings_test() {
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/operation_server_override.yaml")
+  let cfg =
+    config.Config(
+      input: "test/fixtures/operation_server_override.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: False,
+    )
+  let files = generate.generate(spec, cfg)
+  case files {
+    Ok(summary) -> {
+      // Should NOT have operation-level server warnings
+      let has_server_warning =
+        list.any(summary.warnings, fn(w) {
+          let msg = diagnostic.to_short_string(w)
+          string.contains(msg, "Operation-level servers")
+          || string.contains(msg, "Path-level servers")
+        })
+      has_server_warning |> should.be_false()
+    }
+    Error(_) -> should.fail()
+  }
+}
