@@ -13147,8 +13147,7 @@ security:
   let assert [client_file] = files
   let content = client_file.content
   // new must come before with_bearer_auth, which must come before default_base_url
-  let assert Ok(new_pos) =
-    find_substring_index(content, "pub fn new(")
+  let assert Ok(new_pos) = find_substring_index(content, "pub fn new(")
   let assert Ok(with_pos) =
     find_substring_index(content, "pub fn with_bearer_auth(")
   let assert Ok(base_url_pos) =
