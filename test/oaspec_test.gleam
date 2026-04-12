@@ -122,6 +122,7 @@ pub fn config_package_dir_mismatch_test() {
       output_client: "./gen/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = config.validate_output_package_match(cfg)
   should.be_error(result)
@@ -135,6 +136,7 @@ pub fn config_client_dir_mismatch_test() {
       output_client: "./gen/wrong_client",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = config.validate_output_package_match(cfg)
   should.be_error(result)
@@ -148,6 +150,7 @@ pub fn config_package_dir_match_test() {
       output_client: "./gen_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = config.validate_output_package_match(cfg)
   should.be_ok(result)
@@ -472,6 +475,7 @@ fn make_ctx_from_spec(spec) -> context.Context {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(resolved, cfg)
 }
@@ -557,6 +561,7 @@ fn make_ctx(spec_path: String) -> context.Context {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(resolved, cfg)
 }
@@ -1826,6 +1831,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let assert Error(generate.ValidationErrors(errors:)) =
     generate.validate_only(spec, cfg)
@@ -1867,6 +1873,7 @@ webhooks:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let assert Ok(summary) = generate.validate_only(spec, cfg)
   // Should have at least one warning (webhooks parsed but unused)
@@ -2184,6 +2191,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -2234,6 +2242,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -2281,6 +2290,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -2997,6 +3007,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   should.be_ok(result)
@@ -3518,6 +3529,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3560,6 +3572,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3601,6 +3614,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3644,6 +3658,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3685,6 +3700,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3728,6 +3744,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -3845,6 +3862,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3891,6 +3909,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3934,6 +3953,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -3977,6 +3997,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -4022,6 +4043,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -4067,6 +4089,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let errors = validate.validate(ctx)
@@ -4414,6 +4437,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -4571,6 +4595,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -4619,6 +4644,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -4665,6 +4691,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5271,6 +5298,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5334,6 +5362,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5392,6 +5421,7 @@ components:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5447,6 +5477,7 @@ webhooks:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   // Generation must succeed even with warnings
   let result = generate.generate(spec, cfg)
@@ -5841,6 +5872,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5883,6 +5915,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -5921,6 +5954,7 @@ paths:
         output_client: "./test_output_client/api",
         package: "api",
         mode: config.Client,
+        validate: False,
       ),
     )
   let files = client_gen.generate(ctx)
@@ -6507,6 +6541,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Client,
+      validate: False,
     )
   generate.generate(spec, cfg)
   |> should.be_ok()
@@ -6610,6 +6645,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let assert Ok(summary) = generate.generate(spec, cfg)
   { summary.warnings != [] }
@@ -7514,6 +7550,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let files = server_gen.generate(ctx)
@@ -7609,6 +7646,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
@@ -7662,6 +7700,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let files = server_gen.generate(ctx)
@@ -7718,6 +7757,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
@@ -7769,6 +7809,7 @@ paths:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let files = server_gen.generate(ctx)
@@ -7820,6 +7861,7 @@ components:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
@@ -7875,6 +7917,7 @@ components:
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Server,
+      validate: False,
     )
   let ctx = context.new(spec, cfg)
   let errors = validate.validate(ctx)
@@ -8341,6 +8384,7 @@ pub fn oss_openapi_gen_petstore_server_generates_client_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Client,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -8726,6 +8770,7 @@ pub fn oss_kin_openapi_components_json_rejects_invalid_scheme_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -9248,6 +9293,7 @@ pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -9415,6 +9461,7 @@ pub fn inline_not_keyword_rejected_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -9469,6 +9516,7 @@ pub fn external_param_ref_rejects_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   // Must produce a diagnostic error, not panic
   let result = generate.generate(spec, cfg)
@@ -9494,6 +9542,7 @@ pub fn wrong_kind_ref_rejects_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10085,6 +10134,7 @@ pub fn error_missing_path_param_test() {
           output_client: "./test_output_client/api",
           package: "api",
           mode: config.Both,
+          validate: False,
         )
       let ctx = context.new(resolved, cfg)
       let diagnostics = validate.validate(ctx)
@@ -10337,6 +10387,7 @@ pub fn e2e_wildcard_status_codes_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10355,6 +10406,7 @@ pub fn e2e_format_types_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10374,6 +10426,7 @@ pub fn e2e_complex_discriminator_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10392,6 +10445,7 @@ pub fn e2e_enum_edge_cases_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10411,6 +10465,7 @@ pub fn e2e_mixed_param_locations_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10430,6 +10485,7 @@ pub fn e2e_inline_nested_objects_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10449,6 +10505,7 @@ pub fn e2e_optional_required_combinations_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10467,6 +10524,7 @@ pub fn e2e_no_servers_test() {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let result = generate.generate(spec, cfg)
   case result {
@@ -10474,4 +10532,365 @@ pub fn e2e_no_servers_test() {
     Error(generate.ValidationErrors(errors:)) ->
       list.length(errors) |> should.not_equal(0)
   }
+}
+
+// ===========================================================================
+// Guard integration tests (issue #22)
+// ===========================================================================
+
+/// Helper: create a context with validate=True from a YAML string.
+fn make_validate_ctx_from_yaml(yaml: String) -> context.Context {
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: True,
+    )
+  context.new(resolved, cfg)
+}
+
+/// Petstore spec YAML fragment with constrained request body.
+const guard_integration_spec = "
+openapi: 3.0.3
+info:
+  title: Guard Integration Test
+  version: 1.0.0
+servers:
+  - url: https://example.com
+paths:
+  /pets:
+    post:
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePetRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '400':
+          description: Bad Request
+    get:
+      operationId: listPets
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    CreatePetRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+"
+
+/// Server router should include guard validation when validate=True.
+pub fn guard_integration_server_router_validates_body_test() {
+  let ctx = make_validate_ctx_from_yaml(guard_integration_spec)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+
+  // Should import guards module
+  string.contains(router_file.content, "api/guards")
+  |> should.be_true()
+
+  // Should call guards.validate_create_pet_request after body decode
+  string.contains(
+    router_file.content,
+    "guards.validate_create_pet_request(decoded_body)",
+  )
+  |> should.be_true()
+
+  // Should return 422 on validation failure
+  string.contains(router_file.content, "status: 422")
+  |> should.be_true()
+
+  // Should include errors in JSON response body
+  string.contains(router_file.content, "json.array(errors, json.string)")
+  |> should.be_true()
+
+  // Decode error path should still return 400 (distinct from 422 validation)
+  string.contains(router_file.content, "status: 400")
+  |> should.be_true()
+}
+
+/// Server router should NOT include guard validation when validate=False.
+pub fn guard_integration_server_no_validation_when_disabled_test() {
+  let assert Ok(spec) = parser.parse_string(guard_integration_spec)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: False,
+    )
+  let ctx = context.new(resolved, cfg)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+
+  // Should NOT import guards module
+  string.contains(router_file.content, "api/guards")
+  |> should.be_false()
+
+  // Should NOT call guards.validate
+  string.contains(router_file.content, "guards.validate_")
+  |> should.be_false()
+
+  // Should NOT return 422
+  string.contains(router_file.content, "status: 422")
+  |> should.be_false()
+}
+
+/// Client should include guard validation when validate=True.
+pub fn guard_integration_client_validates_body_test() {
+  let ctx = make_validate_ctx_from_yaml(guard_integration_spec)
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // Should import guards module
+  string.contains(client_file.content, "api/guards")
+  |> should.be_true()
+
+  // Should include ValidationError variant
+  string.contains(client_file.content, "ValidationError(errors: List(String))")
+  |> should.be_true()
+
+  // Should call guards.validate_create_pet_request
+  string.contains(
+    client_file.content,
+    "guards.validate_create_pet_request(body)",
+  )
+  |> should.be_true()
+}
+
+/// Client should NOT include guard validation when validate=False.
+pub fn guard_integration_client_no_validation_when_disabled_test() {
+  let assert Ok(spec) = parser.parse_string(guard_integration_spec)
+  let assert Ok(resolved) = resolve.resolve(spec)
+  let resolved = hoist.hoist(resolved)
+  let resolved = dedup.dedup(resolved)
+  let cfg =
+    config.Config(
+      input: "test.yaml",
+      output_server: "./test_output/api",
+      output_client: "./test_output_client/api",
+      package: "api",
+      mode: config.Both,
+      validate: False,
+    )
+  let ctx = context.new(resolved, cfg)
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // Should NOT import guards module
+  string.contains(client_file.content, "api/guards")
+  |> should.be_false()
+
+  // Should NOT include ValidationError variant
+  string.contains(client_file.content, "ValidationError")
+  |> should.be_false()
+
+  // Should NOT call guards.validate
+  string.contains(client_file.content, "guards.validate_")
+  |> should.be_false()
+}
+
+/// Client should validate optional request bodies with Some/None handling.
+pub fn guard_integration_client_validates_optional_body_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Optional Body Test
+  version: 1.0.0
+servers:
+  - url: https://example.com
+paths:
+  /pets:
+    patch:
+      operationId: updatePet
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePetRequest'
+      responses:
+        '200':
+          description: OK
+components:
+  schemas:
+    UpdatePetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+"
+  let ctx = make_validate_ctx_from_yaml(yaml)
+  let files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(files, fn(f) { f.path == "client.gleam" })
+
+  // Should import guards module
+  string.contains(client_file.content, "api/guards")
+  |> should.be_true()
+
+  // Should include ValidationError variant
+  string.contains(client_file.content, "ValidationError")
+  |> should.be_true()
+
+  // Should call guards.validate for optional body with Some pattern
+  string.contains(client_file.content, "guards.validate_update_pet_request")
+  |> should.be_true()
+
+  // Should handle None case (no validation for absent body)
+  string.contains(client_file.content, "None -> []")
+  |> should.be_true()
+}
+
+/// Guard validation should only apply to schemas that actually have constraints.
+pub fn guard_integration_no_validation_for_unconstrained_body_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+servers:
+  - url: https://example.com
+paths:
+  /items:
+    post:
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Item'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    Item:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+"
+  let ctx = make_validate_ctx_from_yaml(yaml)
+  let files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(files, fn(f) { f.path == "router.gleam" })
+
+  // No constraints on Item schema, so no guard validation
+  string.contains(router_file.content, "guards.validate_")
+  |> should.be_false()
+
+  string.contains(router_file.content, "status: 422")
+  |> should.be_false()
+}
+
+/// guards.schema_has_validator returns True for schemas with constraints.
+pub fn guard_schema_has_validator_test() {
+  let ctx = make_validate_ctx_from_yaml(guard_integration_spec)
+  guards.schema_has_validator("CreatePetRequest", ctx)
+  |> should.be_true()
+}
+
+/// guards.schema_has_validator returns False for schemas without constraints.
+pub fn guard_schema_has_no_validator_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Simple:
+      type: object
+      properties:
+        name:
+          type: string
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  guards.schema_has_validator("Simple", ctx)
+  |> should.be_false()
+}
+
+/// guards.schema_has_validator returns False for non-existent schemas.
+pub fn guard_schema_has_validator_nonexistent_test() {
+  let ctx = make_validate_ctx_from_yaml(guard_integration_spec)
+  guards.schema_has_validator("NonExistent", ctx)
+  |> should.be_false()
+}
+
+/// Config load should parse validate field from YAML.
+pub fn config_validate_field_test() {
+  let yaml_content = "input: test.yaml\npackage: api\nvalidate: true\n"
+  let temp_path = "/tmp/oaspec_validate_test.yaml"
+  let assert Ok(Nil) = simplifile.write(temp_path, yaml_content)
+  let assert Ok(cfg) = config.load(temp_path)
+  cfg.validate |> should.be_true()
+  let _ = simplifile.delete(temp_path)
+  Nil
+}
+
+/// Config load should default validate to False when not specified.
+pub fn config_validate_default_false_test() {
+  let yaml_content = "input: test.yaml\npackage: api\n"
+  let temp_path = "/tmp/oaspec_validate_default_test.yaml"
+  let assert Ok(Nil) = simplifile.write(temp_path, yaml_content)
+  let assert Ok(cfg) = config.load(temp_path)
+  cfg.validate |> should.be_false()
+  let _ = simplifile.delete(temp_path)
+  Nil
 }

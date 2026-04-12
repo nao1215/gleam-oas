@@ -33,6 +33,7 @@ fn golden_generate(spec_path: String) -> List(context.GeneratedFile) {
       output_client: "./golden_unused/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   let assert Ok(summary) = generate.generate(spec, cfg)
   summary.files

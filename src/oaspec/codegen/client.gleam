@@ -6,6 +6,7 @@ import oaspec/codegen/client_request
 import oaspec/codegen/client_response
 import oaspec/codegen/client_security
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
+import oaspec/codegen/guards
 import oaspec/codegen/import_analysis
 import oaspec/codegen/ir_build
 import oaspec/openapi/operations
@@ -278,6 +279,31 @@ fn generate_client(ctx: Context) -> String {
     }
     False -> imports
   }
+  // Import guards module when validation is enabled and any operation body has validators
+  let needs_guards =
+    ctx.config.validate
+    && list.any(operations, fn(op) {
+      let #(_, operation, _, _) = op
+      case operation.request_body {
+        Some(Value(rb)) -> {
+          let content_entries = dict.to_list(rb.content)
+          case content_entries {
+            [#(_, mt)] ->
+              case mt.schema {
+                Some(schema.Reference(name:, ..)) ->
+                  guards.schema_has_validator(name, ctx)
+                _ -> False
+              }
+            _ -> False
+          }
+        }
+        _ -> False
+      }
+    })
+  let imports = case needs_guards {
+    True -> [ctx.config.package <> "/guards", ..imports]
+    False -> imports
+  }
 
   let sb =
     se.file_header(context.version)
@@ -335,6 +361,12 @@ fn generate_client(ctx: Context) -> String {
     |> se.indent(1, "ConnectionError(detail: String)")
     |> se.indent(1, "TimeoutError")
     |> se.indent(1, "DecodeError(detail: String)")
+  let sb = case ctx.config.validate {
+    True -> sb |> se.indent(1, "ValidationError(errors: List(String))")
+    False -> sb
+  }
+  let sb =
+    sb
     |> se.line("}")
     |> se.blank_line()
 
@@ -537,6 +569,59 @@ fn generate_client_function(
       <> response_type
       <> ", ClientError) {",
     )
+
+  // Determine if client-side guard validation is needed for the body
+  let client_guard_schema_name = case
+    ctx.config.validate,
+    operation.request_body
+  {
+    True, Some(Value(rb)) -> {
+      let content_entries = dict.to_list(rb.content)
+      case content_entries {
+        [#(_, mt)] ->
+          case mt.schema {
+            Some(schema.Reference(name:, ..)) ->
+              case guards.schema_has_validator(name, ctx) {
+                True -> Some(#(name, rb.required))
+                False -> None
+              }
+            _ -> None
+          }
+        _ -> None
+      }
+    }
+    _, _ -> None
+  }
+
+  // Open guard validation wrapper for required body
+  let sb = case client_guard_schema_name {
+    Some(#(name, True)) -> {
+      let validate_fn =
+        "guards.validate_" <> naming.to_snake_case(name) <> "(body)"
+      sb
+      |> se.indent(1, "case " <> validate_fn <> " {")
+      |> se.indent(2, "Error(errors) -> Error(ValidationError(errors:))")
+      |> se.indent(2, "Ok(_) -> {")
+    }
+    Some(#(name, False)) -> {
+      let validate_fn = "guards.validate_" <> naming.to_snake_case(name)
+      sb
+      |> se.indent(1, "let validation_errors = case body {")
+      |> se.indent(2, "Some(b) -> case " <> validate_fn <> "(b) {")
+      |> se.indent(3, "Error(errors) -> errors")
+      |> se.indent(3, "Ok(_) -> []")
+      |> se.indent(2, "}")
+      |> se.indent(2, "None -> []")
+      |> se.indent(1, "}")
+      |> se.indent(1, "case validation_errors {")
+      |> se.indent(
+        2,
+        "[_, ..] -> Error(ValidationError(errors: validation_errors))",
+      )
+      |> se.indent(2, "[] -> {")
+    }
+    None -> sb
+  }
 
   // Build URL with path params
   let sb = sb |> se.indent(1, "let path = \"" <> path <> "\"")
@@ -906,6 +991,15 @@ fn generate_client_function(
     |> se.indent(3, "}")
     |> se.indent(2, "}")
     |> se.indent(1, "}")
+
+  // Close guard validation wrapper
+  let sb = case client_guard_schema_name {
+    Some(_) ->
+      sb
+      |> se.indent(1, "}")
+      |> se.indent(1, "}")
+    None -> sb
+  }
 
   sb
   |> se.line("}")

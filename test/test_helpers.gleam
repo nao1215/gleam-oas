@@ -20,6 +20,7 @@ pub fn make_ctx_from_spec(spec) -> context.Context {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(resolved, cfg)
 }
@@ -37,6 +38,7 @@ pub fn make_ctx(spec_path: String) -> context.Context {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(resolved, cfg)
 }
@@ -167,6 +169,7 @@ pub fn make_minimal_ctx() -> context.Context {
       output_client: "./test_output_client/api",
       package: "api",
       mode: config.Both,
+      validate: False,
     )
   context.new(minimal_spec, cfg)
 }

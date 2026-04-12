@@ -63,6 +63,14 @@ fn generate_command() -> glint.Command(Nil) {
       |> glint.flag_help("Treat warnings as errors"),
     )
 
+    use validate <- glint.flag(
+      glint.bool_flag("validate")
+      |> glint.flag_default(False)
+      |> glint.flag_help(
+        "Enable guard validation in generated server/client code",
+      ),
+    )
+
     glint.command_help(
       "Generate Gleam code from an OpenAPI specification",
       fn() {
@@ -79,6 +87,7 @@ fn generate_command() -> glint.Command(Nil) {
           let check_mode = check(flags) |> result.unwrap(False)
           let fail_on_warnings_mode =
             fail_on_warnings(flags) |> result.unwrap(False)
+          let validate_mode = validate(flags) |> result.unwrap(False)
 
           run_generate(
             config_path,
@@ -86,6 +95,7 @@ fn generate_command() -> glint.Command(Nil) {
             output_opt,
             check_mode,
             fail_on_warnings_mode,
+            validate_mode,
           )
         })
       },
@@ -164,6 +174,12 @@ package: api
 # Generation mode: server, client, or both (default: both).
 # mode: both
 
+# Enable guard validation in generated server/client code (default: false).
+# When enabled, generated routers validate request bodies against schema
+# constraints and return 422 on failure. Generated clients validate
+# request bodies before sending.
+# validate: false
+
 # Output settings (optional).
 # output:
 #   dir: ./gen                    # Base output directory (default: ./gen)
@@ -197,6 +213,7 @@ fn run_generate(
   output_opt: Option(String),
   check_mode: Bool,
   fail_on_warnings: Bool,
+  validate_mode: Bool,
 ) -> Nil {
   io.println("oaspec v" <> context.version)
   io.println("Loading config from: " <> config_path)
@@ -204,6 +221,10 @@ fn run_generate(
   use cfg <- require(load_config(config_path, mode_opt, output_opt), fn(msg) {
     "Error: " <> msg
   })
+  let cfg = case validate_mode {
+    True -> config.with_validate(cfg, True)
+    False -> cfg
+  }
 
   io.println("Parsing OpenAPI spec: " <> cfg.input)
   use spec <- require(parser.parse_file(cfg.input), fn(e) {
