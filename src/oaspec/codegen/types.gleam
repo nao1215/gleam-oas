@@ -15,6 +15,7 @@ import oaspec/openapi/schema.{
   Reference, StringSchema,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
+import oaspec/util/content_type
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -277,11 +278,11 @@ fn responses_need_types_import(
             [] -> False
             [_, _, ..] -> False
             [#(media_type_name, media_type)] ->
-              case media_type_name {
-                "text/plain"
-                | "application/xml"
-                | "text/xml"
-                | "application/octet-stream" -> False
+              case content_type.from_string(media_type_name) {
+                content_type.TextPlain
+                | content_type.ApplicationXml
+                | content_type.TextXml
+                | content_type.ApplicationOctetStream -> False
                 _ ->
                   case media_type.schema {
                     Some(Reference(..)) -> True
@@ -353,12 +354,12 @@ fn generate_response_type(
                 // since different media types may decode to different Gleam types
                 [_, _, ..] -> sb |> se.indent(1, variant_name <> "(String)")
                 [#(media_type_name, media_type)] ->
-                  case media_type_name {
+                  case content_type.from_string(media_type_name) {
                     // text/plain, XML, octet-stream: always use String type
-                    "text/plain"
-                    | "application/xml"
-                    | "text/xml"
-                    | "application/octet-stream" ->
+                    content_type.TextPlain
+                    | content_type.ApplicationXml
+                    | content_type.TextXml
+                    | content_type.ApplicationOctetStream ->
                       case media_type.schema {
                         Some(_) ->
                           sb

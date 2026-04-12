@@ -10,6 +10,7 @@ import oaspec/openapi/schema.{
   Reference, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
+import oaspec/util/content_type
 import oaspec/util/naming
 
 /// Expression that case-insensitively parses a string to Bool.
@@ -1436,37 +1437,46 @@ pub fn generate_body_decode_expr(
 ) -> String {
   let content_entries = dict.to_list(rb.content)
   case content_entries {
-    [#("application/json", media_type)] -> {
-      let decode_fn = case media_type.schema {
-        Some(Reference(name:, ..)) ->
-          "decode.decode_" <> naming.to_snake_case(name) <> "(body)"
-        _ ->
-          "decode.decode_"
-          <> naming.to_snake_case(op_id)
-          <> "_request_body(body)"
+    [#(ct_name, media_type)] ->
+      case content_type.from_string(ct_name) {
+        content_type.ApplicationJson -> {
+          let decode_fn = case media_type.schema {
+            Some(Reference(name:, ..)) ->
+              "decode.decode_" <> naming.to_snake_case(name) <> "(body)"
+            _ ->
+              "decode.decode_"
+              <> naming.to_snake_case(op_id)
+              <> "_request_body(body)"
+          }
+          case rb.required {
+            True -> "{ let assert Ok(decoded) = " <> decode_fn <> " decoded }"
+            False ->
+              "case body { \"\" -> None _ -> { case "
+              <> decode_fn
+              <> " { Ok(decoded) -> Some(decoded) _ -> None } } }"
+          }
+        }
+        content_type.FormUrlEncoded -> {
+          let body_expr = form_urlencoded_body_constructor_expr(rb, op_id, ctx)
+          case rb.required {
+            True -> body_expr
+            False -> "case body { \"\" -> None _ -> Some(" <> body_expr <> ") }"
+          }
+        }
+        content_type.MultipartFormData -> {
+          let body_expr = multipart_body_constructor_expr(rb, op_id, ctx)
+          case rb.required {
+            True -> body_expr
+            False -> "case body { \"\" -> None _ -> Some(" <> body_expr <> ") }"
+          }
+        }
+        _ -> {
+          case rb.required {
+            True -> "body"
+            False -> "case body { \"\" -> None _ -> Some(body) }"
+          }
+        }
       }
-      case rb.required {
-        True -> "{ let assert Ok(decoded) = " <> decode_fn <> " decoded }"
-        False ->
-          "case body { \"\" -> None _ -> { case "
-          <> decode_fn
-          <> " { Ok(decoded) -> Some(decoded) _ -> None } } }"
-      }
-    }
-    [#("application/x-www-form-urlencoded", _media_type)] -> {
-      let body_expr = form_urlencoded_body_constructor_expr(rb, op_id, ctx)
-      case rb.required {
-        True -> body_expr
-        False -> "case body { \"\" -> None _ -> Some(" <> body_expr <> ") }"
-      }
-    }
-    [#("multipart/form-data", _media_type)] -> {
-      let body_expr = multipart_body_constructor_expr(rb, op_id, ctx)
-      case rb.required {
-        True -> body_expr
-        False -> "case body { \"\" -> None _ -> Some(" <> body_expr <> ") }"
-      }
-    }
     _ -> {
       case rb.required {
         True -> "body"

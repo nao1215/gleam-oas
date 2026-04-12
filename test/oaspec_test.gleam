@@ -8217,18 +8217,15 @@ pub fn oss_oapi_codegen_issue_1168_allof_discriminator_parses_test() {
   dict.size(components.schemas) |> should.not_equal(0)
 }
 
-pub fn oss_oapi_codegen_issue_1168_rejects_problem_json_test() {
-  // application/problem+json is not a supported response content type.
-  // With lazy ref resolution, inline $ref responses are kept as Ref(...).
-  // The full generate pipeline resolves them and catches validation errors.
+pub fn oss_oapi_codegen_issue_1168_problem_json_generates_test() {
+  // application/problem+json is now supported as a JSON-compatible suffix type.
+  // The full generate pipeline should succeed without validation errors.
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_oapi_codegen_issue_1168.yaml")
   let result = generate.generate(spec, make_ctx_from_spec(spec).config)
   case result {
-    Error(generate.ValidationErrors(errors)) ->
-      list.length(errors) |> should.not_equal(0)
-    // If codegen succeeds with warnings, that's also acceptable
-    Ok(summary) -> list.length(summary.warnings) |> should.not_equal(0)
+    Ok(_summary) -> should.be_true(True)
+    Error(_) -> should.be_true(False)
   }
 }
 
@@ -13154,4 +13151,144 @@ security:
     find_substring_index(content, "pub fn default_base_url(")
   should.be_true(new_pos < with_pos)
   should.be_true(with_pos < base_url_pos)
+}
+
+// --- content_type structured syntax suffix tests ---
+
+pub fn content_type_from_string_problem_json_test() {
+  content_type.from_string("application/problem+json")
+  |> should.equal(content_type.ApplicationJson)
+}
+
+pub fn content_type_from_string_json_patch_json_test() {
+  content_type.from_string("application/json-patch+json")
+  |> should.equal(content_type.ApplicationJson)
+}
+
+pub fn content_type_from_string_vendor_json_test() {
+  content_type.from_string("application/vnd.api+json")
+  |> should.equal(content_type.ApplicationJson)
+}
+
+pub fn content_type_from_string_soap_xml_test() {
+  content_type.from_string("application/soap+xml")
+  |> should.equal(content_type.ApplicationXml)
+}
+
+pub fn content_type_from_string_plain_json_unchanged_test() {
+  content_type.from_string("application/json")
+  |> should.equal(content_type.ApplicationJson)
+}
+
+pub fn content_type_from_string_unsupported_unchanged_test() {
+  content_type.from_string("image/png")
+  |> should.equal(content_type.UnsupportedContentType("image/png"))
+}
+
+pub fn content_type_is_json_compatible_true_test() {
+  content_type.is_json_compatible("application/problem+json")
+  |> should.be_true()
+}
+
+pub fn content_type_is_json_compatible_plain_json_test() {
+  content_type.is_json_compatible("application/json")
+  |> should.be_true()
+}
+
+pub fn content_type_is_json_compatible_false_test() {
+  content_type.is_json_compatible("text/plain")
+  |> should.be_false()
+}
+
+pub fn content_type_is_xml_compatible_suffix_test() {
+  content_type.is_xml_compatible("application/soap+xml")
+  |> should.be_true()
+}
+
+pub fn content_type_is_xml_compatible_plain_xml_test() {
+  content_type.is_xml_compatible("application/xml")
+  |> should.be_true()
+}
+
+pub fn content_type_is_xml_compatible_false_test() {
+  content_type.is_xml_compatible("application/json")
+  |> should.be_false()
+}
+
+pub fn json_suffix_request_body_validates_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /errors:
+    post:
+      operationId: reportError
+      requestBody:
+        required: true
+        content:
+          application/problem+json:
+            schema:
+              $ref: '#/components/schemas/Problem'
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Problem:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  // Should generate client code without validation errors
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  // The content-type header should use the original media type
+  string.contains(client_file.content, "application/problem+json")
+  |> should.be_true()
+}
+
+pub fn json_suffix_response_generates_typed_decode_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /errors:
+    get:
+      operationId: getError
+      responses:
+        '200':
+          description: ok
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  schemas:
+    Problem:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let spec = hoist.hoist(spec)
+  let ctx = make_ctx_from_spec(spec)
+  let files = client_gen.generate(ctx)
+  let assert [client_file] = files
+  // Should use JSON decode (not string passthrough)
+  string.contains(client_file.content, "decode.decode_problem(resp.body)")
+  |> should.be_true()
 }

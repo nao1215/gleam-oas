@@ -467,9 +467,9 @@ fn validate_request_body(
             path: op_id <> ".requestBody",
             detail: "Content type '"
               <> media_type
-              <> "' is not supported. Supported request content types: application/json, multipart/form-data, application/x-www-form-urlencoded.",
+              <> "' is not supported. Supported request content types: application/json (and +json suffix types), multipart/form-data, application/x-www-form-urlencoded.",
             hint: Some(
-              "Use application/json, multipart/form-data, or application/x-www-form-urlencoded.",
+              "Use application/json (or a +json suffix type like application/problem+json), multipart/form-data, or application/x-www-form-urlencoded.",
             ),
           ),
         ]
@@ -846,9 +846,9 @@ fn validate_responses(
             path: path,
             detail: "Response content type '"
               <> media_type_name
-              <> "' is not supported. Supported response content types: application/json, text/plain, application/octet-stream, application/xml, text/xml.",
+              <> "' is not supported. Supported response content types: application/json (and +json suffix types), text/plain, application/octet-stream, application/xml (and +xml suffix types), text/xml.",
             hint: Some(
-              "Use application/json, text/plain, application/octet-stream, application/xml, or text/xml.",
+              "Use application/json (or a +json suffix type), text/plain, application/octet-stream, application/xml (or a +xml suffix type), or text/xml.",
             ),
           ),
         ]

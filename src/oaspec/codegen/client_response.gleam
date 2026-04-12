@@ -3,6 +3,7 @@ import oaspec/codegen/context.{type Context}
 import oaspec/codegen/schema_dispatch
 import oaspec/openapi/schema.{Inline, Reference}
 import oaspec/openapi/spec
+import oaspec/util/content_type
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -17,8 +18,11 @@ pub fn generate_single_content_response(
   op_id: String,
   ctx: Context,
 ) -> se.StringBuilder {
-  case media_type_name {
-    "text/plain" | "application/xml" | "text/xml" | "application/octet-stream" ->
+  case content_type.from_string(media_type_name) {
+    content_type.TextPlain
+    | content_type.ApplicationXml
+    | content_type.TextXml
+    | content_type.ApplicationOctetStream ->
       case media_type.schema {
         Some(_) ->
           sb
