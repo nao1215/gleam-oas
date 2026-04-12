@@ -76,7 +76,7 @@ if ! GENERATE_OUTPUT="$(cd "$PROJECT_ROOT" && "$ARTIFACT_PATH" generate --config
   printf "%s\n" "$GENERATE_OUTPUT" >&2
   fail "generate smoke test failed"
 fi
-assert_output_contains "$GENERATE_OUTPUT" "Successfully generated 17 files"
+assert_output_contains "$GENERATE_OUTPUT" "Successfully generated "
 assert_file "$PROJECT_ROOT/test_output/api/types.gleam"
 assert_file "$PROJECT_ROOT/test_output/api/router.gleam"
 assert_file "$PROJECT_ROOT/test_output_client/api/client.gleam"

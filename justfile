@@ -27,7 +27,7 @@ docs:
 escript:
   gleam run -m gleescript
 
-smoke-escript:
+smoke-escript: escript
   bash scripts/smoke_escript.sh ./oaspec
 
 shellspec:
