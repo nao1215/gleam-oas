@@ -331,14 +331,14 @@ pub fn server_request_decode_param_parse_expr_string_test() {
 pub fn server_request_decode_param_parse_expr_int_test() {
   let param = test_helpers.simple_param("id", True, test_helpers.int_schema())
   server_request_decode.param_parse_expr("id_val", param)
-  |> should.equal("{ let assert Ok(v) = int.parse(id_val) v }")
+  |> should.equal("int.parse(id_val)")
 }
 
 pub fn server_request_decode_param_parse_expr_float_test() {
   let param =
     test_helpers.simple_param("price", True, test_helpers.float_schema())
   server_request_decode.param_parse_expr("price_val", param)
-  |> should.equal("{ let assert Ok(v) = float.parse(price_val) v }")
+  |> should.equal("float.parse(price_val)")
 }
 
 pub fn server_request_decode_request_body_uses_form_urlencoded_test() {

@@ -896,33 +896,101 @@ fn generate_route_body(
       |> generate_response_conversion(response_type_name, operation, ctx)
     }
     True -> {
-      // Has parameters: construct request, call handler, convert response
+      // Has parameters: validate inputs, construct request, call handler
       let request_type_name = type_name <> "Request"
-      let sb =
-        generate_request_construction(
-          sb,
-          request_type_name,
-          op_id,
-          operation,
-          path,
-          ctx,
-        )
-      sb
-      |> se.indent(3, "let response = handlers." <> fn_name <> "(request)")
-      |> generate_response_conversion(response_type_name, operation, ctx)
+      generate_safe_request_and_dispatch(
+        sb,
+        request_type_name,
+        response_type_name,
+        op_id,
+        fn_name,
+        operation,
+        path,
+        ctx,
+      )
     }
   }
 }
 
-/// Generate code to construct a typed request from raw inputs.
-fn generate_request_construction(
+/// Generate safe request construction wrapped in error handling.
+/// Path parameter parsing, required query/header/cookie params, and body
+/// decoding are all validated before calling the handler. Parse failures
+/// return ServerResponse(status: 400) instead of crashing.
+fn generate_safe_request_and_dispatch(
   sb: se.StringBuilder,
   request_type_name: String,
+  response_type_name: String,
   op_id: String,
+  fn_name: String,
   operation: spec.Operation(Resolved),
   _path: String,
   ctx: Context,
 ) -> se.StringBuilder {
+  let params =
+    list.filter_map(operation.parameters, fn(r) {
+      case r {
+        Value(p) -> Ok(p)
+        _ -> Error(Nil)
+      }
+    })
+
+  // Collect path params that need Result-based parsing (int, float)
+  let path_params_needing_parse =
+    list.filter(params, fn(p) {
+      p.in_ == spec.InPath && decode_helpers.param_needs_result_unwrap(p)
+    })
+
+  // Check if the request body needs safe decoding (required JSON body)
+  let needs_body_guard = case operation.request_body {
+    Some(Value(rb)) ->
+      rb.required
+      && list.any(dict.to_list(rb.content), fn(entry) {
+        content_type.is_json_compatible(entry.0)
+      })
+    _ -> False
+  }
+
+  // Open nested case expressions for each param that needs parsing
+  let sb =
+    list.fold(path_params_needing_parse, sb, fn(sb, p) {
+      let var_name = naming.to_snake_case(p.name)
+      let parse_expr = decode_helpers.param_parse_expr(var_name, p)
+      sb
+      |> se.indent(3, "case " <> parse_expr <> " {")
+      |> se.indent(4, "Ok(" <> var_name <> "_parsed) -> {")
+    })
+
+  // Open body decode guard if needed
+  let sb = case needs_body_guard, operation.request_body {
+    True, Some(Value(rb)) -> {
+      let content_entries = dict.to_list(rb.content)
+      case content_entries {
+        [#(_ct_name, media_type)] ->
+          case media_type.schema {
+            Some(schema.Reference(name:, ..)) -> {
+              let decode_fn =
+                "decode.decode_" <> naming.to_snake_case(name) <> "(body)"
+              sb
+              |> se.indent(3, "case " <> decode_fn <> " {")
+              |> se.indent(4, "Ok(decoded_body) -> {")
+            }
+            _ -> {
+              let decode_fn =
+                "decode.decode_"
+                <> naming.to_snake_case(op_id)
+                <> "_request_body(body)"
+              sb
+              |> se.indent(3, "case " <> decode_fn <> " {")
+              |> se.indent(4, "Ok(decoded_body) -> {")
+            }
+          }
+        _ -> sb
+      }
+    }
+    _, _ -> sb
+  }
+
+  // Prepare form/multipart body if needed
   let sb = case operation.request_body {
     Some(Value(rb)) ->
       case decode_helpers.request_body_uses_form_urlencoded(rb) {
@@ -947,67 +1015,97 @@ fn generate_request_construction(
     |> se.indent(3, "let request = request_types." <> request_type_name <> "(")
 
   let sb =
-    list.index_fold(
-      list.filter_map(operation.parameters, fn(r) {
-        case r {
-          Value(p) -> Ok(p)
-          _ -> Error(Nil)
-        }
-      }),
-      sb,
-      fn(sb, param, _idx) {
-        let field_name = naming.to_snake_case(param.name)
-        let trailing = ","
-        let value_expr = case param.in_ {
-          spec.InPath -> {
-            // Path param is already bound by the pattern match variable
-            let var_name = naming.to_snake_case(param.name)
-            decode_helpers.param_parse_expr(var_name, param)
-          }
-          spec.InQuery -> {
-            let key = param.name
-            case
-              decode_helpers.is_deep_object_param(param, ctx),
-              param.required
-            {
-              True, True ->
-                decode_helpers.deep_object_required_expr(key, param, op_id, ctx)
-              True, False ->
-                decode_helpers.deep_object_optional_expr(key, param, op_id, ctx)
-              False, True -> decode_helpers.query_required_expr(key, param)
-              False, False -> decode_helpers.query_optional_expr(key, param)
-            }
-          }
-          spec.InHeader -> {
-            // HTTP headers are case-insensitive; client sends lowercase names.
-            let key = string.lowercase(param.name)
-            case param.required {
-              True -> decode_helpers.header_required_expr(key, param)
-              False -> decode_helpers.header_optional_expr(key, param)
-            }
-          }
-          spec.InCookie -> {
-            let key = param.name
-            case param.required {
-              True -> decode_helpers.cookie_required_expr(key, param)
-              False -> decode_helpers.cookie_optional_expr(key, param)
+    list.fold(params, sb, fn(sb, param) {
+      let field_name = naming.to_snake_case(param.name)
+      let trailing = ","
+      let value_expr = case param.in_ {
+        spec.InPath -> {
+          // Use the parsed variable if it needed Result unwrapping
+          case decode_helpers.param_needs_result_unwrap(param) {
+            True -> naming.to_snake_case(param.name) <> "_parsed"
+            False -> {
+              let var_name = naming.to_snake_case(param.name)
+              decode_helpers.param_parse_expr(var_name, param)
             }
           }
         }
-        sb |> se.indent(4, field_name <> ": " <> value_expr <> trailing)
-      },
-    )
+        spec.InQuery -> {
+          let key = param.name
+          case decode_helpers.is_deep_object_param(param, ctx), param.required {
+            True, True ->
+              decode_helpers.deep_object_required_expr(key, param, op_id, ctx)
+            True, False ->
+              decode_helpers.deep_object_optional_expr(key, param, op_id, ctx)
+            False, True -> decode_helpers.query_required_expr(key, param)
+            False, False -> decode_helpers.query_optional_expr(key, param)
+          }
+        }
+        spec.InHeader -> {
+          let key = string.lowercase(param.name)
+          case param.required {
+            True -> decode_helpers.header_required_expr(key, param)
+            False -> decode_helpers.header_optional_expr(key, param)
+          }
+        }
+        spec.InCookie -> {
+          let key = param.name
+          case param.required {
+            True -> decode_helpers.cookie_required_expr(key, param)
+            False -> decode_helpers.cookie_optional_expr(key, param)
+          }
+        }
+      }
+      sb |> se.indent(4, field_name <> ": " <> value_expr <> trailing)
+    })
 
-  // Add body field if present
-  let sb = case operation.request_body {
-    Some(Value(rb)) -> {
-      let body_expr = decode_helpers.generate_body_decode_expr(rb, op_id, ctx)
-      sb |> se.indent(4, "body: " <> body_expr <> ",")
-    }
-    _ -> sb
+  // Add body field
+  let sb = case needs_body_guard {
+    True -> sb |> se.indent(4, "body: decoded_body,")
+    False ->
+      case operation.request_body {
+        Some(Value(rb)) -> {
+          let body_expr =
+            decode_helpers.generate_body_decode_expr(rb, op_id, ctx)
+          sb |> se.indent(4, "body: " <> body_expr <> ",")
+        }
+        _ -> sb
+      }
   }
 
-  sb |> se.indent(3, ")")
+  let sb = sb |> se.indent(3, ")")
+
+  // Call handler and convert response
+  let sb =
+    sb
+    |> se.indent(3, "let response = handlers." <> fn_name <> "(request)")
+    |> generate_response_conversion(response_type_name, operation, ctx)
+
+  // Close body decode guard
+  let sb = case needs_body_guard {
+    True ->
+      sb
+      |> se.indent(4, "}")
+      |> se.indent(
+        4,
+        "Error(_) -> ServerResponse(status: 400, body: \"Bad Request\", headers: [])",
+      )
+      |> se.indent(3, "}")
+    False -> sb
+  }
+
+  // Close path param case expressions (in reverse order)
+  let sb =
+    list.fold(path_params_needing_parse, sb, fn(sb, _p) {
+      sb
+      |> se.indent(4, "}")
+      |> se.indent(
+        4,
+        "Error(_) -> ServerResponse(status: 400, body: \"Bad Request\", headers: [])",
+      )
+      |> se.indent(3, "}")
+    })
+
+  sb
 }
 
 // Parameter parsing, body decoding, and request construction helpers
