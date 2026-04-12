@@ -105,22 +105,34 @@ pub fn body_field_kind_needs_float(kind: BodyFieldKind) -> Bool {
 }
 
 /// Generate parse expression for a path parameter (already bound as String).
+/// Returns a safe expression that does not crash on invalid input.
+/// For types that need parsing (int, float), returns the raw parse call
+/// so the router can wrap it in a case expression for error handling.
 pub fn param_parse_expr(
   var_name: String,
   param: spec.Parameter(Resolved),
 ) -> String {
   case spec.parameter_schema(param) {
     Some(Inline(schema.IntegerSchema(..))) -> {
-      // Parse string to int; use 0 as fallback
-      "{ let assert Ok(v) = int.parse(" <> var_name <> ") v }"
+      "int.parse(" <> var_name <> ")"
     }
     Some(Inline(schema.NumberSchema(..))) -> {
-      "{ let assert Ok(v) = float.parse(" <> var_name <> ") v }"
+      "float.parse(" <> var_name <> ")"
     }
     Some(Inline(schema.BooleanSchema(..))) -> {
       "{ let v = " <> var_name <> " " <> bool_parse_expr <> " }"
     }
     _ -> var_name
+  }
+}
+
+/// Return true when the parse expression returns a Result that the router
+/// must unwrap (int/float parsing). Bool and string params are always safe.
+pub fn param_needs_result_unwrap(param: spec.Parameter(Resolved)) -> Bool {
+  case spec.parameter_schema(param) {
+    Some(Inline(schema.IntegerSchema(..)))
+    | Some(Inline(schema.NumberSchema(..))) -> True
+    _ -> False
   }
 }
 

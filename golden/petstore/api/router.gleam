@@ -61,59 +61,65 @@ pub fn route(
       }
     }
     "POST", ["pets"] -> {
-      let request =
-        request_types.CreatePetRequest(body: {
-          let assert Ok(decoded) = decode.decode_create_pet_request(body)
-          decoded
-        })
-      let response = handlers.create_pet(request)
-      case response {
-        response_types.CreatePetResponseCreated(data) ->
-          ServerResponse(
-            status: 201,
-            body: json.to_string(encode.encode_pet_json(data)),
-            headers: [#("content-type", "application/json")],
-          )
-        response_types.CreatePetResponseBadRequest ->
-          ServerResponse(status: 400, body: "", headers: [])
-        response_types.CreatePetResponseUnauthorized ->
-          ServerResponse(status: 401, body: "", headers: [])
+      case decode.decode_create_pet_request(body) {
+        Ok(decoded_body) -> {
+          let request = request_types.CreatePetRequest(body: decoded_body)
+          let response = handlers.create_pet(request)
+          case response {
+            response_types.CreatePetResponseCreated(data) ->
+              ServerResponse(
+                status: 201,
+                body: json.to_string(encode.encode_pet_json(data)),
+                headers: [#("content-type", "application/json")],
+              )
+            response_types.CreatePetResponseBadRequest ->
+              ServerResponse(status: 400, body: "", headers: [])
+            response_types.CreatePetResponseUnauthorized ->
+              ServerResponse(status: 401, body: "", headers: [])
+          }
+        }
+        Error(_) ->
+          ServerResponse(status: 400, body: "Bad Request", headers: [])
       }
     }
     "GET", ["pets", pet_id] -> {
-      let request =
-        request_types.GetPetRequest(pet_id: {
-          let assert Ok(v) = int.parse(pet_id)
-          v
-        })
-      let response = handlers.get_pet(request)
-      case response {
-        response_types.GetPetResponseOk(data) ->
-          ServerResponse(
-            status: 200,
-            body: json.to_string(encode.encode_pet_json(data)),
-            headers: [#("content-type", "application/json")],
-          )
-        response_types.GetPetResponseUnauthorized ->
-          ServerResponse(status: 401, body: "", headers: [])
-        response_types.GetPetResponseNotFound ->
-          ServerResponse(status: 404, body: "", headers: [])
+      case int.parse(pet_id) {
+        Ok(pet_id_parsed) -> {
+          let request = request_types.GetPetRequest(pet_id: pet_id_parsed)
+          let response = handlers.get_pet(request)
+          case response {
+            response_types.GetPetResponseOk(data) ->
+              ServerResponse(
+                status: 200,
+                body: json.to_string(encode.encode_pet_json(data)),
+                headers: [#("content-type", "application/json")],
+              )
+            response_types.GetPetResponseUnauthorized ->
+              ServerResponse(status: 401, body: "", headers: [])
+            response_types.GetPetResponseNotFound ->
+              ServerResponse(status: 404, body: "", headers: [])
+          }
+        }
+        Error(_) ->
+          ServerResponse(status: 400, body: "Bad Request", headers: [])
       }
     }
     "DELETE", ["pets", pet_id] -> {
-      let request =
-        request_types.DeletePetRequest(pet_id: {
-          let assert Ok(v) = int.parse(pet_id)
-          v
-        })
-      let response = handlers.delete_pet(request)
-      case response {
-        response_types.DeletePetResponseNoContent ->
-          ServerResponse(status: 204, body: "", headers: [])
-        response_types.DeletePetResponseUnauthorized ->
-          ServerResponse(status: 401, body: "", headers: [])
-        response_types.DeletePetResponseNotFound ->
-          ServerResponse(status: 404, body: "", headers: [])
+      case int.parse(pet_id) {
+        Ok(pet_id_parsed) -> {
+          let request = request_types.DeletePetRequest(pet_id: pet_id_parsed)
+          let response = handlers.delete_pet(request)
+          case response {
+            response_types.DeletePetResponseNoContent ->
+              ServerResponse(status: 204, body: "", headers: [])
+            response_types.DeletePetResponseUnauthorized ->
+              ServerResponse(status: 401, body: "", headers: [])
+            response_types.DeletePetResponseNotFound ->
+              ServerResponse(status: 404, body: "", headers: [])
+          }
+        }
+        Error(_) ->
+          ServerResponse(status: 400, body: "Bad Request", headers: [])
       }
     }
     _, _ -> ServerResponse(status: 404, body: "Not Found", headers: [])
