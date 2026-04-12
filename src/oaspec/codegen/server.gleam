@@ -9,6 +9,7 @@ import oaspec/codegen/server_request_decode as decode_helpers
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{Inline, Reference}
 import oaspec/openapi/spec.{type Resolved, Value}
+import oaspec/util/content_type
 import oaspec/util/http
 import oaspec/util/naming
 import oaspec/util/string_extra as se
@@ -411,13 +412,13 @@ fn generate_router(
             let content_entries = dict.to_list(response.content)
             case content_entries {
               [#(media_type_name, media_type)] ->
-                case media_type_name {
-                  "application/json" ->
+                case content_type.is_json_compatible(media_type_name) {
+                  True ->
                     case media_type.schema {
                       Some(_) -> True
                       None -> False
                     }
-                  _ -> False
+                  False -> False
                 }
               _ -> False
             }
@@ -434,7 +435,7 @@ fn generate_router(
         Some(Value(rb)) ->
           list.any(dict.to_list(rb.content), fn(entry) {
             let #(content_type, _) = entry
-            content_type == "application/json"
+            content_type.is_json_compatible(content_type)
           })
         _ -> False
       }
@@ -1051,8 +1052,8 @@ fn generate_response_conversion(
                       <> ", body: \"\", headers: [])",
                   )
                 [#(media_type_name, media_type)] ->
-                  case media_type_name {
-                    "application/json" ->
+                  case content_type.from_string(media_type_name) {
+                    content_type.ApplicationJson ->
                       case media_type.schema {
                         Some(_) -> {
                           let encode_fn =
@@ -1066,7 +1067,9 @@ fn generate_response_conversion(
                               <> status_int
                               <> ", body: json.to_string("
                               <> encode_fn
-                              <> "(data)), headers: [#(\"content-type\", \"application/json\")])",
+                              <> "(data)), headers: [#(\"content-type\", \""
+                              <> media_type_name
+                              <> "\")])",
                           )
                         }
                         None ->
@@ -1080,10 +1083,10 @@ fn generate_response_conversion(
                               <> ", body: \"\", headers: [])",
                           )
                       }
-                    "text/plain"
-                    | "application/xml"
-                    | "text/xml"
-                    | "application/octet-stream" ->
+                    content_type.TextPlain
+                    | content_type.ApplicationXml
+                    | content_type.TextXml
+                    | content_type.ApplicationOctetStream ->
                       case media_type.schema {
                         Some(_) ->
                           sb

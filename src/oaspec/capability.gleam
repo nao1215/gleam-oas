@@ -156,6 +156,12 @@ pub fn registry() -> List(Capability) {
       "Form bodies",
     ),
     Capability("multipart/form-data", "request", Supported, "Multipart upload"),
+    Capability(
+      "+json/+xml suffix",
+      "content-type",
+      Supported,
+      "Structured syntax suffix media types (e.g. application/problem+json)",
+    ),
     // Responses
     Capability("application/json", "response", Supported, "JSON responses"),
     Capability("text/plain", "response", Supported, "Text passthrough"),
