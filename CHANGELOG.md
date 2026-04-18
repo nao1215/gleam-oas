@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Validator now rejects `pipeDelimited` / `spaceDelimited` only when applied outside `in: query` or to non-array schemas; previous outright rejection is removed
 - README: delimited array styles added to parameter support list and mode-specific support matrix
 - `SchemaMetadata` gains a `provenance: OriginKind` field, defaulted to `UserAuthored`
+- `examples/petstore_client`: first runnable example of an oaspec-generated client, driven by a stub `send` function; wired to `just example-petstore` (#26)
 
 ## [0.12.0] - 2026-04-12
 
