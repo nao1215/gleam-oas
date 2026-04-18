@@ -1,0 +1,14 @@
+openapi: "3.0.3"
+info:
+  title: External Ref Nested Cross-File Collision Main
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        left:
+          $ref: "./external_ref_collision_file_a.yaml#/components/schemas/Widget"
+        right:
+          $ref: "./external_ref_collision_file_b.yaml#/components/schemas/Widget"

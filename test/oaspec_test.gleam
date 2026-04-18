@@ -3382,6 +3382,59 @@ pub fn external_ref_collision_across_files_rejected_test() {
   string.contains(msg, "already imported") |> should.be_true()
 }
 
+pub fn external_ref_nested_collision_with_local_schema_rejected_test() {
+  // Main spec defines a local `Widget` AND an Envelope.payload property
+  // that imports a *different* `Widget` from a sibling file. Silently
+  // binding the property to the local Widget would shadow the author's
+  // intent — parse_file must surface a diagnostic instead.
+  let result =
+    parser.parse_file(
+      "test/fixtures/external_ref_nested_local_collision_main.yaml",
+    )
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "local schema") |> should.be_true()
+}
+
+pub fn external_ref_nested_collision_across_files_rejected_test() {
+  // Two object properties import the same fragment name `Widget` from
+  // two distinct sibling files. The second import collides with the
+  // first and must surface a diagnostic via
+  // `check_nested_cross_file_collision`.
+  let result =
+    parser.parse_file("test/fixtures/external_ref_nested_cross_main.yaml")
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "already imported") |> should.be_true()
+}
+
+pub fn external_ref_nested_in_object_property_test() {
+  // A property whose value is a relative-file $ref must be hoisted: the
+  // referenced schema is merged into `components.schemas` under its
+  // fragment name, and the property is rewritten to a local ref.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/external_ref_nested_main.yaml")
+  let assert Some(components) = spec.components
+  // Widget must have been pulled in from the shared file.
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "sku") |> should.be_true()
+  dict.has_key(widget_props, "price") |> should.be_true()
+  // Envelope.payload must now be a local reference to that schema.
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: envelope_props,
+    ..,
+  ))) = dict.get(components.schemas, "Envelope")
+  let assert Ok(schema.Reference(ref: payload_ref, ..)) =
+    dict.get(envelope_props, "payload")
+  payload_ref |> should.equal("#/components/schemas/Widget")
+  // Non-ref sibling property must be preserved unchanged.
+  let assert Ok(schema.Inline(schema.StringSchema(..))) =
+    dict.get(envelope_props, "note")
+}
+
 pub fn capability_registry_names_appear_in_readme_boundaries_test() {
   // Every keyword the capability registry declares as Unsupported / NotHandled
   // / ParsedNotUsed must be mentioned by name inside the README's
