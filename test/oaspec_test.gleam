@@ -3410,6 +3410,39 @@ pub fn external_ref_nested_collision_across_files_rejected_test() {
   string.contains(msg, "already imported") |> should.be_true()
 }
 
+pub fn external_ref_in_component_path_items_test() {
+  // A reusable PathItem under components.path_items carries the same
+  // operations as top-level paths. External schema refs inside its
+  // request body / response / parameters must hoist just like the
+  // top-level path walker.
+  let assert Ok(loaded) =
+    parser.parse_file(
+      "test/fixtures/external_ref_component_path_items_main.yaml",
+    )
+  let assert Some(components) = loaded.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "sku") |> should.be_true()
+  let assert Ok(spec.Value(path_item)) =
+    dict.get(components.path_items, "WidgetOps")
+  let assert Some(post_op) = path_item.post
+  let assert Some(spec.Value(body)) = post_op.request_body
+  let assert Ok(media) = dict.get(body.content, "application/json")
+  let assert Some(schema.Reference(ref: body_ref, ..)) = media.schema
+  body_ref |> should.equal("#/components/schemas/Widget")
+}
+
+pub fn external_ref_component_path_items_collision_with_local_schema_rejected_test() {
+  let result =
+    parser.parse_file(
+      "test/fixtures/external_ref_component_path_items_collision_main.yaml",
+    )
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "local schema") |> should.be_true()
+}
+
 pub fn external_ref_in_header_schemas_test() {
   // Headers appear both under components.headers and inside each
   // Response's headers dict. Schemas on either kind of header that
