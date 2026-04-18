@@ -3410,6 +3410,38 @@ pub fn external_ref_nested_collision_across_files_rejected_test() {
   string.contains(msg, "already imported") |> should.be_true()
 }
 
+pub fn external_ref_in_composition_branch_test() {
+  // A composition schema (oneOf here) whose branch is a relative-file
+  // $ref must hoist the target schema into components.schemas and
+  // rewrite the branch to a local ref.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/external_ref_composition_main.yaml")
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "sku") |> should.be_true()
+  let assert Ok(schema.Inline(schema.OneOfSchema(schemas: branches, ..))) =
+    dict.get(components.schemas, "WidgetOrInline")
+  // First branch (the external ref) rewritten to local; second stays inline.
+  let assert [first, second] = branches
+  let assert schema.Reference(ref: branch_ref, ..) = first
+  branch_ref |> should.equal("#/components/schemas/Widget")
+  let assert schema.Inline(schema.StringSchema(..)) = second
+}
+
+pub fn external_ref_composition_collision_with_local_schema_rejected_test() {
+  // anyOf branch imports a Widget while the main spec already defines
+  // a local Widget — the silent-shadowing guard must fire.
+  let result =
+    parser.parse_file(
+      "test/fixtures/external_ref_composition_collision_main.yaml",
+    )
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "local schema") |> should.be_true()
+}
+
 pub fn external_ref_in_additional_properties_test() {
   // An ObjectSchema whose additionalProperties value is a relative-file
   // $ref must hoist the target schema into components.schemas and
