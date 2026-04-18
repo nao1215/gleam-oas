@@ -521,10 +521,8 @@ pub fn register_webhook(req: request_types.RegisterWebhookRequest) -> response_t
   response_types.RegisterWebhookResponseCreated
 }
 
-/// Callback handler stub for onEvent
-pub fn register_webhook_callback_on_event_callback_url() -> String {
-  "callback_ok"
-}
+// Note: callbacks are parsed but no longer produce handler stubs — see
+// issue #117.
 GLEAM_EOF
 
 cat > "$CALLBACK_DIR/gleam.toml" << 'TOML_EOF'

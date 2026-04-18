@@ -2042,6 +2042,40 @@ components:
   |> should.be_true()
 }
 
+pub fn callbacks_do_not_emit_handler_stubs_test() {
+  // Callbacks must parse successfully but must not produce the old
+  // misleading `fn(...) -> String` handler stubs (see issue #117).
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /subscribe:
+    post:
+      operationId: subscribe
+      responses:
+        '201': { description: subscribed }
+      callbacks:
+        onEvent:
+          '{$request.body#/callbackUrl}':
+            post:
+              operationId: onEventCallback
+              responses:
+                '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let files = server_gen.generate(ctx)
+  let combined = list.fold(files, "", fn(acc, f) { acc <> f.content })
+  // The old stub pattern must be gone.
+  string.contains(combined, "subscribe_callback_on_event_") |> should.be_false()
+  string.contains(combined, "Callback handler stub for")
+  |> should.be_false()
+  string.contains(combined, "-> String {") |> should.be_false()
+}
+
 pub fn client_emits_invalid_url_variant_test() {
   let yaml =
     "
