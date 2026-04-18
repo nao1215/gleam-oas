@@ -7,7 +7,7 @@
 //// Gleam HTTP stack (`wisp`, `mist`, etc.) — the mapping is always the
 //// same shape:
 ////
-//!   1. Turn the incoming HTTP request into method + path segments +
+////   1. Turn the incoming HTTP request into method + path segments +
 ////      query dict + headers dict + body string.
 ////   2. Call `router.route(...)`.
 ////   3. Render the returned `ServerResponse` back into the framework's

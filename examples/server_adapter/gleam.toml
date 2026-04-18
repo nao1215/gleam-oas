@@ -2,6 +2,7 @@ name = "server_adapter_example"
 version = "0.1.0"
 target = "erlang"
 description = "Runnable example: wiring an oaspec-generated server router into a minimal adapter"
+gleam = ">= 1.15.0 and < 2.0.0"
 
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"

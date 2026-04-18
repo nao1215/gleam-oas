@@ -1,6 +1,7 @@
 //// Hand-written handler implementations for the server_adapter example.
 //// These replace the generated panic stubs and return canned test data.
 
+import api/guards
 import api/request_types
 import api/response_types
 import api/types
@@ -32,13 +33,20 @@ pub fn list_pets(
 pub fn create_pet(
   req: request_types.CreatePetRequest,
 ) -> response_types.CreatePetResponse {
-  response_types.CreatePetResponseCreated(types.Pet(
-    id: 100,
-    name: req.body.name,
-    status: types.PetStatusAvailable,
-    tag: req.body.tag,
-    additional_properties: dict.new(),
-  ))
+  // Run the generated validation guard before constructing the response.
+  // A well-formed OpenAPI spec will reject out-of-range values at the
+  // guard layer; returning 400 is the idiomatic mapping.
+  case guards.validate_create_pet_request(req.body) {
+    Error(_) -> response_types.CreatePetResponseBadRequest
+    Ok(_) ->
+      response_types.CreatePetResponseCreated(types.Pet(
+        id: 100,
+        name: req.body.name,
+        status: types.PetStatusAvailable,
+        tag: req.body.tag,
+        additional_properties: dict.new(),
+      ))
+  }
 }
 
 pub fn get_pet(

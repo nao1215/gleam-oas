@@ -34,16 +34,23 @@ just example-server-adapter
 Or manually:
 
 ```sh
-# 1. Regenerate the server code (already committed; only needed if the
-#    spec or oaspec itself changed). Note that `handlers.gleam` is
-#    *hand-written* in this example — running the generator will
-#    overwrite it, so keep a backup if you edit it locally.
-gleam run -- generate --config=examples/server_adapter/oaspec.yaml
-
-# 2. Run the example.
 cd examples/server_adapter
 gleam run
 ```
+
+### Regenerating the server code
+
+The generated server files under `src/api/` are committed, so the example
+runs out of the box. Regenerate only when the spec or oaspec itself
+changes:
+
+```sh
+gleam run -- generate --config=examples/server_adapter/oaspec.yaml
+```
+
+> **WARNING:** regeneration overwrites `src/api/handlers.gleam`, which
+> this example hand-writes. Back up your handlers file first, then
+> restore it (or re-apply your edits) after regeneration.
 
 Expected output:
 
