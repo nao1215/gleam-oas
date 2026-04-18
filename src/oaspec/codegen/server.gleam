@@ -5,7 +5,6 @@ import gleam/string
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/guards
 import oaspec/codegen/import_analysis
-import oaspec/codegen/ir_build
 import oaspec/codegen/server_request_decode as decode_helpers
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{Inline, Reference}
@@ -53,13 +52,11 @@ fn generate_handlers(
       generate_handler(sb, op_id, operation, ctx)
     })
 
-  // Generate callback handler stubs
-  let sb =
-    list.fold(operations, sb, fn(sb, op) {
-      let #(op_id, operation, _path, _method) = op
-      generate_callback_handlers(sb, op_id, operation)
-    })
-
+  // Callbacks are parsed and resolved but NOT emitted as handler stubs.
+  // The previous stubs had the shape `fn(...) -> String` with no request
+  // type, no response type, and no execution path — more misleading than
+  // useful. Callback support is now documented as parsed-but-not-codegen
+  // until a typed codegen story exists (see issue #117).
   se.to_string(sb)
 }
 
@@ -115,52 +112,6 @@ fn generate_handler(
   |> se.indent(1, "panic as \"unimplemented: " <> fn_name <> "\"")
   |> se.line("}")
   |> se.blank_line()
-}
-
-/// Generate callback handler stubs for an operation's callbacks.
-fn generate_callback_handlers(
-  sb: se.StringBuilder,
-  op_id: String,
-  operation: spec.Operation(Resolved),
-) -> se.StringBuilder {
-  let callbacks = ir_build.sorted_entries(operation.callbacks)
-  list.fold(callbacks, sb, fn(sb, entry) {
-    let #(callback_name, callback) = entry
-    let callback_entries = ir_build.sorted_entries(callback.entries)
-    list.fold(callback_entries, sb, fn(sb, cb_entry) {
-      let #(url_expression, _path_item) = cb_entry
-      let fn_name =
-        naming.operation_to_function_name(op_id)
-        <> "_callback_"
-        <> naming.to_snake_case(callback_name)
-        <> "_"
-        <> naming.to_snake_case(url_expression_to_suffix(url_expression))
-      sb
-      |> se.doc_comment(
-        "Callback handler stub for " <> callback_name <> " on " <> op_id,
-      )
-      |> se.doc_comment("URL: " <> url_expression)
-      |> se.line("pub fn " <> fn_name <> "() -> String {")
-      |> se.indent(1, "panic as \"unimplemented: " <> fn_name <> "\"")
-      |> se.line("}")
-      |> se.blank_line()
-    })
-  })
-}
-
-/// Extract a short suffix from a URL expression for function naming.
-fn url_expression_to_suffix(url_expression: String) -> String {
-  // Take the last path segment, stripping any template expressions
-  let parts = string.split(url_expression, "/")
-  case list.last(parts) {
-    Ok(last) ->
-      last
-      |> string.replace("{", "")
-      |> string.replace("}", "")
-      |> string.replace("$", "")
-      |> string.replace("#", "")
-    Error(_) -> "handler"
-  }
 }
 
 /// Generate a router module that dispatches requests.
