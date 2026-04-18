@@ -3338,6 +3338,25 @@ components:
 }
 
 // --- drift detection between capability registry and README ---
+pub fn external_file_ref_for_component_schema_test() {
+  // A spec whose components.schemas entry is a ref to a schema in a
+  // sibling YAML file should parse cleanly: the referenced schema is
+  // merged into the main spec and the entry is rewritten to a local ref.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/external_ref_main.yaml")
+  spec.info.title |> should.equal("External Ref Main")
+  let assert Some(components) = spec.components
+  // The referenced Widget schema must have been merged in.
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "id") |> should.be_true()
+  dict.has_key(widget_props, "label") |> should.be_true()
+  // The original Item entry now points at the local Widget.
+  let assert Ok(schema.Reference(ref: item_ref, ..)) =
+    dict.get(components.schemas, "Item")
+  item_ref |> should.equal("#/components/schemas/Widget")
+}
+
 pub fn capability_registry_names_appear_in_readme_boundaries_test() {
   // Every keyword the capability registry declares as Unsupported / NotHandled
   // / ParsedNotUsed must be mentioned by name inside the README's

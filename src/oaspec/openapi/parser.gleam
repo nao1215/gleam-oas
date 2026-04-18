@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import oaspec/openapi/diagnostic.{type Diagnostic, NoSourceLoc, SourceLoc}
+import oaspec/openapi/external_loader
 import oaspec/openapi/schema.{
   type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
   AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
@@ -29,6 +30,10 @@ import yay
 
 /// Parse an OpenAPI spec from a file path.
 /// Supports both YAML (.yaml, .yml) and JSON (.json) files.
+/// After parsing, resolves relative-file `$ref` values in
+/// `components.schemas` by loading the referenced files from disk and
+/// merging their schemas. Nested or parameter/response external refs are
+/// left to downstream validation.
 pub fn parse_file(path: String) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   use content <- result.try(
     simplifile.read(path)
@@ -37,7 +42,12 @@ pub fn parse_file(path: String) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
     }),
   )
 
-  parse_string(content)
+  use spec <- result.try(parse_string(content))
+  external_loader.resolve_external_component_refs(
+    spec,
+    external_loader.base_dir_of(path),
+    parse_file,
+  )
 }
 
 /// Parse an OpenAPI spec from a YAML/JSON string.
