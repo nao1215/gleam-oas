@@ -8,9 +8,9 @@
 ////   - ObjectSchema property values (`properties.field: $ref: ...`)
 ////   - ArraySchema item values (`items: $ref: ...`)
 ////   - ObjectSchema additionalProperties values (`additionalProperties: $ref: ...`)
+////   - composition branches (`oneOf`, `anyOf`, `allOf` variant refs)
 ////
 //// Out of scope (see issue #98 parent):
-////   - refs inside composition (oneOf/anyOf/allOf) branches
 ////   - external refs in parameters / request bodies / responses / path items
 ////   - HTTP/HTTPS URLs
 ////
@@ -230,6 +230,41 @@ fn process_nested_property_refs(
             )
           Ok(#([#(name, Inline(new_arr)), ..rewritten_acc], new_imports))
         }
+        Inline(schema.AllOfSchema(metadata:, schemas: branches)) -> {
+          use #(new_branches, new_imports) <- result.try(rewrite_schema_list(
+            branches,
+            base_dir,
+            parse_file,
+            imports,
+            original_local_names,
+          ))
+          let new_all = schema.AllOfSchema(metadata:, schemas: new_branches)
+          Ok(#([#(name, Inline(new_all)), ..rewritten_acc], new_imports))
+        }
+        Inline(schema.OneOfSchema(metadata:, schemas: branches, discriminator:)) -> {
+          use #(new_branches, new_imports) <- result.try(rewrite_schema_list(
+            branches,
+            base_dir,
+            parse_file,
+            imports,
+            original_local_names,
+          ))
+          let new_one =
+            schema.OneOfSchema(metadata:, schemas: new_branches, discriminator:)
+          Ok(#([#(name, Inline(new_one)), ..rewritten_acc], new_imports))
+        }
+        Inline(schema.AnyOfSchema(metadata:, schemas: branches, discriminator:)) -> {
+          use #(new_branches, new_imports) <- result.try(rewrite_schema_list(
+            branches,
+            base_dir,
+            parse_file,
+            imports,
+            original_local_names,
+          ))
+          let new_any =
+            schema.AnyOfSchema(metadata:, schemas: new_branches, discriminator:)
+          Ok(#([#(name, Inline(new_any)), ..rewritten_acc], new_imports))
+        }
         _ -> Ok(#([#(name, schema_ref), ..rewritten_acc], imports))
       }
     }),
@@ -325,6 +360,36 @@ fn rewrite_additional_properties(
     }
     _ -> Ok(#(additional, imports))
   }
+}
+
+/// Walk a `List(SchemaRef)` produced by an allOf/oneOf/anyOf composition,
+/// hoisting any relative-file external ref the same way property values
+/// and array items are handled. Branches that are inline or local refs
+/// pass through unchanged.
+fn rewrite_schema_list(
+  branches: List(SchemaRef),
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  imports: dict.Dict(String, #(String, SchemaRef)),
+  original_local_names: List(String),
+) -> Result(
+  #(List(SchemaRef), dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  use #(rewritten, new_imports) <- result.try(
+    list.try_fold(branches, #([], imports), fn(acc, branch) {
+      let #(collected, imports) = acc
+      use #(new_branch, new_imports) <- result.try(maybe_hoist_ref(
+        branch,
+        base_dir,
+        parse_file,
+        imports,
+        original_local_names,
+      ))
+      Ok(#([new_branch, ..collected], new_imports))
+    }),
+  )
+  Ok(#(list.reverse(rewritten), new_imports))
 }
 
 /// Core external-ref hoisting step shared by the property-value and

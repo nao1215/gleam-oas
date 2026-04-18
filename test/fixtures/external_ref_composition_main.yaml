@@ -1,0 +1,11 @@
+openapi: "3.0.3"
+info:
+  title: External Ref Composition Main
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    WidgetOrInline:
+      oneOf:
+        - $ref: "./external_ref_nested_shared.yaml#/components/schemas/Widget"
+        - type: string
