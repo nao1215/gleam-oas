@@ -453,6 +453,15 @@ fn generate_string_pattern_guard(
   }
 }
 
+/// Word used in minLength/maxLength error messages.
+/// Singular when the bound is exactly one; plural otherwise.
+fn character_word(n: Int) -> String {
+  case n {
+    1 -> "character"
+    _ -> "characters"
+  }
+}
+
 /// Generate a string length validation guard.
 fn generate_string_guard(
   sb: se.StringBuilder,
@@ -487,7 +496,9 @@ fn generate_string_guard(
             2,
             "True -> Error(\"must be at least "
               <> int.to_string(min)
-              <> " characters\")",
+              <> " "
+              <> character_word(min)
+              <> "\")",
           )
           |> se.indent(2, "False ->")
           |> se.indent(3, "case len > " <> int.to_string(max) <> " {")
@@ -495,7 +506,9 @@ fn generate_string_guard(
             4,
             "True -> Error(\"must be at most "
               <> int.to_string(max)
-              <> " characters\")",
+              <> " "
+              <> character_word(max)
+              <> "\")",
           )
           |> se.indent(4, "False -> Ok(value)")
           |> se.indent(3, "}")
@@ -507,7 +520,9 @@ fn generate_string_guard(
             2,
             "True -> Error(\"must be at least "
               <> int.to_string(min)
-              <> " characters\")",
+              <> " "
+              <> character_word(min)
+              <> "\")",
           )
           |> se.indent(2, "False -> Ok(value)")
           |> se.indent(1, "}")
@@ -518,7 +533,9 @@ fn generate_string_guard(
             2,
             "True -> Error(\"must be at most "
               <> int.to_string(max)
-              <> " characters\")",
+              <> " "
+              <> character_word(max)
+              <> "\")",
           )
           |> se.indent(2, "False -> Ok(value)")
           |> se.indent(1, "}")

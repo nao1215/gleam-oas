@@ -2042,6 +2042,69 @@ components:
   |> should.be_true()
 }
 
+pub fn guards_minlength_one_uses_singular_character_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /u:
+    get:
+      operationId: u
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Short:
+      type: string
+      minLength: 1
+      maxLength: 1
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let assert [guard_file] = guards.generate(ctx)
+  string.contains(guard_file.content, "must be at least 1 character\"")
+  |> should.be_true()
+  string.contains(guard_file.content, "must be at most 1 character\"")
+  |> should.be_true()
+  // The plural form must not appear for 1-bounded messages.
+  string.contains(guard_file.content, "must be at least 1 characters")
+  |> should.be_false()
+  string.contains(guard_file.content, "must be at most 1 characters")
+  |> should.be_false()
+}
+
+pub fn guards_minmax_length_plural_above_one_test() {
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /u:
+    get:
+      operationId: u
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Medium:
+      type: string
+      minLength: 2
+      maxLength: 5
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let assert [guard_file] = guards.generate(ctx)
+  string.contains(guard_file.content, "must be at least 2 characters")
+  |> should.be_true()
+  string.contains(guard_file.content, "must be at most 5 characters")
+  |> should.be_true()
+}
+
 pub fn validate_top_level_string_pattern_generates_guard_test() {
   let yaml =
     "
