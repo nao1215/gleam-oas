@@ -46,15 +46,20 @@ pub fn resolve_external_component_refs(
 ) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   case spec.components, base_dir {
     Some(components), Some(dir) -> {
-      use top_resolved <- result.try(process_components(
+      let original_local_names =
+        local_schema_names(dict.to_list(components.schemas))
+      use #(top_resolved, top_imported) <- result.try(process_components(
         components,
         dir,
         parse_file,
+        original_local_names,
       ))
       use nested_resolved <- result.try(process_nested_property_refs(
         top_resolved,
         dir,
         parse_file,
+        original_local_names,
+        top_imported,
       ))
       Ok(OpenApiSpec(..spec, components: Some(nested_resolved)))
     }
@@ -66,10 +71,10 @@ fn process_components(
   components: Components(Unresolved),
   base_dir: String,
   parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
-) -> Result(Components(Unresolved), Diagnostic) {
+  original_local_names: List(String),
+) -> Result(#(Components(Unresolved), dict.Dict(String, String)), Diagnostic) {
   let entries = dict.to_list(components.schemas)
-  let original_local_names = local_schema_names(entries)
-  use #(new_entries, _imported) <- result.try(
+  use #(new_entries, imported) <- result.try(
     list.try_fold(entries, #([], dict.new()), fn(acc, entry) {
       let #(pending, imported) = acc
       let #(name, schema_ref) = entry
@@ -117,7 +122,7 @@ fn process_components(
     list.fold(new_entries, dict.new(), fn(d, pair) {
       dict.insert(d, pair.0, pair.1)
     })
-  Ok(Components(..components, schemas: merged))
+  Ok(#(Components(..components, schemas: merged), imported))
 }
 
 /// Names in the current spec that are *not themselves* external refs.
@@ -137,17 +142,29 @@ fn local_schema_names(entries: List(#(String, SchemaRef))) -> List(String) {
 /// property is rewritten to a local `#/components/schemas/<fragment>` ref.
 ///
 /// Runs after `process_components` so top-level external refs are already
-/// merged in. Cross-file collisions (two property refs pulling the same
-/// fragment name from different files) still raise `Diagnostic` errors;
-/// importing a name that already exists from the same file is idempotent.
+/// merged in. Collisions are surfaced rather than silently resolved:
+///   - if the nested fragment name matches a schema that was originally
+///     authored inline in the main spec, error (silent-shadowing guard);
+///   - if two refs pull the same fragment name from different source files
+///     (whether nested or top-level), error;
+///   - same-file re-imports remain idempotent.
 fn process_nested_property_refs(
   components: Components(Unresolved),
   base_dir: String,
   parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  original_local_names: List(String),
+  top_imported: dict.Dict(String, String),
 ) -> Result(Components(Unresolved), Diagnostic) {
   let entries = dict.to_list(components.schemas)
+  // Seed the nested-import tracker with every top-level external import so
+  // a nested property that re-imports the same fragment from a different
+  // file is caught as a cross-file collision.
+  let seeded_imports =
+    dict.fold(top_imported, dict.new(), fn(d, frag_name, source_path) {
+      dict.insert(d, frag_name, #(source_path, no_target()))
+    })
   use #(rewritten, imports) <- result.try(
-    list.try_fold(entries, #([], dict.new()), fn(acc, entry) {
+    list.try_fold(entries, #([], seeded_imports), fn(acc, entry) {
       let #(rewritten_acc, imports) = acc
       let #(name, schema_ref) = entry
       case schema_ref {
@@ -160,7 +177,13 @@ fn process_nested_property_refs(
           max_properties:,
         )) -> {
           use #(new_properties, new_imports) <- result.try(
-            rewrite_object_properties(properties, base_dir, parse_file, imports),
+            rewrite_object_properties(
+              properties,
+              base_dir,
+              parse_file,
+              imports,
+              original_local_names,
+            ),
           )
           let new_obj =
             schema.ObjectSchema(
@@ -181,18 +204,28 @@ fn process_nested_property_refs(
     list.fold(rewritten, dict.new(), fn(d, pair) {
       dict.insert(d, pair.0, pair.1)
     })
-  // New imports only populate slots that aren't already filled; this keeps
-  // the top-level resolver authoritative when both layers target the same
-  // fragment name from the same file.
+  // Nested imports populate any slot the rewritten pass hasn't filled.
+  // Seeded top-level entries carry a placeholder schema (`no_target`)
+  // and are only skipped — they were already merged during the top-level
+  // pass.
   let merged =
     dict.fold(imports, merged, fn(d, frag_name, pair) {
       let #(_source_path, target_schema) = pair
-      case dict.has_key(d, frag_name) {
-        True -> d
-        False -> dict.insert(d, frag_name, target_schema)
+      case dict.has_key(d, frag_name), target_schema {
+        True, _ -> d
+        False, Inline(_) -> dict.insert(d, frag_name, target_schema)
+        False, _ -> d
       }
     })
   Ok(Components(..components, schemas: merged))
+}
+
+/// Placeholder target used to seed the nested-import tracker with top-level
+/// imports whose schema was already merged. `Reference("", "")` is never
+/// emitted as a real value — the merge step filters it out by matching only
+/// on `Inline(_)` targets.
+fn no_target() -> SchemaRef {
+  Reference(ref: "", name: "")
 }
 
 /// Walk the properties dict of an ObjectSchema; for each property that is a
@@ -204,6 +237,7 @@ fn rewrite_object_properties(
   base_dir: String,
   parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
   imports: dict.Dict(String, #(String, SchemaRef)),
+  original_local_names: List(String),
 ) -> Result(
   #(dict.Dict(String, SchemaRef), dict.Dict(String, #(String, SchemaRef))),
   Diagnostic,
@@ -216,6 +250,11 @@ fn rewrite_object_properties(
       case extract_external_ref(prop_ref) {
         Some(#(rel_path, fragment_name)) -> {
           let resolved_path = filepath.join(base_dir, rel_path)
+          use _ <- result.try(check_nested_local_collision(
+            fragment_name,
+            resolved_path,
+            original_local_names,
+          ))
           use _ <- result.try(check_nested_cross_file_collision(
             fragment_name,
             resolved_path,
@@ -245,6 +284,34 @@ fn rewrite_object_properties(
       dict.insert(d, pair.0, pair.1)
     })
   Ok(#(new_properties, new_imports))
+}
+
+/// Reject a nested property ref whose fragment name collides with a schema
+/// that was authored inline in the main spec. Without this guard the nested
+/// import would silently rebind to the local schema — even if its shape is
+/// unrelated — because the merged dict already holds that slot.
+fn check_nested_local_collision(
+  fragment_name: String,
+  source_path: String,
+  original_local_names: List(String),
+) -> Result(Nil, Diagnostic) {
+  case list.contains(original_local_names, fragment_name) {
+    False -> Ok(Nil)
+    True ->
+      Error(diagnostic.validation(
+        severity: diagnostic.SeverityError,
+        target: diagnostic.TargetBoth,
+        path: source_path,
+        detail: "Nested property $ref imports schema '"
+          <> fragment_name
+          <> "' from '"
+          <> source_path
+          <> "', but a local schema with the same name is already defined.",
+        hint: Some(
+          "Rename one of the colliding schemas, or point the external ref at a file whose fragment name is unique.",
+        ),
+      ))
+  }
 }
 
 /// Same shape as `check_cross_file_collision` but reads from the
