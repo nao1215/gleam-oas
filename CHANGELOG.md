@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`style: pipeDelimited` / `style: spaceDelimited` query array parameters**: generated clients encode non-exploded arrays as `name=a|b|c` or `name=a%20b%20c`; generated servers split on the matching delimiter (#97)
 - **Provenance metadata on hoisted schemas**: every hoisted component schema carries an `OriginKind` explaining whether it came from a property, array item, oneOf/anyOf/allOf position, parameter, request body, response, or additional-properties context. New `oaspec/openapi/provenance` module exposes `hoisted_schema_summary/1` so tooling and diagnostics can distinguish user-authored from synthetic schemas (#30)
 - `examples/petstore_client`: first runnable example of an oaspec-generated client, driven by a stub `send` function; wired to `just example-petstore` (#26)
-- 8 new tests covering delimited styles, provenance tracking, and summary grouping (615 → 624 unit tests)
+- 10 new tests covering delimited styles, provenance tracking, summary grouping, and guard pluralization (615 → 626 unit tests)
 - 3 fixtures covering delimited styles and their rejection cases (179 → 182 fixtures)
 
 ### Changed
@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Validator now rejects `pipeDelimited` / `spaceDelimited` only when applied outside `in: query` or to non-array schemas; previous outright rejection is removed
 - README: delimited array styles added to parameter support list and mode-specific support matrix
 - `SchemaMetadata` gains a `provenance: OriginKind` field, defaulted to `UserAuthored`
+
+### Fixed
+
+- Generated `minLength` / `maxLength` guard messages now pluralize correctly — `1 character` (singular) vs. `N characters` (plural) (#121)
 
 ## [0.12.0] - 2026-04-12
 

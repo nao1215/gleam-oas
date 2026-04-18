@@ -9,7 +9,7 @@ pub fn validate_create_pet_request_name_length(
 ) -> Result(String, String) {
   let len = string.length(value)
   case len < 1 {
-    True -> Error("must be at least 1 characters")
+    True -> Error("must be at least 1 character")
     False ->
       case len > 100 {
         True -> Error("must be at most 100 characters")
@@ -22,7 +22,7 @@ pub fn validate_create_pet_request_name_length(
 pub fn validate_pet_name_length(value: String) -> Result(String, String) {
   let len = string.length(value)
   case len < 1 {
-    True -> Error("must be at least 1 characters")
+    True -> Error("must be at least 1 character")
     False ->
       case len > 100 {
         True -> Error("must be at most 100 characters")
