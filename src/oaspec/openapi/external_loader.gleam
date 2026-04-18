@@ -17,6 +17,8 @@
 ////     on both `paths.<path>.parameters` and `paths.<path>.<method>.parameters`
 ////   - operation-level `requestBody.content.*.schema`
 ////   - operation-level `responses.<code>.content.*.schema`
+////   - `components.headers.*.schema` and every `Response.headers.*.schema`
+////     (both under `components.responses` and operation-level responses)
 ////   - refs inside `operation.callbacks.*.entries.*` PathItems (recursive)
 ////   - one level of alias chaining inside the same external file
 ////     (`LegacyX: $ref: "#/components/schemas/X"` in the external file).
@@ -103,14 +105,23 @@ pub fn resolve_external_component_refs(
           param_imports,
         ),
       )
-      use #(new_paths, op_final_components) <- result.try(
-        process_operation_schemas(
-          spec.paths,
+      use #(header_resolved, header_imports) <- result.try(
+        process_component_headers(
           body_resolved,
           dir,
           parse_file,
           original_local_names,
           body_imports,
+        ),
+      )
+      use #(new_paths, op_final_components) <- result.try(
+        process_operation_schemas(
+          spec.paths,
+          header_resolved,
+          dir,
+          parse_file,
+          original_local_names,
+          header_imports,
         ),
       )
       Ok(
@@ -784,14 +795,13 @@ fn rewrite_response_map(
       let #(status, ref_or_resp) = entry
       case ref_or_resp {
         spec.Value(resp) -> {
-          use #(new_content, new_imports) <- result.try(rewrite_media_type_map(
-            resp.content,
+          use #(new_resp, new_imports) <- result.try(rewrite_response_value(
+            resp,
             base_dir,
             parse_file,
             imports,
             original_local_names,
           ))
-          let new_resp = spec.Response(..resp, content: new_content)
           Ok(#([#(status, spec.Value(new_resp)), ..collected], new_imports))
         }
         spec.Ref(_) -> Ok(#([#(status, ref_or_resp), ..collected], imports))
@@ -902,14 +912,13 @@ fn process_body_response_schemas(
       let #(name, ref_or_resp) = entry
       case ref_or_resp {
         spec.Value(resp) -> {
-          use #(new_content, new_imports) <- result.try(rewrite_media_type_map(
-            resp.content,
+          use #(new_resp, new_imports) <- result.try(rewrite_response_value(
+            resp,
             base_dir,
             parse_file,
             imports,
             original_local_names,
           ))
-          let new_resp = spec.Response(..resp, content: new_content)
           Ok(#([#(name, spec.Value(new_resp)), ..collected], new_imports))
         }
         spec.Ref(_) -> Ok(#([#(name, ref_or_resp), ..collected], imports))
@@ -990,6 +999,120 @@ fn rewrite_ref_or_parameter(
       }
     spec.Ref(_) -> Ok(#(ref_or_param, imports))
   }
+}
+
+/// Rewrite both the `content` media map and the `headers` map of a
+/// single Response value. Shared by the components-side and operation-
+/// side response walkers so header schemas get the same external-ref
+/// treatment as body schemas.
+fn rewrite_response_value(
+  response: spec.Response(Unresolved),
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  imports: dict.Dict(String, #(String, SchemaRef)),
+  original_local_names: List(String),
+) -> Result(
+  #(spec.Response(Unresolved), dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  use #(new_content, imports_after_content) <- result.try(
+    rewrite_media_type_map(
+      response.content,
+      base_dir,
+      parse_file,
+      imports,
+      original_local_names,
+    ),
+  )
+  use #(new_headers, new_imports) <- result.try(rewrite_header_map(
+    response.headers,
+    base_dir,
+    parse_file,
+    imports_after_content,
+    original_local_names,
+  ))
+  Ok(#(
+    spec.Response(..response, content: new_content, headers: new_headers),
+    new_imports,
+  ))
+}
+
+/// Walk a `Dict(String, Header)` and hoist any external `$ref` found
+/// on `Header.schema`. Headers are not `RefOr(Header)`, so no
+/// placeholder handling — just iterate the dict and rewrite each
+/// entry that has a schema.
+fn rewrite_header_map(
+  headers: dict.Dict(String, spec.Header),
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  imports: dict.Dict(String, #(String, SchemaRef)),
+  original_local_names: List(String),
+) -> Result(
+  #(dict.Dict(String, spec.Header), dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  let entries = dict.to_list(headers)
+  use #(rewritten, new_imports) <- result.try(
+    list.try_fold(entries, #([], imports), fn(acc, entry) {
+      let #(collected, imports) = acc
+      let #(name, header) = entry
+      case header.schema {
+        Some(ref) -> {
+          use #(new_ref, new_imports) <- result.try(maybe_hoist_ref(
+            ref,
+            base_dir,
+            parse_file,
+            imports,
+            original_local_names,
+          ))
+          let new_header = spec.Header(..header, schema: Some(new_ref))
+          Ok(#([#(name, new_header), ..collected], new_imports))
+        }
+        None -> Ok(#([#(name, header), ..collected], imports))
+      }
+    }),
+  )
+  let new_map =
+    list.fold(rewritten, dict.new(), fn(d, pair) {
+      dict.insert(d, pair.0, pair.1)
+    })
+  Ok(#(new_map, new_imports))
+}
+
+/// Walk `components.headers` (plain `Dict(String, Header)`, not
+/// `RefOr`) and hoist any external `$ref` found on `Header.schema`.
+/// Runs after the other components-side passes so imported schemas
+/// continue to flow into `components.schemas`.
+fn process_component_headers(
+  components: Components(Unresolved),
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  original_local_names: List(String),
+  seeded_imports: dict.Dict(String, #(String, SchemaRef)),
+) -> Result(
+  #(Components(Unresolved), dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  use #(new_headers, final_imports) <- result.try(rewrite_header_map(
+    components.headers,
+    base_dir,
+    parse_file,
+    seeded_imports,
+    original_local_names,
+  ))
+  let new_schemas =
+    dict.fold(final_imports, components.schemas, fn(d, frag_name, pair) {
+      let #(_source_path, target_schema) = pair
+      case dict.has_key(d, frag_name), target_schema {
+        True, _ -> d
+        False, Inline(_) -> dict.insert(d, frag_name, target_schema)
+        False, _ -> d
+      }
+    })
+  Ok(#(
+    Components(..components, headers: new_headers, schemas: new_schemas),
+    final_imports,
+  ))
 }
 
 /// Walk every MediaType in a content-type dict and hoist any external ref
