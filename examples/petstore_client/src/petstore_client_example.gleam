@@ -27,7 +27,7 @@ pub fn main() {
     Ok(response_types.ListPetsResponseOk(pets)) -> print_pets(pets)
     Ok(response_types.ListPetsResponseUnauthorized) ->
       io.println("server returned 401 Unauthorized")
-    Error(err) -> io.println("transport error: " <> describe(err))
+    Error(err) -> io.println("client error: " <> describe(err))
   }
 }
 
@@ -46,8 +46,10 @@ fn describe(err: client.ClientError) -> String {
   }
 }
 
-/// Canned HTTP send function — pretends the server returned two pets.
-/// Replace with a real transport in production.
+/// Canned HTTP send function — pretends the server returned two pets
+/// regardless of the path, method, or query string of the incoming request.
+/// This keeps the example self-contained; a real client would dispatch on
+/// `req.path`/`req.method` and issue a real HTTP call.
 fn stub_send(
   req: request.Request(String),
 ) -> Result(client.ClientResponse, client.ClientError) {

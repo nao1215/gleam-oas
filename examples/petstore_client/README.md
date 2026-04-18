@@ -35,7 +35,7 @@ gleam run
 
 Expected output:
 
-```
+```text
 Got 2 pet(s):
   - Fido (id=1)
   - Whiskers (id=2)
@@ -43,7 +43,7 @@ Got 2 pet(s):
 
 ## File layout
 
-```
+```text
 examples/petstore_client/
   gleam.toml                 — project manifest
   oaspec.yaml                — generator config (input: petstore.yaml)
