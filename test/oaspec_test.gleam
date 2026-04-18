@@ -9828,7 +9828,28 @@ pub fn parse_delimited_param_styles_test() {
   spec.info.title |> should.equal("Delimited Parameter Styles API")
   let assert Ok(spec.Value(path_item)) = dict.get(spec.paths, "/items")
   let assert Some(op) = path_item.get
-  list.length(op.parameters) |> should.equal(4)
+  list.length(op.parameters) |> should.equal(5)
+  let by_name =
+    list.fold(op.parameters, dict.new(), fn(acc, pref) {
+      let p = spec.unwrap_ref(pref)
+      dict.insert(acc, p.name, p)
+    })
+  let assert Ok(colors) = dict.get(by_name, "colors")
+  colors.style |> should.equal(Some(spec.PipeDelimitedStyle))
+  colors.explode |> should.equal(Some(False))
+  let assert Ok(tags) = dict.get(by_name, "tags")
+  tags.style |> should.equal(Some(spec.PipeDelimitedStyle))
+  // explode omitted — preserved as None; codegen applies the spec default.
+  tags.explode |> should.equal(None)
+  let assert Ok(colors_exploded) = dict.get(by_name, "colors_exploded")
+  colors_exploded.style |> should.equal(Some(spec.PipeDelimitedStyle))
+  colors_exploded.explode |> should.equal(Some(True))
+  let assert Ok(sizes) = dict.get(by_name, "sizes")
+  sizes.style |> should.equal(Some(spec.SpaceDelimitedStyle))
+  sizes.explode |> should.equal(Some(False))
+  let assert Ok(sizes_exploded) = dict.get(by_name, "sizes_exploded")
+  sizes_exploded.style |> should.equal(Some(spec.SpaceDelimitedStyle))
+  sizes_exploded.explode |> should.equal(Some(True))
 }
 
 pub fn validate_accepts_delimited_param_styles_test() {
@@ -10057,15 +10078,26 @@ pub fn generate_delimited_param_styles_client_test() {
   let ctx = make_ctx("test/fixtures/delimited_param_styles.yaml")
   let client_files = client_gen.generate(ctx)
   let combined = list.fold(client_files, "", fn(acc, f) { acc <> f.content })
-  // Non-exploded pipe/space paths should join array items with the style
-  // delimiter before percent-encoding the whole value.
-  string.contains(combined, "string.join(list.map(items,") |> should.be_true()
+  // Non-exploded pipe/space params (colors + tags for pipe, sizes for space)
+  // should join array items with the style delimiter before percent-encoding
+  // the whole value.
   string.contains(combined, "\"colors=\" <> uri.percent_encode(joined)")
+  |> should.be_true()
+  string.contains(combined, "\"tags=\" <> uri.percent_encode(joined)")
   |> should.be_true()
   string.contains(combined, "\"sizes=\" <> uri.percent_encode(joined)")
   |> should.be_true()
   string.contains(combined, "), \"|\")") |> should.be_true()
   string.contains(combined, "), \" \")") |> should.be_true()
+  // Exploded params must stay on the existing form-style path and must NOT
+  // be emitted as a single joined value.
+  string.contains(
+    combined,
+    "\"colors_exploded=\" <> uri.percent_encode(joined)",
+  )
+  |> should.be_false()
+  string.contains(combined, "\"sizes_exploded=\" <> uri.percent_encode(joined)")
+  |> should.be_false()
 }
 
 pub fn generate_delimited_param_styles_server_test() {
@@ -10075,6 +10107,11 @@ pub fn generate_delimited_param_styles_server_test() {
   // Non-exploded server decode should split on the style-specific delimiter.
   string.contains(combined, "string.split(v, \"|\")") |> should.be_true()
   string.contains(combined, "string.split(v, \" \")") |> should.be_true()
+  // The pipe-delimited split appears for both `colors` and the
+  // explode-omitted `tags` parameter; count occurrences to lock that in.
+  let pipe_split_count =
+    string.split(combined, "string.split(v, \"|\")") |> list.length()
+  { pipe_split_count >= 3 } |> should.be_true()
 }
 
 pub fn generate_empty_response_body_server_test() {

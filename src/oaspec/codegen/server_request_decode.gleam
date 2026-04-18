@@ -154,7 +154,7 @@ pub fn query_required_expr(
   query_required_expr_with_schema(
     key,
     spec.parameter_schema(param),
-    param.explode,
+    Some(effective_explode_for_query(param)),
     param.style,
   )
 }
@@ -250,9 +250,22 @@ pub fn query_optional_expr(
   query_optional_expr_with_schema(
     key,
     spec.parameter_schema(param),
-    param.explode,
+    Some(effective_explode_for_query(param)),
     param.style,
   )
+}
+
+/// Per OpenAPI 3.x: explode defaults to true only for `form` (and
+/// `deepObject`); for all other styles the default is false.
+fn effective_explode_for_query(param: spec.Parameter(Resolved)) -> Bool {
+  case param.explode {
+    Some(v) -> v
+    None ->
+      case param.style {
+        Some(spec.FormStyle) | Some(spec.DeepObjectStyle) | None -> True
+        _ -> False
+      }
+  }
 }
 
 pub fn query_optional_expr_with_schema(

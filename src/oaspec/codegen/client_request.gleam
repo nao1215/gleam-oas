@@ -754,22 +754,24 @@ pub fn is_exploded_array_param(
   }
   case is_array {
     False -> False
-    True -> {
-      // explode defaults to true for style: form (the default for query params).
-      // pipeDelimited / spaceDelimited also default to explode=true per OpenAPI.
-      let effective_explode = case param.explode {
-        option.Some(v) -> v
-        option.None ->
-          case param.style {
-            option.Some(spec.FormStyle)
-            | option.Some(spec.PipeDelimitedStyle)
-            | option.Some(spec.SpaceDelimitedStyle)
-            | option.None -> True
-            _ -> False
-          }
+    True -> effective_explode(param)
+  }
+}
+
+/// Per OpenAPI 3.x: explode defaults to true only for `form` (and
+/// `deepObject`); for all other styles — including simple, pipeDelimited,
+/// and spaceDelimited — the default is false. None style on a query
+/// parameter is equivalent to form.
+fn effective_explode(param: spec.Parameter(Resolved)) -> Bool {
+  case param.explode {
+    option.Some(v) -> v
+    option.None ->
+      case param.style {
+        option.Some(spec.FormStyle)
+        | option.Some(spec.DeepObjectStyle)
+        | option.None -> True
+        _ -> False
       }
-      effective_explode
-    }
   }
 }
 
@@ -789,7 +791,9 @@ pub fn is_delimited_array_param(
       }
     _ -> False
   }
-  let is_non_exploded = param.explode == option.Some(False)
+  // Use spec-default explode rules (false for pipe/space) so that omitting
+  // `explode` yields the delimited path, matching OpenAPI semantics.
+  let is_non_exploded = !effective_explode(param)
   case is_array, is_non_exploded, param.style {
     True, True, option.Some(spec.PipeDelimitedStyle) -> option.Some("|")
     True, True, option.Some(spec.SpaceDelimitedStyle) -> option.Some(" ")
@@ -817,28 +821,33 @@ pub fn generate_delimited_array_query_param(
       }
     _ -> "fn(x) { x }"
   }
+  // Empty arrays produce no query entry, matching the existing exploded path.
   case param.required {
     True ->
       sb
+      |> se.indent(1, "let query_parts = case " <> param_name <> " {")
+      |> se.indent(2, "[] -> query_parts")
+      |> se.indent(2, "items -> {")
       |> se.indent(
-        1,
-        "let joined = string.join(list.map("
-          <> param_name
-          <> ", "
+        3,
+        "let joined = string.join(list.map(items, "
           <> item_to_str
           <> "), \""
           <> joiner
           <> "\")",
       )
       |> se.indent(
-        1,
-        "let query_parts = [\""
+        3,
+        "[\""
           <> param.name
           <> "=\" <> uri.percent_encode(joined), ..query_parts]",
       )
+      |> se.indent(2, "}")
+      |> se.indent(1, "}")
     False ->
       sb
       |> se.indent(1, "let query_parts = case " <> param_name <> " {")
+      |> se.indent(2, "Some([]) -> query_parts")
       |> se.indent(2, "Some(items) -> {")
       |> se.indent(
         3,
