@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Generated clients now emit a `<operation>_with_request` wrapper for every operation. The wrapper accepts the matching `request_types.*Request` record and delegates to the existing flat function — either API is valid. Operations that take a multi-content request body skip the wrapper because the flat API needs an extra `content_type` argument the request type does not carry (#31)
 - Drift-detection test between the capability registry and the README `## Current Boundaries` block: fails the suite if an `Unsupported`, `NotHandled`, or `ParsedNotUsed` entry is added to the registry without being mentioned in the README (#143). Fixes stale `operation servers` / `path servers` entries the registry had carried since #96 promoted them to Supported.
 
+### Added
+
+- Narrow external `$ref` support: `components.schemas` entries can now reference schemas in a sibling YAML/JSON file via relative-path fragment refs (`./other.yaml#/components/schemas/Foo`). `parse_file` resolves the ref by loading the target file, merging the referenced schema into the main spec, and rewriting the entry to a local ref. HTTP URLs, parameter/body/response external refs, and nested refs inside schemas remain unsupported — see `src/oaspec/openapi/external_loader.gleam` for the documented boundary (#145, subset of #98)
+
 ## [0.12.0] - 2026-04-12
 
 ### Added
