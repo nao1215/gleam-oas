@@ -3410,6 +3410,39 @@ pub fn external_ref_nested_collision_across_files_rejected_test() {
   string.contains(msg, "already imported") |> should.be_true()
 }
 
+pub fn external_ref_in_additional_properties_test() {
+  // An ObjectSchema whose additionalProperties value is a relative-file
+  // $ref must hoist the target schema into components.schemas and
+  // rewrite the inner ref to local form.
+  let assert Ok(spec) =
+    parser.parse_file(
+      "test/fixtures/external_ref_additional_properties_main.yaml",
+    )
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "sku") |> should.be_true()
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    additional_properties: additional,
+    ..,
+  ))) = dict.get(components.schemas, "WidgetMap")
+  let assert schema.Typed(schema.Reference(ref: added_ref, ..)) = additional
+  added_ref |> should.equal("#/components/schemas/Widget")
+}
+
+pub fn external_ref_additional_properties_collision_with_local_schema_rejected_test() {
+  // additionalProperties imports fragment `Widget` while a local Widget
+  // is already defined — the silent-shadowing guard must fire.
+  let result =
+    parser.parse_file(
+      "test/fixtures/external_ref_additional_properties_collision_main.yaml",
+    )
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "local schema") |> should.be_true()
+}
+
 pub fn external_ref_in_array_items_test() {
   // A top-level array schema whose items value is a relative-file $ref
   // must be hoisted: the referenced schema is merged into

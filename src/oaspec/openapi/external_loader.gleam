@@ -7,10 +7,10 @@
 ////   - top-level component schema entries (`components.schemas.Foo: $ref: ...`)
 ////   - ObjectSchema property values (`properties.field: $ref: ...`)
 ////   - ArraySchema item values (`items: $ref: ...`)
+////   - ObjectSchema additionalProperties values (`additionalProperties: $ref: ...`)
 ////
 //// Out of scope (see issue #98 parent):
-////   - refs inside `additionalProperties` or composition
-////     (oneOf/anyOf/allOf) branches
+////   - refs inside composition (oneOf/anyOf/allOf) branches
 ////   - external refs in parameters / request bodies / responses / path items
 ////   - HTTP/HTTPS URLs
 ////
@@ -177,7 +177,7 @@ fn process_nested_property_refs(
           min_properties:,
           max_properties:,
         )) -> {
-          use #(new_properties, new_imports) <- result.try(
+          use #(new_properties, props_imports) <- result.try(
             rewrite_object_properties(
               properties,
               base_dir,
@@ -186,12 +186,21 @@ fn process_nested_property_refs(
               original_local_names,
             ),
           )
+          use #(new_additional_properties, new_imports) <- result.try(
+            rewrite_additional_properties(
+              additional_properties,
+              base_dir,
+              parse_file,
+              props_imports,
+              original_local_names,
+            ),
+          )
           let new_obj =
             schema.ObjectSchema(
               metadata:,
               properties: new_properties,
               required:,
-              additional_properties:,
+              additional_properties: new_additional_properties,
               min_properties:,
               max_properties:,
             )
@@ -287,6 +296,35 @@ fn rewrite_object_properties(
       dict.insert(d, pair.0, pair.1)
     })
   Ok(#(new_properties, new_imports))
+}
+
+/// Walk an ObjectSchema's `additionalProperties` value; when it is a
+/// `Typed(SchemaRef)` whose ref is external, hoist the target schema and
+/// rewrite the inner ref to a local reference. `Forbidden` and `Untyped`
+/// pass through untouched.
+fn rewrite_additional_properties(
+  additional: schema.AdditionalProperties,
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  imports: dict.Dict(String, #(String, SchemaRef)),
+  original_local_names: List(String),
+) -> Result(
+  #(schema.AdditionalProperties, dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  case additional {
+    schema.Typed(ref) -> {
+      use #(new_ref, new_imports) <- result.try(maybe_hoist_ref(
+        ref,
+        base_dir,
+        parse_file,
+        imports,
+        original_local_names,
+      ))
+      Ok(#(schema.Typed(new_ref), new_imports))
+    }
+    _ -> Ok(#(additional, imports))
+  }
 }
 
 /// Core external-ref hoisting step shared by the property-value and

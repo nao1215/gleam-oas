@@ -1,0 +1,11 @@
+openapi: "3.0.3"
+info:
+  title: External Ref AdditionalProperties Main
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    WidgetMap:
+      type: object
+      additionalProperties:
+        $ref: "./external_ref_nested_shared.yaml#/components/schemas/Widget"
