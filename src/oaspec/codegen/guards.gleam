@@ -8,6 +8,7 @@ import oaspec/codegen/allof_merge
 import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/ir_build
 import oaspec/codegen/types as type_gen
+import oaspec/config
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, ArraySchema, Inline,
@@ -104,7 +105,7 @@ fn generate_guards(ctx: Context) -> String {
       }
     })
   let imports = case needs_types {
-    True -> [context.config(ctx).package <> "/types", ..imports]
+    True -> [config.package(context.config(ctx)) <> "/types", ..imports]
     False -> imports
   }
   // Import option module when composite validators handle optional fields

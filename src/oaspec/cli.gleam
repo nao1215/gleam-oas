@@ -226,8 +226,8 @@ fn run_generate(
     False -> cfg
   }
 
-  io.println("Parsing OpenAPI spec: " <> cfg.input)
-  use spec <- require(parser.parse_file(cfg.input), fn(e) {
+  io.println("Parsing OpenAPI spec: " <> config.input(cfg))
+  use spec <- require(parser.parse_file(config.input(cfg)), fn(e) {
     "Error: " <> parser.parse_error_to_string(e)
   })
 
@@ -400,8 +400,8 @@ fn run_validate(config_path: String, mode_opt: Option(String)) -> Nil {
     "Error: " <> msg
   })
 
-  io.println("Parsing OpenAPI spec: " <> cfg.input)
-  use spec <- require(parser.parse_file(cfg.input), fn(e) {
+  io.println("Parsing OpenAPI spec: " <> config.input(cfg))
+  use spec <- require(parser.parse_file(config.input(cfg)), fn(e) {
     "Error: " <> parser.parse_error_to_string(e)
   })
 

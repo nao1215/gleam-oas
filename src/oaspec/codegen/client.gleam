@@ -9,6 +9,7 @@ import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/guards
 import oaspec/codegen/import_analysis
 import oaspec/codegen/ir_build
+import oaspec/config
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
@@ -232,8 +233,8 @@ fn generate_client(ctx: Context) -> String {
     // `gleam/result` is needed by the `use req <- result.try(...)` pattern
     // that every generated operation emits for URL parsing.
     "gleam/result",
-    context.config(ctx).package <> "/decode",
-    context.config(ctx).package <> "/response_types",
+    config.package(context.config(ctx)) <> "/decode",
+    config.package(context.config(ctx)) <> "/response_types",
   ]
   let base_imports = case needs_int {
     True -> ["gleam/int", ..base_imports]
@@ -247,8 +248,8 @@ fn generate_client(ctx: Context) -> String {
     True ->
       list.append(
         [
-          context.config(ctx).package <> "/types",
-          context.config(ctx).package <> "/encode",
+          config.package(context.config(ctx)) <> "/types",
+          config.package(context.config(ctx)) <> "/encode",
         ],
         base_imports,
       )
@@ -316,7 +317,7 @@ fn generate_client(ctx: Context) -> String {
   }
   // Import guards module when validation is enabled and any operation body has validators
   let needs_guards =
-    context.config(ctx).validate
+    config.validate(context.config(ctx))
     && list.any(operations, fn(op) {
       let #(_, operation, _, _) = op
       case operation.request_body {
@@ -336,7 +337,7 @@ fn generate_client(ctx: Context) -> String {
       }
     })
   let imports = case needs_guards {
-    True -> [context.config(ctx).package <> "/guards", ..imports]
+    True -> [config.package(context.config(ctx)) <> "/guards", ..imports]
     False -> imports
   }
 
@@ -398,7 +399,7 @@ fn generate_client(ctx: Context) -> String {
     |> se.indent(1, "DecodeError(detail: String)")
     |> se.indent(1, "InvalidUrl(detail: String)")
     |> se.indent(1, "UnexpectedStatus(status: Int, body: String)")
-  let sb = case context.config(ctx).validate {
+  let sb = case config.validate(context.config(ctx)) {
     True -> sb |> se.indent(1, "ValidationError(errors: List(String))")
     False -> sb
   }
@@ -609,7 +610,7 @@ fn generate_client_function(
 
   // Determine if client-side guard validation is needed for the body
   let client_guard_schema_name = case
-    context.config(ctx).validate,
+    config.validate(context.config(ctx)),
     operation.request_body
   {
     True, Some(Value(rb)) -> {

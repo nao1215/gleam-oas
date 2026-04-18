@@ -271,7 +271,7 @@ fn validate_server_structured_param(
   param: spec.Parameter(Resolved),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case context.config(ctx).mode {
+  case config.mode(context.config(ctx)) {
     config.Client -> []
     _ -> {
       let schema_obj = resolve_schema_object(spec.parameter_schema(param), ctx)
@@ -414,7 +414,7 @@ fn validate_complex_param_schema(
         | Some(AnyOfSchema(..)) ->
           case param.in_ {
             spec.InPath ->
-              case context.config(ctx).mode {
+              case config.mode(context.config(ctx)) {
                 config.Client -> []
                 _ -> [
                   diagnostic.validation(
@@ -658,7 +658,7 @@ fn validate_server_form_urlencoded_request_body(
   content_keys: List(String),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case context.config(ctx).mode {
+  case config.mode(context.config(ctx)) {
     config.Client -> []
     _ ->
       case dict.get(content, "application/x-www-form-urlencoded") {
@@ -715,7 +715,7 @@ fn validate_server_request_body_content_types(
   content_keys: List(String),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case context.config(ctx).mode {
+  case config.mode(context.config(ctx)) {
     config.Client -> []
     _ -> {
       let non_json_but_supported =
@@ -748,7 +748,7 @@ fn validate_server_multipart_request_body(
   content_keys: List(String),
   ctx: Context,
 ) -> List(Diagnostic) {
-  case context.config(ctx).mode {
+  case config.mode(context.config(ctx)) {
     config.Client -> []
     _ ->
       case dict.get(content, "multipart/form-data") {

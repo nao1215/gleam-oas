@@ -34,11 +34,11 @@ pub fn write_all(
   let client_files =
     list.filter(files, fn(f) { f.target == context.ClientTarget })
 
-  let server_path = cfg.output_server
-  let client_path = cfg.output_client
+  let server_path = config.output_server(cfg)
+  let client_path = config.output_client(cfg)
   let written_files = []
 
-  use written_files <- result.try(case cfg.mode {
+  use written_files <- result.try(case config.mode(cfg) {
     Server | Both -> {
       use _ <- result.try(ensure_directory(server_path))
       write_files(shared_files, server_path, written_files, on_write)
@@ -49,7 +49,7 @@ pub fn write_all(
     Client -> Ok(written_files)
   })
 
-  use written_files <- result.try(case cfg.mode {
+  use written_files <- result.try(case config.mode(cfg) {
     Client | Both -> {
       use _ <- result.try(ensure_directory(client_path))
       write_files(shared_files, client_path, written_files, on_write)
@@ -104,10 +104,10 @@ pub fn resolve_paths(
   let client_files =
     list.filter(files, fn(f) { f.target == context.ClientTarget })
 
-  let server_path = cfg.output_server
-  let client_path = cfg.output_client
+  let server_path = config.output_server(cfg)
+  let client_path = config.output_client(cfg)
 
-  let server_entries = case cfg.mode {
+  let server_entries = case config.mode(cfg) {
     Server | Both ->
       list.map(list.append(shared_files, server_files), fn(f) {
         #(server_path <> "/" <> f.path, f.content)
@@ -115,7 +115,7 @@ pub fn resolve_paths(
     Client -> []
   }
 
-  let client_entries = case cfg.mode {
+  let client_entries = case config.mode(cfg) {
     Client | Both ->
       list.map(list.append(shared_files, client_files), fn(f) {
         #(client_path <> "/" <> f.path, f.content)
@@ -128,10 +128,10 @@ pub fn resolve_paths(
 
 /// Return the output directories that would be written to for the given config.
 pub fn output_dirs(cfg: config.Config) -> List(String) {
-  case cfg.mode {
-    Server -> [cfg.output_server]
-    Client -> [cfg.output_client]
-    Both -> [cfg.output_server, cfg.output_client]
+  case config.mode(cfg) {
+    Server -> [config.output_server(cfg)]
+    Client -> [config.output_client(cfg)]
+    Both -> [config.output_server(cfg), config.output_client(cfg)]
   }
 }
 
