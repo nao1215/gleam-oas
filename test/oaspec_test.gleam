@@ -94,10 +94,10 @@ pub fn deduplicate_names_empty_test() {
 
 pub fn load_config_test() {
   let assert Ok(cfg) = config.load("test/fixtures/oaspec.yaml")
-  cfg.input |> should.equal("test/fixtures/petstore.yaml")
-  cfg.output_server |> should.equal("./test_output/api")
-  cfg.output_client |> should.equal("./test_output_client/api")
-  cfg.package |> should.equal("api")
+  config.input(cfg) |> should.equal("test/fixtures/petstore.yaml")
+  config.output_server(cfg) |> should.equal("./test_output/api")
+  config.output_client(cfg) |> should.equal("./test_output_client/api")
+  config.package(cfg) |> should.equal("api")
 }
 
 pub fn config_not_found_test() {
@@ -117,7 +117,7 @@ pub fn parse_mode_test() {
 
 pub fn config_package_dir_mismatch_test() {
   let cfg =
-    config.Config(
+    config.new(
       input: "openapi.yaml",
       output_server: "./gen/wrong_name",
       output_client: "./gen/api",
@@ -131,7 +131,7 @@ pub fn config_package_dir_mismatch_test() {
 
 pub fn config_client_dir_mismatch_test() {
   let cfg =
-    config.Config(
+    config.new(
       input: "openapi.yaml",
       output_server: "./gen/api",
       output_client: "./gen/wrong_client",
@@ -145,7 +145,7 @@ pub fn config_client_dir_mismatch_test() {
 
 pub fn config_package_dir_match_test() {
   let cfg =
-    config.Config(
+    config.new(
       input: "openapi.yaml",
       output_server: "./gen/api",
       output_client: "./gen_client/api",
@@ -470,7 +470,7 @@ paths:
 fn make_ctx_from_spec(spec) -> context.Context {
   let assert Ok(resolved) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -556,7 +556,7 @@ fn make_ctx(spec_path: String) -> context.Context {
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: spec_path,
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -1927,7 +1927,7 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -1969,7 +1969,7 @@ webhooks:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -2559,7 +2559,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -2610,7 +2610,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -2658,7 +2658,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -3375,7 +3375,7 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -3897,7 +3897,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -3940,7 +3940,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -3982,7 +3982,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4026,7 +4026,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4068,7 +4068,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4112,7 +4112,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4230,7 +4230,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4277,7 +4277,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4321,7 +4321,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4365,7 +4365,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4411,7 +4411,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4457,7 +4457,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4805,7 +4805,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -4963,7 +4963,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5012,7 +5012,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5059,7 +5059,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5666,7 +5666,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5730,7 +5730,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5789,7 +5789,7 @@ components:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -5845,7 +5845,7 @@ webhooks:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -6240,7 +6240,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -6283,7 +6283,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -6322,7 +6322,7 @@ paths:
   let ctx =
     context.new(
       spec,
-      config.Config(
+      config.new(
         input: "test.yaml",
         output_server: "./test_output/api",
         output_client: "./test_output_client/api",
@@ -6909,7 +6909,7 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -7013,7 +7013,7 @@ paths:
 "
   let assert Ok(spec) = parser.parse_string(yaml)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -7918,7 +7918,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8014,7 +8014,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8068,7 +8068,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8125,7 +8125,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8177,7 +8177,7 @@ paths:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8229,7 +8229,7 @@ components:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8285,7 +8285,7 @@ components:
   let assert Ok(spec) = parser.parse_string(yaml)
   let assert Ok(spec) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -8752,7 +8752,7 @@ pub fn oss_openapi_gen_petstore_server_generates_client_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_openapi_gen_petstore_server.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -9138,7 +9138,7 @@ pub fn oss_kin_openapi_components_json_rejects_invalid_scheme_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_kin_openapi_components.json")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -9661,7 +9661,7 @@ pub fn oss_swagger_parser_java_31_security_rejects_mutualtls_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/oss_swagger_parser_java_31_security.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -9829,7 +9829,7 @@ pub fn inline_not_keyword_rejected_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/inline_not_keyword.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -9884,7 +9884,7 @@ pub fn external_param_ref_rejects_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/external_param_ref.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -9910,7 +9910,7 @@ pub fn external_param_ref_rejects_test() {
 pub fn wrong_kind_ref_rejects_test() {
   let assert Ok(spec) = parser.parse_file("test/fixtures/wrong_kind_ref.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10599,7 +10599,7 @@ pub fn error_missing_path_param_test() {
       let resolved = hoist.hoist(resolved)
       let resolved = dedup.dedup(resolved)
       let cfg =
-        config.Config(
+        config.new(
           input: "test.yaml",
           output_server: "./test_output/api",
           output_client: "./test_output_client/api",
@@ -10852,7 +10852,7 @@ pub fn e2e_wildcard_status_codes_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/wildcard_status_codes.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/wildcard_status_codes.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10871,7 +10871,7 @@ pub fn e2e_wildcard_status_codes_test() {
 pub fn e2e_format_types_test() {
   let assert Ok(spec) = parser.parse_file("test/fixtures/format_types.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/format_types.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10891,7 +10891,7 @@ pub fn e2e_complex_discriminator_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/complex_discriminator.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/complex_discriminator.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10910,7 +10910,7 @@ pub fn e2e_complex_discriminator_test() {
 pub fn e2e_enum_edge_cases_test() {
   let assert Ok(spec) = parser.parse_file("test/fixtures/enum_edge_cases.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/enum_edge_cases.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10930,7 +10930,7 @@ pub fn e2e_mixed_param_locations_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/mixed_param_locations.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/mixed_param_locations.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10950,7 +10950,7 @@ pub fn e2e_inline_nested_objects_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/inline_nested_objects.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/inline_nested_objects.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10970,7 +10970,7 @@ pub fn e2e_optional_required_combinations_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/optional_required_combinations.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/optional_required_combinations.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -10989,7 +10989,7 @@ pub fn e2e_optional_required_combinations_test() {
 pub fn e2e_no_servers_test() {
   let assert Ok(spec) = parser.parse_file("test/fixtures/no_servers.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/no_servers.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11016,7 +11016,7 @@ fn make_validate_ctx_from_yaml(yaml: String) -> context.Context {
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11125,7 +11125,7 @@ pub fn guard_integration_server_no_validation_when_disabled_test() {
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11181,7 +11181,7 @@ pub fn guard_integration_client_no_validation_when_disabled_test() {
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11350,7 +11350,7 @@ pub fn config_validate_field_test() {
   let temp_path = "/tmp/oaspec_validate_test.yaml"
   let assert Ok(Nil) = simplifile.write(temp_path, yaml_content)
   let assert Ok(cfg) = config.load(temp_path)
-  cfg.validate |> should.be_true()
+  config.validate(cfg) |> should.be_true()
   let _ = simplifile.delete(temp_path)
   Nil
 }
@@ -11361,7 +11361,7 @@ pub fn config_validate_default_false_test() {
   let temp_path = "/tmp/oaspec_validate_default_test.yaml"
   let assert Ok(Nil) = simplifile.write(temp_path, yaml_content)
   let assert Ok(cfg) = config.load(temp_path)
-  cfg.validate |> should.be_false()
+  config.validate(cfg) |> should.be_false()
   let _ = simplifile.delete(temp_path)
   Nil
 }
@@ -11429,7 +11429,7 @@ paths:
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11483,7 +11483,7 @@ paths:
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11526,7 +11526,7 @@ pub fn server_override_no_capability_warnings_test() {
   let assert Ok(spec) =
     parser.parse_file("test/fixtures/operation_server_override.yaml")
   let cfg =
-    config.Config(
+    config.new(
       input: "test/fixtures/operation_server_override.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -11575,7 +11575,7 @@ paths:
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",

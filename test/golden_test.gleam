@@ -27,7 +27,7 @@ pub fn main() {
 fn golden_generate(spec_path: String) -> List(context.GeneratedFile) {
   let assert Ok(spec) = parser.parse_file(spec_path)
   let cfg =
-    config.Config(
+    config.new(
       input: spec_path,
       output_server: "./golden_unused/api",
       output_client: "./golden_unused/api",

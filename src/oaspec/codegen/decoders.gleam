@@ -7,6 +7,7 @@ import oaspec/codegen/context.{type Context, type GeneratedFile, GeneratedFile}
 import oaspec/codegen/ir_build
 import oaspec/codegen/schema_dispatch
 import oaspec/codegen/types as type_gen
+import oaspec/config
 import oaspec/openapi/dedup
 import oaspec/openapi/operations
 import oaspec/openapi/resolver
@@ -90,7 +91,10 @@ fn generate_decoders(
     False -> ["gleam/dynamic/decode", "gleam/json"]
   }
   let base_imports = case needs_types {
-    True -> list.append(base_imports, [context.config(ctx).package <> "/types"])
+    True ->
+      list.append(base_imports, [
+        config.package(context.config(ctx)) <> "/types",
+      ])
     False -> base_imports
   }
   let imports = case needs_option {
@@ -1203,7 +1207,10 @@ fn generate_encoders(
     _, _ -> ["gleam/json"]
   }
   let imports = case needs_types {
-    True -> list.append(base_imports, [context.config(ctx).package <> "/types"])
+    True ->
+      list.append(base_imports, [
+        config.package(context.config(ctx)) <> "/types",
+      ])
     False -> base_imports
   }
 

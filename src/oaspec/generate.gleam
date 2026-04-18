@@ -61,7 +61,7 @@ fn prepare_context(
   // Check for unsupported features using capability registry
   let capability_issues =
     capability_check.check(spec)
-    |> validate.filter_by_mode(cfg.mode)
+    |> validate.filter_by_mode(config.mode(cfg))
   let capability_errors = validate.errors_only(capability_issues)
   let capability_warnings = validate.warnings_only(capability_issues)
   use _ <- result.try(case list.is_empty(capability_errors) {
@@ -81,12 +81,12 @@ fn prepare_context(
   // Check for parsed-but-unused features (capability warnings)
   let preserved_warnings =
     capability_check.check_preserved(ctx)
-    |> diagnostic.filter_by_mode(cfg.mode)
+    |> diagnostic.filter_by_mode(config.mode(cfg))
 
   // Validate spec for unsupported features
   let validation_issues =
     validate.validate(ctx)
-    |> validate.filter_by_mode(cfg.mode)
+    |> validate.filter_by_mode(config.mode(cfg))
   let blocking_errors = validate.errors_only(validation_issues)
   let validation_warnings = validate.warnings_only(validation_issues)
   use _ <- result.try(case list.is_empty(blocking_errors) {
@@ -131,11 +131,11 @@ pub fn validate_only(
 /// Pure file generation: produce all GeneratedFile values without any IO.
 pub fn generate_all_files(ctx: Context) -> List(GeneratedFile) {
   let shared = generate_shared(ctx)
-  let server_files = case context.config(ctx).mode {
+  let server_files = case config.mode(context.config(ctx)) {
     Server | Both -> server.generate(ctx)
     Client -> []
   }
-  let client_files = case context.config(ctx).mode {
+  let client_files = case config.mode(context.config(ctx)) {
     Client | Both -> client.generate(ctx)
     Server -> []
   }

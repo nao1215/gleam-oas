@@ -8,6 +8,7 @@ import oaspec/codegen/ir_build
 import oaspec/codegen/ir_render
 import oaspec/codegen/schema_dispatch
 import oaspec/codegen/schema_utils
+import oaspec/config
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -158,7 +159,7 @@ fn generate_request_types(
   let needs_types = import_analysis.operations_need_typed_schemas(operations)
 
   let base_imports = case needs_types {
-    True -> [context.config(ctx).package <> "/types"]
+    True -> [config.package(context.config(ctx)) <> "/types"]
     False -> []
   }
   let imports = case needs_option {
@@ -309,7 +310,7 @@ fn generate_response_types(
 ) -> String {
   let needs_types = responses_need_types_import(operations, ctx)
   let imports = case needs_types {
-    True -> [context.config(ctx).package <> "/types"]
+    True -> [config.package(context.config(ctx)) <> "/types"]
     False -> []
   }
   let sb =

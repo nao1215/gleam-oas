@@ -937,7 +937,7 @@ fn make_security_ctx(
       json_schema_dialect: None,
     )
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",

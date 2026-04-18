@@ -6,7 +6,12 @@ import simplifile
 import yay
 
 /// Configuration for oaspec code generation.
-pub type Config {
+///
+/// Opaque: external callers construct via `new/6` and read fields via
+/// the accessors below. Mutators (`with_mode`, `with_validate`,
+/// `with_output`) live in this module too, so every change to a
+/// `Config` value goes through an explicit function.
+pub opaque type Config {
   Config(
     input: String,
     output_server: String,
@@ -15,6 +20,50 @@ pub type Config {
     mode: GenerateMode,
     validate: Bool,
   )
+}
+
+/// Construct a new `Config` from its six fields. Prefer `load/1` in
+/// production code; `new/6` is primarily for tests and ad-hoc tooling
+/// that assembles a config in memory.
+pub fn new(
+  input input: String,
+  output_server output_server: String,
+  output_client output_client: String,
+  package package: String,
+  mode mode: GenerateMode,
+  validate validate: Bool,
+) -> Config {
+  Config(input:, output_server:, output_client:, package:, mode:, validate:)
+}
+
+/// Path to the OpenAPI spec this config was built for.
+pub fn input(cfg: Config) -> String {
+  cfg.input
+}
+
+/// Output directory for server-side generated files.
+pub fn output_server(cfg: Config) -> String {
+  cfg.output_server
+}
+
+/// Output directory for client-side generated files.
+pub fn output_client(cfg: Config) -> String {
+  cfg.output_client
+}
+
+/// Gleam package name (module prefix) for generated files.
+pub fn package(cfg: Config) -> String {
+  cfg.package
+}
+
+/// Generation mode: server, client, or both.
+pub fn mode(cfg: Config) -> GenerateMode {
+  cfg.mode
+}
+
+/// Whether guard-based runtime validation is enabled.
+pub fn validate(cfg: Config) -> Bool {
+  cfg.validate
 }
 
 /// Generation mode.

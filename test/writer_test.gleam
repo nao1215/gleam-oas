@@ -16,7 +16,7 @@ pub fn main() {
 // --- Writer Tests ---
 
 fn test_config(mode: config.GenerateMode) -> config.Config {
-  config.Config(
+  config.new(
     input: "test.yaml",
     output_server: "./gen/api",
     output_client: "./gen_client/api",

@@ -14,7 +14,7 @@ import oaspec/openapi/spec
 pub fn make_ctx_from_spec(spec) -> context.Context {
   let assert Ok(resolved) = resolve.resolve(spec)
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -32,7 +32,7 @@ pub fn make_ctx(spec_path: String) -> context.Context {
   let resolved = hoist.hoist(resolved)
   let resolved = dedup.dedup(resolved)
   let cfg =
-    config.Config(
+    config.new(
       input: spec_path,
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
@@ -163,7 +163,7 @@ pub fn make_minimal_ctx() -> context.Context {
       json_schema_dialect: None,
     )
   let cfg =
-    config.Config(
+    config.new(
       input: "test.yaml",
       output_server: "./test_output/api",
       output_client: "./test_output_client/api",
