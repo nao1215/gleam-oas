@@ -18,6 +18,16 @@ import oaspec/util/naming
 /// This is compatible with Gleam's bool.to_string which produces "True"/"False".
 pub const bool_parse_expr = "case string.lowercase(v) { \"true\" -> True _ -> False }"
 
+/// Delimiter literal for splitting non-exploded array query values.
+/// Percent decoding is assumed to have already happened upstream (wisp/mist).
+fn split_delimiter_literal(style: Option(spec.ParameterStyle)) -> String {
+  case style {
+    Some(spec.PipeDelimitedStyle) -> "|"
+    Some(spec.SpaceDelimitedStyle) -> " "
+    _ -> ","
+  }
+}
+
 pub type DeepObjectProperty {
   DeepObjectProperty(
     name: String,
@@ -144,7 +154,8 @@ pub fn query_required_expr(
   query_required_expr_with_schema(
     key,
     spec.parameter_schema(param),
-    param.explode,
+    Some(effective_explode_for_query(param)),
+    param.style,
   )
 }
 
@@ -152,7 +163,9 @@ pub fn query_required_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
   explode: Option(Bool),
+  style: Option(spec.ParameterStyle),
 ) -> String {
+  let delim = split_delimiter_literal(style)
   let base = "{ let assert Ok([v, ..]) = dict.get(query, \"" <> key <> "\") v }"
   case schema_ref {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
@@ -160,7 +173,9 @@ pub fn query_required_expr_with_schema(
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
-          <> "\") list.map(string.split(v, \",\"), fn(item) { string.trim(item) }) }"
+          <> "\") list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { string.trim(item) }) }"
         _ ->
           "{ let assert Ok(vs) = dict.get(query, \""
           <> key
@@ -171,7 +186,9 @@ pub fn query_required_expr_with_schema(
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
-          <> "\") list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }"
+          <> "\") list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n }) }"
         _ ->
           "{ let assert Ok(vs) = dict.get(query, \""
           <> key
@@ -182,7 +199,9 @@ pub fn query_required_expr_with_schema(
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
-          <> "\") list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n }) }"
+          <> "\") list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n }) }"
         _ ->
           "{ let assert Ok(vs) = dict.get(query, \""
           <> key
@@ -193,7 +212,9 @@ pub fn query_required_expr_with_schema(
         Some(False) ->
           "{ let assert Ok([v, ..]) = dict.get(query, \""
           <> key
-          <> "\") list.map(string.split(v, \",\"), fn(item) { let v = string.trim(item) "
+          <> "\") list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let v = string.trim(item) "
           <> bool_parse_expr
           <> " }) }"
         _ ->
@@ -229,22 +250,40 @@ pub fn query_optional_expr(
   query_optional_expr_with_schema(
     key,
     spec.parameter_schema(param),
-    param.explode,
+    Some(effective_explode_for_query(param)),
+    param.style,
   )
+}
+
+/// Per OpenAPI 3.x: explode defaults to true only for `form` (and
+/// `deepObject`); for all other styles the default is false.
+fn effective_explode_for_query(param: spec.Parameter(Resolved)) -> Bool {
+  case param.explode {
+    Some(v) -> v
+    None ->
+      case param.style {
+        Some(spec.FormStyle) | Some(spec.DeepObjectStyle) | None -> True
+        _ -> False
+      }
+  }
 }
 
 pub fn query_optional_expr_with_schema(
   key: String,
   schema_ref: Option(SchemaRef),
   explode: Option(Bool),
+  style: Option(spec.ParameterStyle),
 ) -> String {
+  let delim = split_delimiter_literal(style)
   case schema_ref {
     Some(Inline(schema.ArraySchema(items: Inline(schema.StringSchema(..)), ..))) ->
       case explode {
         Some(False) ->
           "case dict.get(query, \""
           <> key
-          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { string.trim(item) })) _ -> None }"
+          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { string.trim(item) })) _ -> None }"
         _ ->
           "case dict.get(query, \""
           <> key
@@ -255,7 +294,9 @@ pub fn query_optional_expr_with_schema(
         Some(False) ->
           "case dict.get(query, \""
           <> key
-          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None }"
+          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = int.parse(trimmed) n })) _ -> None }"
         _ ->
           "case dict.get(query, \""
           <> key
@@ -266,7 +307,9 @@ pub fn query_optional_expr_with_schema(
         Some(False) ->
           "case dict.get(query, \""
           <> key
-          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n })) _ -> None }"
+          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let trimmed = string.trim(item) let assert Ok(n) = float.parse(trimmed) n })) _ -> None }"
         _ ->
           "case dict.get(query, \""
           <> key
@@ -277,7 +320,9 @@ pub fn query_optional_expr_with_schema(
         Some(False) ->
           "case dict.get(query, \""
           <> key
-          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \",\"), fn(item) { let v = string.trim(item) "
+          <> "\") { Ok([v, ..]) -> Some(list.map(string.split(v, \""
+          <> delim
+          <> "\"), fn(item) { let v = string.trim(item) "
           <> bool_parse_expr
           <> " })) _ -> None }"
         _ ->
@@ -416,12 +461,14 @@ fn deep_object_constructor_expr(
             prop_key,
             Some(prop.schema_ref),
             Some(True),
+            None,
           )
         False ->
           query_optional_expr_with_schema(
             prop_key,
             Some(prop.schema_ref),
             Some(True),
+            None,
           )
       }
       prop.field_name <> ": " <> value_expr
