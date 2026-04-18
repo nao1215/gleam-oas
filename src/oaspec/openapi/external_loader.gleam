@@ -19,6 +19,9 @@
 ////   - operation-level `responses.<code>.content.*.schema`
 ////   - `components.headers.*.schema` and every `Response.headers.*.schema`
 ////     (both under `components.responses` and operation-level responses)
+////   - refs inside `components.path_items.*` (reusable PathItem
+////     definitions, walked via the same `rewrite_path_item` helper
+////     used at the top level)
 ////   - refs inside `operation.callbacks.*.entries.*` PathItems (recursive)
 ////   - one level of alias chaining inside the same external file
 ////     (`LegacyX: $ref: "#/components/schemas/X"` in the external file).
@@ -114,14 +117,23 @@ pub fn resolve_external_component_refs(
           body_imports,
         ),
       )
-      use #(new_paths, op_final_components) <- result.try(
-        process_operation_schemas(
-          spec.paths,
+      use #(path_items_resolved, path_items_imports) <- result.try(
+        process_component_path_items(
           header_resolved,
           dir,
           parse_file,
           original_local_names,
           header_imports,
+        ),
+      )
+      use #(new_paths, op_final_components) <- result.try(
+        process_operation_schemas(
+          spec.paths,
+          path_items_resolved,
+          dir,
+          parse_file,
+          original_local_names,
+          path_items_imports,
         ),
       )
       Ok(
@@ -1111,6 +1123,60 @@ fn process_component_headers(
     })
   Ok(#(
     Components(..components, headers: new_headers, schemas: new_schemas),
+    final_imports,
+  ))
+}
+
+/// Walk `components.path_items`: for each inline `PathItem`, rewrite
+/// its parameters, method operations, and callbacks via the shared
+/// `rewrite_path_item` helper — the same one used for top-level
+/// `spec.paths` and callback PathItems. `Ref` entries pointing at
+/// external PathItem objects pass through unchanged.
+fn process_component_path_items(
+  components: Components(Unresolved),
+  base_dir: String,
+  parse_file: fn(String) -> Result(OpenApiSpec(Unresolved), Diagnostic),
+  original_local_names: List(String),
+  seeded_imports: dict.Dict(String, #(String, SchemaRef)),
+) -> Result(
+  #(Components(Unresolved), dict.Dict(String, #(String, SchemaRef))),
+  Diagnostic,
+) {
+  let entries = dict.to_list(components.path_items)
+  use #(rewritten, final_imports) <- result.try(
+    list.try_fold(entries, #([], seeded_imports), fn(acc, entry) {
+      let #(collected, imports) = acc
+      let #(name, ref_or_item) = entry
+      case ref_or_item {
+        spec.Value(path_item) -> {
+          use #(new_path_item, new_imports) <- result.try(rewrite_path_item(
+            path_item,
+            base_dir,
+            parse_file,
+            imports,
+            original_local_names,
+          ))
+          Ok(#([#(name, spec.Value(new_path_item)), ..collected], new_imports))
+        }
+        spec.Ref(_) -> Ok(#([#(name, ref_or_item), ..collected], imports))
+      }
+    }),
+  )
+  let new_path_items =
+    list.fold(rewritten, dict.new(), fn(d, pair) {
+      dict.insert(d, pair.0, pair.1)
+    })
+  let new_schemas =
+    dict.fold(final_imports, components.schemas, fn(d, frag_name, pair) {
+      let #(_source_path, target_schema) = pair
+      case dict.has_key(d, frag_name), target_schema {
+        True, _ -> d
+        False, Inline(_) -> dict.insert(d, frag_name, target_schema)
+        False, _ -> d
+      }
+    })
+  Ok(#(
+    Components(..components, path_items: new_path_items, schemas: new_schemas),
     final_imports,
   ))
 }
