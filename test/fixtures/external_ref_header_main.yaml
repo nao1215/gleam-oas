@@ -1,0 +1,22 @@
+openapi: "3.0.3"
+info:
+  title: External Ref Header Main
+  version: "1.0.0"
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Rate-Info:
+              description: Current rate info
+              schema:
+                $ref: "./external_ref_nested_shared.yaml#/components/schemas/Widget"
+components:
+  headers:
+    RateInfo:
+      description: Rate info header
+      schema:
+        $ref: "./external_ref_nested_shared.yaml#/components/schemas/Widget"

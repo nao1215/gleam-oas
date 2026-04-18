@@ -3410,6 +3410,41 @@ pub fn external_ref_nested_collision_across_files_rejected_test() {
   string.contains(msg, "already imported") |> should.be_true()
 }
 
+pub fn external_ref_in_header_schemas_test() {
+  // Headers appear both under components.headers and inside each
+  // Response's headers dict. Schemas on either kind of header that
+  // point at an external file must be hoisted into components.schemas
+  // and rewritten to local refs.
+  let assert Ok(loaded) =
+    parser.parse_file("test/fixtures/external_ref_header_main.yaml")
+  let assert Some(components) = loaded.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(properties: widget_props, ..))) =
+    dict.get(components.schemas, "Widget")
+  dict.has_key(widget_props, "sku") |> should.be_true()
+  // components.headers.RateInfo.schema rewritten.
+  let assert Ok(rate_header) = dict.get(components.headers, "RateInfo")
+  let assert Some(schema.Reference(ref: comp_header_ref, ..)) =
+    rate_header.schema
+  comp_header_ref |> should.equal("#/components/schemas/Widget")
+  // Operation response header schema rewritten.
+  let assert Ok(spec.Value(path_item)) = dict.get(loaded.paths, "/widgets")
+  let assert Some(get_op) = path_item.get
+  let assert [#(_, spec.Value(resp))] = dict.to_list(get_op.responses)
+  let assert Ok(resp_header) = dict.get(resp.headers, "X-Rate-Info")
+  let assert Some(schema.Reference(ref: resp_header_ref, ..)) =
+    resp_header.schema
+  resp_header_ref |> should.equal("#/components/schemas/Widget")
+}
+
+pub fn external_ref_header_collision_with_local_schema_rejected_test() {
+  let result =
+    parser.parse_file("test/fixtures/external_ref_header_collision_main.yaml")
+  let assert Error(err) = result
+  let msg = parser.parse_error_to_string(err)
+  string.contains(msg, "Widget") |> should.be_true()
+  string.contains(msg, "local schema") |> should.be_true()
+}
+
 pub fn external_ref_chained_local_alias_in_shared_file_test() {
   // The external file defines `LegacyWidget` as a local alias for
   // `Widget`. A consumer that imports `LegacyWidget` must resolve
