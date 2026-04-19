@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# check_sync.sh — Verify version, test counts, and capability boundaries
-# are consistent across gleam.toml, context.gleam, README.md, and CHANGELOG.md.
+# check_sync.sh — Verify version and test count consistency
+# across gleam.toml, context.gleam, README.md, and CHANGELOG.md.
 # Exit 1 on any drift.
 
 set -euo pipefail
@@ -61,8 +61,8 @@ fi
 echo ""
 if [ "$errors" -gt 0 ]; then
   echo "FAILED: $errors inconsistencies found."
-  echo "Fix manually or run: scripts/update_sync.sh"
+  echo "Fix the inconsistencies listed above manually."
   exit 1
 else
-  echo "All checks passed. Versions, counts, and boundaries are in sync."
+  echo "All checks passed. Versions and counts are in sync."
 fi
