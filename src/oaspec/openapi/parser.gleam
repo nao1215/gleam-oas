@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import oaspec/openapi/diagnostic.{type Diagnostic, NoSourceLoc, SourceLoc}
 import oaspec/openapi/external_loader
+import oaspec/openapi/location_index.{type LocationIndex}
 import oaspec/openapi/schema.{
   type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
   AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
@@ -79,11 +80,15 @@ pub fn parse_string(
   })
 
   let root = yay.document_root(doc)
-  parse_root(root)
+  let index = location_index.build(content)
+  parse_root(root, index)
 }
 
 /// Parse the root OpenAPI object.
-fn parse_root(node: yay.Node) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
+fn parse_root(
+  node: yay.Node,
+  index: LocationIndex,
+) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   // openapi field may be a string ("3.0.3") or a YAML number (3.0 parsed as float)
   use openapi <- result.try(
     yay.extract_string(node, "openapi")
@@ -97,20 +102,24 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
       })
     })
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "", field: "openapi")
+      diagnostic.missing_field(
+        path: "",
+        field: "openapi",
+        loc: location_index.lookup_field(index, "", "openapi"),
+      )
     }),
   )
 
-  use info <- result.try(parse_info(node))
+  use info <- result.try(parse_info(node, index))
 
   // Parse components FIRST so we can resolve $ref during path parsing.
   // Components section is optional, but if present it must parse correctly.
-  use components <- result.try(parse_optional_components(node))
+  use components <- result.try(parse_optional_components(node, index))
 
-  use paths <- result.try(parse_paths(node, components))
-  use servers <- result.try(parse_servers(node))
-  use security <- result.try(parse_security_requirements(node, ""))
-  use webhooks <- result.try(parse_webhooks(node, components))
+  use paths <- result.try(parse_paths(node, components, index))
+  use servers <- result.try(parse_servers(node, index))
+  use security <- result.try(parse_security_requirements(node, "", index))
+  use webhooks <- result.try(parse_webhooks(node, components, index))
   let tags = parse_tags(node)
   let external_docs = parse_optional_external_docs(node)
   let json_schema_dialect =
@@ -135,10 +144,11 @@ fn parse_root(node: yay.Node) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
 /// Returns Ok(None) if not present, Ok(Some(..)) if valid, Error if malformed.
 fn parse_optional_components(
   root: yay.Node,
+  index: LocationIndex,
 ) -> Result(Option(Components(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: root, selector: "components") {
     Ok(_) -> {
-      use comps <- result.try(parse_components(root))
+      use comps <- result.try(parse_components(root, index))
       Ok(Some(comps))
     }
     Error(_) -> Ok(None)
@@ -146,25 +156,37 @@ fn parse_optional_components(
 }
 
 /// Parse the info object.
-fn parse_info(root: yay.Node) -> Result(Info, Diagnostic) {
+fn parse_info(root: yay.Node, index: LocationIndex) -> Result(Info, Diagnostic) {
   use info_node <- result.try(
     yay.select_sugar(from: root, selector: "info")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "", field: "info")
+      diagnostic.missing_field(
+        path: "",
+        field: "info",
+        loc: location_index.lookup_field(index, "", "info"),
+      )
     }),
   )
 
   use title <- result.try(
     yay.extract_string(info_node, "title")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "info", field: "title")
+      diagnostic.missing_field(
+        path: "info",
+        field: "title",
+        loc: location_index.lookup_field(index, "info", "title"),
+      )
     }),
   )
 
   use version <- result.try(
     yay.extract_string(info_node, "version")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "info", field: "version")
+      diagnostic.missing_field(
+        path: "info",
+        field: "version",
+        loc: location_index.lookup_field(index, "info", "version"),
+      )
     }),
   )
 
@@ -195,19 +217,30 @@ fn parse_info(root: yay.Node) -> Result(Info, Diagnostic) {
 }
 
 /// Parse servers array.
-fn parse_servers(root: yay.Node) -> Result(List(Server), Diagnostic) {
+fn parse_servers(
+  root: yay.Node,
+  index: LocationIndex,
+) -> Result(List(Server), Diagnostic) {
   case yay.select_sugar(from: root, selector: "servers") {
-    Ok(yay.NodeSeq(items)) -> list.try_map(items, parse_server)
+    Ok(yay.NodeSeq(items)) ->
+      list.try_map(items, fn(item) { parse_server(item, index) })
     _ -> Ok([])
   }
 }
 
 /// Parse a single server object.
-fn parse_server(node: yay.Node) -> Result(Server, Diagnostic) {
+fn parse_server(
+  node: yay.Node,
+  index: LocationIndex,
+) -> Result(Server, Diagnostic) {
   use url <- result.try(
     yay.extract_string(node, "url")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "servers", field: "url")
+      diagnostic.missing_field(
+        path: "servers",
+        field: "url",
+        loc: location_index.lookup_field(index, "servers", "url"),
+      )
     }),
   )
 
@@ -224,6 +257,7 @@ fn parse_server(node: yay.Node) -> Result(Server, Diagnostic) {
 fn parse_paths(
   root: yay.Node,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: root, selector: "paths") {
     Ok(yay.NodeMap(entries)) -> {
@@ -246,6 +280,7 @@ fn parse_paths(
                         value_node,
                         path,
                         components,
+                        index,
                       ))
                       Ok(Value(pi))
                     }
@@ -267,6 +302,7 @@ fn parse_path_item(
   node: yay.Node,
   path: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(PathItem(Unresolved), Diagnostic) {
   let summary =
     yay.extract_optional_string(node, "summary")
@@ -277,47 +313,65 @@ fn parse_path_item(
     |> result.unwrap(None)
 
   // Operations are optional, but if present must parse correctly.
-  use get <- result.try(parse_optional_operation(node, "get", path, components))
+  use get <- result.try(parse_optional_operation(
+    node,
+    "get",
+    path,
+    components,
+    index,
+  ))
   use post <- result.try(parse_optional_operation(
     node,
     "post",
     path,
     components,
+    index,
   ))
-  use put <- result.try(parse_optional_operation(node, "put", path, components))
+  use put <- result.try(parse_optional_operation(
+    node,
+    "put",
+    path,
+    components,
+    index,
+  ))
   use delete <- result.try(parse_optional_operation(
     node,
     "delete",
     path,
     components,
+    index,
   ))
   use patch <- result.try(parse_optional_operation(
     node,
     "patch",
     path,
     components,
+    index,
   ))
   use head <- result.try(parse_optional_operation(
     node,
     "head",
     path,
     components,
+    index,
   ))
   use options <- result.try(parse_optional_operation(
     node,
     "options",
     path,
     components,
+    index,
   ))
   use trace <- result.try(parse_optional_operation(
     node,
     "trace",
     path,
     components,
+    index,
   ))
 
-  use parameters <- result.try(parse_parameters_list(node, components))
-  use servers <- result.try(parse_servers(node))
+  use parameters <- result.try(parse_parameters_list(node, components, index))
+  use servers <- result.try(parse_servers(node, index))
 
   Ok(PathItem(
     summary:,
@@ -342,6 +396,7 @@ fn parse_optional_operation(
   method_key: String,
   path: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Option(Operation(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: node, selector: method_key) {
     Ok(_) -> {
@@ -350,6 +405,7 @@ fn parse_optional_operation(
         method_key,
         path,
         components,
+        index,
       ))
       Ok(Some(op))
     }
@@ -363,15 +419,20 @@ fn parse_operation_at(
   method_key: String,
   path: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Operation(Unresolved), Diagnostic) {
   use op_node <- result.try(
     yay.select_sugar(from: node, selector: method_key)
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path:, field: method_key)
+      diagnostic.missing_field(
+        path:,
+        field: method_key,
+        loc: location_index.lookup_field(index, path, method_key),
+      )
     }),
   )
 
-  parse_operation(op_node, path <> "." <> method_key, components)
+  parse_operation(op_node, path <> "." <> method_key, components, index)
 }
 
 /// Parse a single operation.
@@ -379,6 +440,7 @@ fn parse_operation(
   node: yay.Node,
   context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Operation(Unresolved), Diagnostic) {
   let operation_id =
     yay.extract_optional_string(node, "operationId")
@@ -402,13 +464,14 @@ fn parse_operation(
     |> result.unwrap(None)
     |> option.unwrap(False)
 
-  use parameters <- result.try(parse_parameters_list(node, components))
+  use parameters <- result.try(parse_parameters_list(node, components, index))
 
   // requestBody is optional; absent is Ok(None), present-but-broken is Error.
   use request_body <- result.try(parse_optional_request_body(
     node,
     context,
     components,
+    index,
   ))
 
   // responses is REQUIRED per OpenAPI 3.x
@@ -416,12 +479,17 @@ fn parse_operation(
     node,
     context,
     components,
+    index,
   ))
 
-  use security <- result.try(parse_optional_security_requirements(node, context))
+  use security <- result.try(parse_optional_security_requirements(
+    node,
+    context,
+    index,
+  ))
 
-  use callbacks <- result.try(parse_callbacks(node, context, components))
-  use op_servers <- result.try(parse_servers(node))
+  use callbacks <- result.try(parse_callbacks(node, context, components, index))
+  use op_servers <- result.try(parse_servers(node, index))
   let external_docs = parse_optional_external_docs(node)
 
   Ok(Operation(
@@ -446,10 +514,16 @@ fn parse_optional_request_body(
   node: yay.Node,
   context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Option(RefOr(RequestBody(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "requestBody") {
     Ok(_) -> {
-      use rb <- result.try(parse_request_body_at(node, context, components))
+      use rb <- result.try(parse_request_body_at(
+        node,
+        context,
+        components,
+        index,
+      ))
       Ok(Some(rb))
     }
     Error(_) -> Ok(None)
@@ -463,21 +537,25 @@ fn parse_responses_required(
   node: yay.Node,
   context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(
   dict.Dict(http.HttpStatusCode, RefOr(Response(Unresolved))),
   Diagnostic,
 ) {
-  parse_responses(node, context, components)
+  parse_responses(node, context, components, index)
 }
 
 /// Parse parameters list from a node.
 fn parse_parameters_list(
   node: yay.Node,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(List(RefOr(Parameter(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "parameters") {
     Ok(yay.NodeSeq(items)) ->
-      list.try_map(items, fn(item) { parse_parameter(item, components) })
+      list.try_map(items, fn(item) {
+        parse_parameter(item, components, index)
+      })
     _ -> Ok([])
   }
 }
@@ -486,6 +564,7 @@ fn parse_parameters_list(
 fn parse_parameter(
   node: yay.Node,
   _components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(RefOr(Parameter(Unresolved)), Diagnostic) {
   // Check for $ref first
   case yay.extract_optional_string(node, "$ref") {
@@ -496,18 +575,30 @@ fn parse_parameter(
       use name <- result.try(
         yay.extract_string(node, "name")
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "parameter", field: "name")
+          diagnostic.missing_field(
+            path: "parameter",
+            field: "name",
+            loc: location_index.lookup_field(index, "parameter", "name"),
+          )
         }),
       )
 
       use in_str <- result.try(
         yay.extract_string(node, "in")
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "parameter." <> name, field: "in")
+          diagnostic.missing_field(
+            path: "parameter." <> name,
+            field: "in",
+            loc: location_index.lookup_field(
+              index,
+              "parameter." <> name,
+              "in",
+            ),
+          )
         }),
       )
 
-      use in_ <- result.try(parse_parameter_in(in_str))
+      use in_ <- result.try(parse_parameter_in(in_str, index))
 
       let description =
         yay.extract_optional_string(node, "description")
@@ -523,6 +614,7 @@ fn parse_parameter(
           Error(diagnostic.invalid_value(
             path: "parameter." <> name,
             detail: "Path parameters must have required: true",
+            loc: location_index.lookup(index, "parameter." <> name),
           ))
         spec.InPath, _ -> Ok(True)
         _, Some(v) -> Ok(v)
@@ -540,6 +632,7 @@ fn parse_parameter(
             use sr <- result.try(parse_schema_ref(
               schema_node,
               "parameter.schema",
+              index,
             ))
             Ok(Ok(sr))
           }
@@ -553,7 +646,7 @@ fn parse_parameter(
           |> result.unwrap(None)
         {
           Some(s) -> {
-            use parsed <- result.try(parse_parameter_style(s))
+            use parsed <- result.try(parse_parameter_style(s, index))
             Ok(Some(parsed))
           }
           None -> Ok(None)
@@ -569,7 +662,7 @@ fn parse_parameter(
         |> result.unwrap(None)
         |> option.unwrap(False)
 
-      use content <- result.try(parse_content_map(node))
+      use content <- result.try(parse_content_map(node, index))
       let examples = value.extract_map(node, "examples")
 
       let payload = case param_schema {
@@ -596,7 +689,10 @@ fn parse_parameter(
 }
 
 /// Parse parameter location string.
-fn parse_parameter_in(value: String) -> Result(ParameterIn, Diagnostic) {
+fn parse_parameter_in(
+  value: String,
+  index: LocationIndex,
+) -> Result(ParameterIn, Diagnostic) {
   case value {
     "path" -> Ok(spec.InPath)
     "query" -> Ok(spec.InQuery)
@@ -608,6 +704,7 @@ fn parse_parameter_in(value: String) -> Result(ParameterIn, Diagnostic) {
         detail: "Unknown parameter location: "
           <> value
           <> ". Must be one of: path, query, header, cookie",
+        loc: location_index.lookup(index, "parameter.in"),
       ))
   }
 }
@@ -615,6 +712,7 @@ fn parse_parameter_in(value: String) -> Result(ParameterIn, Diagnostic) {
 /// Map a style string to a ParameterStyle ADT value.
 fn parse_parameter_style(
   value: String,
+  index: LocationIndex,
 ) -> Result(spec.ParameterStyle, Diagnostic) {
   case value {
     "form" -> Ok(spec.FormStyle)
@@ -630,6 +728,7 @@ fn parse_parameter_style(
         detail: "Unknown parameter style: '"
           <> value
           <> "'. Must be one of: form, simple, deepObject, matrix, label, spaceDelimited, pipeDelimited",
+        loc: location_index.lookup(index, "parameter.style"),
       ))
   }
 }
@@ -637,6 +736,7 @@ fn parse_parameter_style(
 /// Map an apiKey "in" string to a SecuritySchemeIn ADT value.
 fn parse_security_scheme_in(
   value: String,
+  index: LocationIndex,
 ) -> Result(spec.SecuritySchemeIn, Diagnostic) {
   case value {
     "header" -> Ok(spec.SchemeInHeader)
@@ -648,6 +748,7 @@ fn parse_security_scheme_in(
         detail: "Unknown apiKey location: "
           <> value
           <> ". Must be one of: header, query, cookie",
+        loc: location_index.lookup(index, "securityScheme.in"),
       ))
   }
 }
@@ -657,11 +758,16 @@ fn parse_request_body_at(
   node: yay.Node,
   context: String,
   _components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(RefOr(RequestBody(Unresolved)), Diagnostic) {
   use rb_node <- result.try(
     yay.select_sugar(from: node, selector: "requestBody")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: context, field: "requestBody")
+      diagnostic.missing_field(
+        path: context,
+        field: "requestBody",
+        loc: location_index.lookup_field(index, context, "requestBody"),
+      )
     }),
   )
 
@@ -669,7 +775,7 @@ fn parse_request_body_at(
   case yay.extract_optional_string(rb_node, "$ref") {
     Ok(Some(ref_str)) -> Ok(Ref(ref_str))
     _ -> {
-      use rb <- result.try(parse_request_body(rb_node, context))
+      use rb <- result.try(parse_request_body(rb_node, context, index))
       Ok(Value(rb))
     }
   }
@@ -679,6 +785,7 @@ fn parse_request_body_at(
 fn parse_request_body(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(RequestBody(Unresolved), Diagnostic) {
   let description =
     yay.extract_optional_string(node, "description")
@@ -690,7 +797,7 @@ fn parse_request_body(
     |> option.unwrap(False)
 
   // content is REQUIRED per OpenAPI spec
-  use content <- result.try(parse_required_content(node, context))
+  use content <- result.try(parse_required_content(node, context, index))
 
   Ok(RequestBody(description:, content:, required:))
 }
@@ -699,6 +806,7 @@ fn parse_request_body(
 fn parse_required_content(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(Dict(String, MediaType), Diagnostic) {
   case yay.select_sugar(from: node, selector: "content") {
     Ok(yay.NodeMap(entries)) -> {
@@ -712,6 +820,7 @@ fn parse_required_content(
                   use sr <- result.try(parse_schema_ref(
                     schema_node,
                     context <> ".schema",
+                    index,
                   ))
                   Ok(Some(sr))
                 }
@@ -720,7 +829,7 @@ fn parse_required_content(
             )
             let mt_example = value.extract_optional(value_node, "example")
             let mt_examples = value.extract_map(value_node, "examples")
-            use mt_encoding <- result.try(parse_encoding_map(value_node))
+            use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
               media_type_name,
@@ -740,6 +849,11 @@ fn parse_required_content(
       Error(diagnostic.missing_field(
         path: context <> ".requestBody",
         field: "content",
+        loc: location_index.lookup_field(
+          index,
+          context <> ".requestBody",
+          "content",
+        ),
       ))
   }
 }
@@ -748,6 +862,7 @@ fn parse_required_content(
 fn parse_content(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(Dict(String, MediaType), Diagnostic) {
   case yay.select_sugar(from: node, selector: "content") {
     Ok(yay.NodeMap(entries)) -> {
@@ -761,6 +876,7 @@ fn parse_content(
                   use sr <- result.try(parse_schema_ref(
                     schema_node,
                     context <> ".schema",
+                    index,
                   ))
                   Ok(Some(sr))
                 }
@@ -769,7 +885,7 @@ fn parse_content(
             )
             let mt_example = value.extract_optional(value_node, "example")
             let mt_examples = value.extract_map(value_node, "examples")
-            use mt_encoding <- result.try(parse_encoding_map(value_node))
+            use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
               media_type_name,
@@ -794,6 +910,7 @@ fn parse_responses(
   node: yay.Node,
   _context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Dict(http.HttpStatusCode, RefOr(Response(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
@@ -809,6 +926,7 @@ fn parse_responses(
                     use resp <- result.try(parse_response(
                       value_node,
                       components,
+                      index,
                     ))
                     Ok(dict.insert(acc, code, resp))
                   }
@@ -816,7 +934,7 @@ fn parse_responses(
                 }
             }
           yay.NodeInt(code) -> {
-            use resp <- result.try(parse_response(value_node, components))
+            use resp <- result.try(parse_response(value_node, components, index))
             Ok(dict.insert(acc, http.Status(code), resp))
           }
           _ -> Ok(acc)
@@ -831,6 +949,7 @@ fn parse_responses(
 fn parse_response(
   node: yay.Node,
   _components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(RefOr(Response(Unresolved)), Diagnostic) {
   // Check for $ref first
   case yay.extract_optional_string(node, "$ref") {
@@ -841,12 +960,16 @@ fn parse_response(
         yay.extract_string(node, "description")
         |> result.map(Some)
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "response", field: "description")
+          diagnostic.missing_field(
+            path: "response",
+            field: "description",
+            loc: location_index.lookup_field(index, "response", "description"),
+          )
         }),
       )
 
-      use content <- result.try(parse_content(node, "response"))
-      use headers <- result.try(parse_headers_map(node))
+      use content <- result.try(parse_content(node, "response", index))
+      use headers <- result.try(parse_headers_map(node, index))
       use links <- result.try(parse_links_map(node))
 
       Ok(Value(Response(description:, content:, headers:, links:)))
@@ -857,21 +980,32 @@ fn parse_response(
 /// Parse the components section.
 fn parse_components(
   root: yay.Node,
+  index: LocationIndex,
 ) -> Result(Components(Unresolved), Diagnostic) {
   use components_node <- result.try(
     yay.select_sugar(from: root, selector: "components")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "", field: "components")
+      diagnostic.missing_field(
+        path: "",
+        field: "components",
+        loc: location_index.lookup_field(index, "", "components"),
+      )
     }),
   )
 
-  use schemas <- result.try(parse_schemas_map(components_node))
-  use parameters <- result.try(parse_parameters_map(components_node))
-  use request_bodies <- result.try(parse_request_bodies_map(components_node))
-  use responses <- result.try(parse_responses_map(components_node))
-  use security_schemes <- result.try(parse_security_schemes_map(components_node))
-  use path_items <- result.try(parse_path_items_map(components_node))
-  use headers <- result.try(parse_headers_map(components_node))
+  use schemas <- result.try(parse_schemas_map(components_node, index))
+  use parameters <- result.try(parse_parameters_map(components_node, index))
+  use request_bodies <- result.try(parse_request_bodies_map(
+    components_node,
+    index,
+  ))
+  use responses <- result.try(parse_responses_map(components_node, index))
+  use security_schemes <- result.try(parse_security_schemes_map(
+    components_node,
+    index,
+  ))
+  use path_items <- result.try(parse_path_items_map(components_node, index))
+  use headers <- result.try(parse_headers_map(components_node, index))
   let examples = value.extract_map(components_node, "examples")
   use links <- result.try(parse_links_map(components_node))
 
@@ -891,6 +1025,7 @@ fn parse_components(
 /// Parse the schemas map from components.
 fn parse_schemas_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, SchemaRef), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "schemas") {
     Ok(yay.NodeMap(entries)) -> {
@@ -901,6 +1036,7 @@ fn parse_schemas_map(
             use schema_ref <- result.try(parse_schema_ref(
               value_node,
               "components.schemas." <> name,
+              index,
             ))
             Ok(dict.insert(acc, name, schema_ref))
           }
@@ -915,6 +1051,7 @@ fn parse_schemas_map(
 /// Parse the parameters map from components.
 fn parse_parameters_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(Parameter(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "parameters") {
     Ok(yay.NodeMap(entries)) -> {
@@ -925,7 +1062,11 @@ fn parse_parameters_map(
             case yay.extract_optional_string(value_node, "$ref") {
               Ok(Some(ref_str)) -> Ok(dict.insert(acc, name, Ref(ref_str)))
               _ -> {
-                use param <- result.try(parse_parameter(value_node, None))
+                use param <- result.try(parse_parameter(
+                  value_node,
+                  None,
+                  index,
+                ))
                 Ok(dict.insert(acc, name, param))
               }
             }
@@ -941,6 +1082,7 @@ fn parse_parameters_map(
 /// Parse the requestBodies map from components.
 fn parse_request_bodies_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(RequestBody(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "requestBodies") {
     Ok(yay.NodeMap(entries)) -> {
@@ -954,6 +1096,7 @@ fn parse_request_bodies_map(
                 use rb <- result.try(parse_request_body(
                   value_node,
                   "components.requestBodies." <> name,
+                  index,
                 ))
                 Ok(dict.insert(acc, name, Value(rb)))
               }
@@ -970,6 +1113,7 @@ fn parse_request_bodies_map(
 /// Parse the responses map from components.
 fn parse_responses_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(Response(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "responses") {
     Ok(yay.NodeMap(entries)) -> {
@@ -980,7 +1124,7 @@ fn parse_responses_map(
             case yay.extract_optional_string(value_node, "$ref") {
               Ok(Some(ref_str)) -> Ok(dict.insert(acc, name, Ref(ref_str)))
               _ -> {
-                use resp <- result.try(parse_response(value_node, None))
+                use resp <- result.try(parse_response(value_node, None, index))
                 Ok(dict.insert(acc, name, resp))
               }
             }
@@ -997,11 +1141,12 @@ fn parse_responses_map(
 pub fn parse_schema_ref(
   node: yay.Node,
   path: String,
+  index: LocationIndex,
 ) -> Result(SchemaRef, Diagnostic) {
   case yay.extract_optional_string(node, "$ref") {
     Ok(Some(ref)) -> Ok(schema.make_reference(ref))
     _ -> {
-      use schema_obj <- result.try(parse_schema_object(node, path))
+      use schema_obj <- result.try(parse_schema_object(node, path, index))
       Ok(Inline(schema_obj))
     }
   }
@@ -1011,6 +1156,7 @@ pub fn parse_schema_ref(
 pub fn parse_schema_object(
   node: yay.Node,
   path: String,
+  index: LocationIndex,
 ) -> Result(SchemaObject, Diagnostic) {
   let nullable =
     yay.extract_optional_bool(node, "nullable")
@@ -1069,7 +1215,7 @@ pub fn parse_schema_object(
   case yay.select_sugar(from: node, selector: "allOf") {
     Ok(yay.NodeSeq(items)) -> {
       use schemas <- result.try(
-        list.try_map(items, parse_schema_ref(_, path <> ".allOf")),
+        list.try_map(items, parse_schema_ref(_, path <> ".allOf", index)),
       )
       Ok(AllOfSchema(metadata:, schemas:))
     }
@@ -1077,12 +1223,12 @@ pub fn parse_schema_object(
       case yay.select_sugar(from: node, selector: "oneOf") {
         Ok(yay.NodeSeq(items)) -> {
           use schemas <- result.try(
-            list.try_map(items, parse_schema_ref(_, path <> ".oneOf")),
+            list.try_map(items, parse_schema_ref(_, path <> ".oneOf", index)),
           )
           use discriminator <- result.try(
             case yay.select_sugar(from: node, selector: "discriminator") {
               Ok(_) -> {
-                use d <- result.try(parse_discriminator(node))
+                use d <- result.try(parse_discriminator(node, index))
                 Ok(Some(d))
               }
               Error(_) -> Ok(None)
@@ -1094,12 +1240,12 @@ pub fn parse_schema_object(
           case yay.select_sugar(from: node, selector: "anyOf") {
             Ok(yay.NodeSeq(items)) -> {
               use schemas <- result.try(
-                list.try_map(items, parse_schema_ref(_, path <> ".anyOf")),
+                list.try_map(items, parse_schema_ref(_, path <> ".anyOf", index)),
               )
               use discriminator <- result.try(
                 case yay.select_sugar(from: node, selector: "discriminator") {
                   Ok(_) -> {
-                    use d <- result.try(parse_discriminator(node))
+                    use d <- result.try(parse_discriminator(node, index))
                     Ok(Some(d))
                   }
                   Error(_) -> Ok(None)
@@ -1107,7 +1253,7 @@ pub fn parse_schema_object(
               )
               Ok(AnyOfSchema(metadata:, schemas:, discriminator:))
             }
-            _ -> parse_typed_schema(node, metadata, path)
+            _ -> parse_typed_schema(node, metadata, path, index)
           }
       }
   }
@@ -1135,6 +1281,7 @@ fn parse_typed_schema(
   node: yay.Node,
   metadata: schema.SchemaMetadata,
   path: String,
+  index: LocationIndex,
 ) -> Result(SchemaObject, Diagnostic) {
   // OpenAPI 3.1 allows type to be an array, e.g. type: [string, 'null'].
   // Extract the primary type and detect nullable from the array form.
@@ -1280,8 +1427,14 @@ fn parse_typed_schema(
     "array" -> {
       use items <- result.try(
         case yay.select_sugar(from: node, selector: "items") {
-          Ok(items_node) -> parse_schema_ref(items_node, path <> ".items")
-          _ -> Error(diagnostic.missing_field(path: path, field: "items"))
+          Ok(items_node) ->
+            parse_schema_ref(items_node, path <> ".items", index)
+          _ ->
+            Error(diagnostic.missing_field(
+              path: path,
+              field: "items",
+              loc: location_index.lookup_field(index, path, "items"),
+            ))
         },
       )
       let min_items =
@@ -1296,7 +1449,7 @@ fn parse_typed_schema(
     }
 
     "object" -> {
-      use properties <- result.try(parse_properties(node, path))
+      use properties <- result.try(parse_properties(node, path, index))
       let required = case yay.extract_string_list(node, "required") {
         Ok(r) -> r
         _ -> []
@@ -1309,6 +1462,7 @@ fn parse_typed_schema(
             use sr <- result.try(parse_schema_ref(
               ap_node,
               path <> ".additionalProperties",
+              index,
             ))
             Ok(schema.Typed(sr))
           }
@@ -1338,6 +1492,7 @@ fn parse_typed_schema(
         detail: "Unrecognized schema type '"
           <> unrecognized
           <> "'. Supported types: string, integer, number, boolean, array, object.",
+        loc: location_index.lookup(index, path <> ".type"),
       ))
   }
 }
@@ -1346,6 +1501,7 @@ fn parse_typed_schema(
 fn parse_properties(
   node: yay.Node,
   path: String,
+  index: LocationIndex,
 ) -> Result(Dict(String, SchemaRef), Diagnostic) {
   case yay.select_sugar(from: node, selector: "properties") {
     Ok(yay.NodeMap(entries)) -> {
@@ -1356,6 +1512,7 @@ fn parse_properties(
             use schema_ref <- result.try(parse_schema_ref(
               value_node,
               path <> "." <> prop_name,
+              index,
             ))
             Ok(dict.insert(acc, prop_name, schema_ref))
           }
@@ -1368,18 +1525,33 @@ fn parse_properties(
 }
 
 /// Parse discriminator from a node.
-fn parse_discriminator(node: yay.Node) -> Result(Discriminator, Diagnostic) {
+fn parse_discriminator(
+  node: yay.Node,
+  index: LocationIndex,
+) -> Result(Discriminator, Diagnostic) {
   use disc_node <- result.try(
     yay.select_sugar(from: node, selector: "discriminator")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "schema", field: "discriminator")
+      diagnostic.missing_field(
+        path: "schema",
+        field: "discriminator",
+        loc: location_index.lookup_field(index, "schema", "discriminator"),
+      )
     }),
   )
 
   use property_name <- result.try(
     yay.extract_string(disc_node, "propertyName")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "discriminator", field: "propertyName")
+      diagnostic.missing_field(
+        path: "discriminator",
+        field: "propertyName",
+        loc: location_index.lookup_field(
+          index,
+          "discriminator",
+          "propertyName",
+        ),
+      )
     }),
   )
 
@@ -1401,6 +1573,7 @@ pub fn parse_error_to_string(error: Diagnostic) -> String {
 /// malformed.
 fn parse_security_schemes_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(spec.SecurityScheme)), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "securitySchemes") {
     Ok(yay.NodeMap(entries)) -> {
@@ -1411,7 +1584,10 @@ fn parse_security_schemes_map(
             case yay.extract_optional_string(value_node, "$ref") {
               Ok(Some(ref_str)) -> Ok(dict.insert(acc, name, Ref(ref_str)))
               _ -> {
-                use scheme <- result.try(parse_security_scheme(value_node))
+                use scheme <- result.try(parse_security_scheme(
+                  value_node,
+                  index,
+                ))
                 Ok(dict.insert(acc, name, Value(scheme)))
               }
             }
@@ -1427,6 +1603,7 @@ fn parse_security_schemes_map(
 /// Parse the pathItems map from components.
 fn parse_path_items_map(
   components_node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: components_node, selector: "pathItems") {
     Ok(yay.NodeMap(entries)) -> {
@@ -1441,6 +1618,7 @@ fn parse_path_items_map(
                   value_node,
                   "components.pathItems." <> name,
                   None,
+                  index,
                 ))
                 Ok(dict.insert(acc, name, Value(path_item)))
               }
@@ -1457,11 +1635,16 @@ fn parse_path_items_map(
 /// Parse a single security scheme.
 fn parse_security_scheme(
   node: yay.Node,
+  index: LocationIndex,
 ) -> Result(spec.SecurityScheme, Diagnostic) {
   use type_str <- result.try(
     yay.extract_string(node, "type")
     |> result.map_error(fn(_) {
-      diagnostic.missing_field(path: "securityScheme", field: "type")
+      diagnostic.missing_field(
+        path: "securityScheme",
+        field: "type",
+        loc: location_index.lookup_field(index, "securityScheme", "type"),
+      )
     }),
   )
 
@@ -1470,16 +1653,32 @@ fn parse_security_scheme(
       use name <- result.try(
         yay.extract_string(node, "name")
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "securityScheme.apiKey", field: "name")
+          diagnostic.missing_field(
+            path: "securityScheme.apiKey",
+            field: "name",
+            loc: location_index.lookup_field(
+              index,
+              "securityScheme.apiKey",
+              "name",
+            ),
+          )
         }),
       )
       use in_str <- result.try(
         yay.extract_string(node, "in")
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "securityScheme.apiKey", field: "in")
+          diagnostic.missing_field(
+            path: "securityScheme.apiKey",
+            field: "in",
+            loc: location_index.lookup_field(
+              index,
+              "securityScheme.apiKey",
+              "in",
+            ),
+          )
         }),
       )
-      case parse_security_scheme_in(in_str) {
+      case parse_security_scheme_in(in_str, index) {
         Ok(in_) -> Ok(spec.ApiKeyScheme(name:, in_:))
         Error(_) ->
           Error(diagnostic.invalid_value(
@@ -1487,6 +1686,7 @@ fn parse_security_scheme(
             detail: "Only 'header', 'query' and 'cookie' are supported for apiKey. Got: '"
               <> in_str
               <> "'",
+            loc: location_index.lookup(index, "securityScheme.apiKey.in"),
           ))
       }
     }
@@ -1494,7 +1694,15 @@ fn parse_security_scheme(
       use scheme <- result.try(
         yay.extract_string(node, "scheme")
         |> result.map_error(fn(_) {
-          diagnostic.missing_field(path: "securityScheme.http", field: "scheme")
+          diagnostic.missing_field(
+            path: "securityScheme.http",
+            field: "scheme",
+            loc: location_index.lookup_field(
+              index,
+              "securityScheme.http",
+              "scheme",
+            ),
+          )
         }),
       )
       let bearer_format =
@@ -1519,6 +1727,11 @@ fn parse_security_scheme(
           diagnostic.missing_field(
             path: "securityScheme.openIdConnect",
             field: "openIdConnectUrl",
+            loc: location_index.lookup_field(
+              index,
+              "securityScheme.openIdConnect",
+              "openIdConnectUrl",
+            ),
           )
         }),
       )
@@ -1585,11 +1798,12 @@ fn parse_oauth2_flows(node: yay.Node) -> dict.Dict(String, spec.OAuth2Flow) {
 fn parse_security_requirements(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(List(SecurityRequirement), Diagnostic) {
   case yay.select_sugar(from: node, selector: "security") {
     Ok(yay.NodeSeq(items)) ->
       list.try_map(items, fn(item) {
-        parse_security_requirement_object(item, context)
+        parse_security_requirement_object(item, context, index)
       })
     _ -> Ok([])
   }
@@ -1601,12 +1815,13 @@ fn parse_security_requirements(
 fn parse_optional_security_requirements(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(Option(List(SecurityRequirement)), Diagnostic) {
   case yay.select_sugar(from: node, selector: "security") {
     Ok(yay.NodeSeq(items)) -> {
       use reqs <- result.try(
         list.try_map(items, fn(item) {
-          parse_security_requirement_object(item, context)
+          parse_security_requirement_object(item, context, index)
         }),
       )
       Ok(Some(reqs))
@@ -1621,6 +1836,7 @@ fn parse_optional_security_requirements(
 fn parse_security_requirement_object(
   node: yay.Node,
   context: String,
+  index: LocationIndex,
 ) -> Result(SecurityRequirement, Diagnostic) {
   case node {
     yay.NodeMap(entries) -> {
@@ -1638,6 +1854,10 @@ fn parse_security_requirement_object(
                         Error(diagnostic.invalid_value(
                           path: context <> ".security." <> scheme_name,
                           detail: "Scope must be a string",
+                          loc: location_index.lookup(
+                            index,
+                            context <> ".security." <> scheme_name,
+                          ),
                         ))
                     }
                   })
@@ -1646,6 +1866,10 @@ fn parse_security_requirement_object(
                   Error(diagnostic.invalid_value(
                     path: context <> ".security." <> scheme_name,
                     detail: "Scopes must be an array of strings",
+                    loc: location_index.lookup(
+                      index,
+                      context <> ".security." <> scheme_name,
+                    ),
                   ))
               })
               Ok(spec.SecuritySchemeRef(scheme_name:, scopes:))
@@ -1654,6 +1878,7 @@ fn parse_security_requirement_object(
               Error(diagnostic.invalid_value(
                 path: context <> ".security",
                 detail: "Security requirement key must be a string",
+                loc: location_index.lookup(index, context <> ".security"),
               ))
           }
         }),
@@ -1664,6 +1889,7 @@ fn parse_security_requirement_object(
       Error(diagnostic.invalid_value(
         path: context <> ".security",
         detail: "Security requirement must be an object",
+        loc: location_index.lookup(index, context <> ".security"),
       ))
   }
 }
@@ -1675,6 +1901,7 @@ fn parse_callbacks(
   node: yay.Node,
   context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(dict.Dict(String, Callback(Unresolved)), Diagnostic) {
   case yay.select_sugar(from: node, selector: "callbacks") {
     Ok(yay.NodeMap(entries)) -> {
@@ -1686,6 +1913,7 @@ fn parse_callbacks(
               value_node,
               context,
               components,
+              index,
             ))
             Ok(dict.insert(acc, callback_name, callback))
           }
@@ -1703,6 +1931,7 @@ fn parse_callback_object(
   node: yay.Node,
   context: String,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Callback(Unresolved), Diagnostic) {
   case node {
     yay.NodeMap(entries) -> {
@@ -1722,6 +1951,7 @@ fn parse_callback_object(
                     path_item_node,
                     context <> ".callbacks." <> url_expression,
                     components,
+                    index,
                   ))
                   Ok([#(url_expression, Value(path_item)), ..acc])
                 }
@@ -1736,6 +1966,11 @@ fn parse_callback_object(
           Error(diagnostic.missing_field(
             path: context <> ".callbacks",
             field: "url expression",
+            loc: location_index.lookup_field(
+              index,
+              context <> ".callbacks",
+              "url expression",
+            ),
           ))
         _ -> Ok(Callback(entries: dict.from_list(parsed_entries)))
       }
@@ -1744,6 +1979,11 @@ fn parse_callback_object(
       Error(diagnostic.missing_field(
         path: context <> ".callbacks",
         field: "url expression",
+        loc: location_index.lookup_field(
+          index,
+          context <> ".callbacks",
+          "url expression",
+        ),
       ))
   }
 }
@@ -1859,6 +2099,7 @@ fn parse_tags(node: yay.Node) -> List(Tag) {
 fn parse_webhooks(
   node: yay.Node,
   components: Option(Components(Unresolved)),
+  index: LocationIndex,
 ) -> Result(Dict(String, RefOr(PathItem(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "webhooks") {
     Ok(yay.NodeMap(entries)) -> {
@@ -1877,6 +2118,7 @@ fn parse_webhooks(
                   value_node,
                   "webhooks." <> name,
                   components,
+                  index,
                 ))
                 Ok(dict.insert(acc, name, Value(path_item)))
               }
@@ -1893,6 +2135,7 @@ fn parse_webhooks(
 /// Parse a content map (non-result version for use in Parameter).
 fn parse_content_map(
   node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, MediaType), Diagnostic) {
   case yay.select_sugar(from: node, selector: "content") {
     Ok(yay.NodeMap(entries)) ->
@@ -1906,6 +2149,7 @@ fn parse_content_map(
                   use sr <- result.try(parse_schema_ref(
                     schema_node,
                     "content.schema",
+                    index,
                   ))
                   Ok(Some(sr))
                 }
@@ -1914,7 +2158,7 @@ fn parse_content_map(
             )
             let mt_example = value.extract_optional(value_node, "example")
             let mt_examples = value.extract_map(value_node, "examples")
-            use mt_encoding <- result.try(parse_encoding_map(value_node))
+            use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
               media_type_name,
@@ -1936,6 +2180,7 @@ fn parse_content_map(
 /// Parse encoding map from a media type node.
 fn parse_encoding_map(
   node: yay.Node,
+  index: LocationIndex,
 ) -> Result(Dict(String, Encoding), Diagnostic) {
   case yay.select_sugar(from: node, selector: "encoding") {
     Ok(yay.NodeMap(entries)) ->
@@ -1952,7 +2197,7 @@ fn parse_encoding_map(
                 |> result.unwrap(None)
               {
                 Some(s) -> {
-                  use parsed <- result.try(parse_parameter_style(s))
+                  use parsed <- result.try(parse_parameter_style(s, index))
                   Ok(Some(parsed))
                 }
                 None -> Ok(None)
@@ -1975,7 +2220,10 @@ fn parse_encoding_map(
 }
 
 /// Parse headers map from a node.
-fn parse_headers_map(node: yay.Node) -> Result(Dict(String, Header), Diagnostic) {
+fn parse_headers_map(
+  node: yay.Node,
+  index: LocationIndex,
+) -> Result(Dict(String, Header), Diagnostic) {
   case yay.select_sugar(from: node, selector: "headers") {
     Ok(yay.NodeMap(entries)) ->
       list.try_fold(entries, dict.new(), fn(acc, entry) {
@@ -1995,6 +2243,7 @@ fn parse_headers_map(node: yay.Node) -> Result(Dict(String, Header), Diagnostic)
                   use sr <- result.try(parse_schema_ref(
                     schema_node,
                     "header." <> header_name <> ".schema",
+                    index,
                   ))
                   Ok(Some(sr))
                 }

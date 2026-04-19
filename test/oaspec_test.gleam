@@ -19,7 +19,8 @@ import oaspec/config
 import oaspec/generate
 import oaspec/openapi/capability_check
 import oaspec/openapi/dedup
-import oaspec/openapi/diagnostic.{Diagnostic}
+import oaspec/openapi/diagnostic.{Diagnostic, NoSourceLoc, SourceLoc}
+import oaspec/openapi/location_index
 import oaspec/openapi/hoist
 import oaspec/openapi/normalize
 import oaspec/openapi/parser
@@ -12208,4 +12209,97 @@ paths:
   // Should have server override comment
   string.contains(client_file.content, "Server override")
   |> should.be_true()
+}
+
+// ============================================================================
+// Source location tests (Issue #188)
+// ============================================================================
+
+pub fn location_index_build_extracts_locations_test() {
+  let yaml =
+    "openapi: \"3.0.0\"
+info:
+  title: Test
+  version: \"1.0\"
+paths: {}
+"
+  let index = location_index.build(yaml)
+
+  // Root-level keys should have locations
+  let loc = location_index.lookup(index, "openapi")
+  case loc {
+    SourceLoc(line: _, column: _) -> should.be_true(True)
+    NoSourceLoc -> should.fail()
+  }
+}
+
+pub fn location_index_lookup_field_returns_source_loc_test() {
+  let yaml =
+    "openapi: \"3.0.0\"
+info:
+  title: Test
+  version: \"1.0\"
+paths: {}
+"
+  let index = location_index.build(yaml)
+
+  let loc = location_index.lookup_field(index, "info", "title")
+  case loc {
+    SourceLoc(line: _, column: _) -> should.be_true(True)
+    NoSourceLoc -> should.fail()
+  }
+}
+
+pub fn location_index_lookup_missing_returns_no_source_loc_test() {
+  let yaml =
+    "openapi: \"3.0.0\"
+info:
+  title: Test
+  version: \"1.0\"
+paths: {}
+"
+  let index = location_index.build(yaml)
+
+  let loc = location_index.lookup(index, "nonexistent.path")
+  loc |> should.equal(NoSourceLoc)
+}
+
+pub fn location_index_empty_returns_no_source_loc_test() {
+  let index = location_index.empty()
+  let loc = location_index.lookup(index, "openapi")
+  loc |> should.equal(NoSourceLoc)
+}
+
+pub fn missing_field_diagnostic_has_source_location_test() {
+  let yaml =
+    "openapi: \"3.0.0\"
+paths: {}
+"
+
+  case parser.parse_string(yaml) {
+    Error(Diagnostic(source_loc: loc, code: "missing_field", ..)) ->
+      case loc {
+        SourceLoc(line: _, column: _) -> should.be_true(True)
+        NoSourceLoc -> should.fail()
+      }
+    _ -> should.fail()
+  }
+}
+
+pub fn location_index_root_path_has_source_loc_test() {
+  let yaml =
+    "openapi: \"3.0.0\"
+info:
+  title: Test
+  version: \"1.0\"
+paths: {}
+"
+  let index = location_index.build(yaml)
+
+  // Root path should have line 1 location
+  let loc = location_index.lookup(index, "")
+  case loc {
+    SourceLoc(line: 1, column: _) -> should.be_true(True)
+    _ -> should.fail()
+  }
 }
