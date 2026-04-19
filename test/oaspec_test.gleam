@@ -20,8 +20,8 @@ import oaspec/generate
 import oaspec/openapi/capability_check
 import oaspec/openapi/dedup
 import oaspec/openapi/diagnostic.{Diagnostic, NoSourceLoc, SourceLoc}
-import oaspec/openapi/location_index
 import oaspec/openapi/hoist
+import oaspec/openapi/location_index
 import oaspec/openapi/normalize
 import oaspec/openapi/parser
 import oaspec/openapi/provenance

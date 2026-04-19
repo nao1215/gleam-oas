@@ -61,6 +61,4 @@ pub fn lookup_field(
 }
 
 @external(erlang, "yaml_loc_ffi", "build_location_index")
-fn do_build(
-  content: String,
-) -> Result(List(#(String, #(Int, Int))), Nil)
+fn do_build(content: String) -> Result(List(#(String, #(Int, Int))), Nil)

@@ -553,9 +553,7 @@ fn parse_parameters_list(
 ) -> Result(List(RefOr(Parameter(Unresolved))), Diagnostic) {
   case yay.select_sugar(from: node, selector: "parameters") {
     Ok(yay.NodeSeq(items)) ->
-      list.try_map(items, fn(item) {
-        parse_parameter(item, components, index)
-      })
+      list.try_map(items, fn(item) { parse_parameter(item, components, index) })
     _ -> Ok([])
   }
 }
@@ -589,11 +587,7 @@ fn parse_parameter(
           diagnostic.missing_field(
             path: "parameter." <> name,
             field: "in",
-            loc: location_index.lookup_field(
-              index,
-              "parameter." <> name,
-              "in",
-            ),
+            loc: location_index.lookup_field(index, "parameter." <> name, "in"),
           )
         }),
       )
@@ -1062,11 +1056,7 @@ fn parse_parameters_map(
             case yay.extract_optional_string(value_node, "$ref") {
               Ok(Some(ref_str)) -> Ok(dict.insert(acc, name, Ref(ref_str)))
               _ -> {
-                use param <- result.try(parse_parameter(
-                  value_node,
-                  None,
-                  index,
-                ))
+                use param <- result.try(parse_parameter(value_node, None, index))
                 Ok(dict.insert(acc, name, param))
               }
             }
@@ -1546,11 +1536,7 @@ fn parse_discriminator(
       diagnostic.missing_field(
         path: "discriminator",
         field: "propertyName",
-        loc: location_index.lookup_field(
-          index,
-          "discriminator",
-          "propertyName",
-        ),
+        loc: location_index.lookup_field(index, "discriminator", "propertyName"),
       )
     }),
   )
