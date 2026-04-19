@@ -4,7 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
-import oaspec/openapi/diagnostic.{type Diagnostic}
+import oaspec/openapi/diagnostic.{type Diagnostic, NoSourceLoc}
 import oaspec/openapi/spec.{
   type Callback, type Components, type OpenApiSpec, type Operation,
   type Parameter, type PathItem, type RefOr, type RequestBody, type Resolved,
@@ -158,6 +158,7 @@ fn resolve_alias(
         hint: Some(
           "Check that component $ref chains don't form a cycle. Each $ref must eventually point to a concrete definition.",
         ),
+        loc: NoSourceLoc,
       ))
     False -> {
       let new_seen = set.insert(seen, ref)
@@ -176,6 +177,7 @@ fn resolve_alias(
             hint: Some(
               "Verify the target component exists and the $ref path is spelled correctly.",
             ),
+            loc: NoSourceLoc,
           ))
       }
     }
@@ -210,6 +212,7 @@ fn validate_ref_kind(
         hint: Some(
           "Use the correct $ref prefix for the component type (e.g., #/components/schemas/ for schemas).",
         ),
+        loc: NoSourceLoc,
       ))
   }
 }
@@ -269,6 +272,7 @@ fn resolve_path_item_ref(
                 hint: Some(
                   "Verify the referenced component exists and the $ref path is spelled correctly.",
                 ),
+                loc: NoSourceLoc,
               ))
           }
         }
@@ -282,6 +286,7 @@ fn resolve_path_item_ref(
         hint: Some(
           "Verify the referenced component exists and the $ref path is spelled correctly.",
         ),
+        loc: NoSourceLoc,
       ))
     Error(_) ->
       Error(diagnostic.resolve_error(
@@ -292,6 +297,7 @@ fn resolve_path_item_ref(
         hint: Some(
           "Verify the referenced component exists and the $ref path is spelled correctly.",
         ),
+        loc: NoSourceLoc,
       ))
   }
 }
@@ -434,6 +440,7 @@ fn resolve_param_ref(
               <> ref_str
               <> " — target not found in components.parameters",
             hint: Some("Verify the parameter exists in components.parameters."),
+            loc: NoSourceLoc,
           ))
       }
     }
@@ -465,6 +472,7 @@ fn resolve_request_body_ref(
             hint: Some(
               "Verify the request body exists in components.requestBodies.",
             ),
+            loc: NoSourceLoc,
           ))
       }
     }
@@ -494,6 +502,7 @@ fn resolve_response_ref(
               <> ref_str
               <> " — target not found in components.responses",
             hint: Some("Verify the response exists in components.responses."),
+            loc: NoSourceLoc,
           ))
       }
     }

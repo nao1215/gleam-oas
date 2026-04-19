@@ -77,27 +77,35 @@ pub fn yaml_error(detail detail: String, loc loc: SourceLoc) -> Diagnostic {
   )
 }
 
-pub fn missing_field(path path: String, field field: String) -> Diagnostic {
+pub fn missing_field(
+  path path: String,
+  field field: String,
+  loc loc: SourceLoc,
+) -> Diagnostic {
   Diagnostic(
     code: "missing_field",
     phase: PhaseParse,
     severity: SeverityError,
     target: TargetBoth,
     pointer: path,
-    source_loc: NoSourceLoc,
+    source_loc: loc,
     message: "Missing required field: " <> field,
     hint: Some("Check your OpenAPI spec structure."),
   )
 }
 
-pub fn invalid_value(path path: String, detail detail: String) -> Diagnostic {
+pub fn invalid_value(
+  path path: String,
+  detail detail: String,
+  loc loc: SourceLoc,
+) -> Diagnostic {
   Diagnostic(
     code: "invalid_value",
     phase: PhaseParse,
     severity: SeverityError,
     target: TargetBoth,
     pointer: path,
-    source_loc: NoSourceLoc,
+    source_loc: loc,
     message: detail,
     hint: None,
   )
@@ -111,6 +119,7 @@ pub fn resolve_error(
   path path: String,
   detail detail: String,
   hint hint: Option(String),
+  loc loc: SourceLoc,
 ) -> Diagnostic {
   Diagnostic(
     code: "resolve_error",
@@ -118,7 +127,7 @@ pub fn resolve_error(
     severity: SeverityError,
     target: TargetBoth,
     pointer: path,
-    source_loc: NoSourceLoc,
+    source_loc: loc,
     message: detail,
     hint: hint,
   )
