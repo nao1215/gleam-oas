@@ -149,6 +149,7 @@ Generated server code is written to `<dir>/<package>`. Generated client code is 
 | `input` | yes | - | Path to an OpenAPI 3.x spec in YAML or JSON |
 | `package` | no | `api` | Gleam module namespace prefix |
 | `mode` | no | `both` | `server`, `client`, or `both` |
+| `validate` | no | `false` | Enable guard validation in generated server/client code |
 | `output.dir` | no | `./gen` | Base output directory |
 | `output.server` | no | `<dir>/<package>` | Server output path |
 | `output.client` | no | `<dir>_client/<package>` | Client output path |
@@ -170,6 +171,7 @@ Generated server code is written to `<dir>/<package>`. Generated client code is 
 | `--output=<path>` | - | Override output base directory |
 | `--check` | `false` | Check that generated code matches existing files without writing |
 | `--fail-on-warnings` | `false` | Treat warnings as errors |
+| `--validate` | `false` | Enable guard validation in generated server/client code |
 
 ### CLI options for `validate`
 
@@ -185,6 +187,20 @@ Check a spec for unsupported patterns without generating code:
 ```sh
 oaspec validate --config=oaspec.yaml
 ```
+
+### Guard validation
+
+By default, generated code does not validate request bodies at runtime. Enable `validate` in the config file or pass `--validate` to `generate` to add schema-constraint checks:
+
+```yaml
+validate: true
+```
+
+```sh
+oaspec generate --config=oaspec.yaml --validate
+```
+
+When enabled, generated routers validate request bodies against schema constraints and return 422 on failure. Generated clients validate request bodies before sending.
 
 ### CI integration
 
