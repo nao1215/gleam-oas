@@ -304,12 +304,13 @@ import oaspec/generate
 import oaspec/openapi/parser
 
 let assert Ok(spec) = parser.parse_file("openapi.yaml")
-let cfg = config.Config(
+let cfg = config.new(
   input: "openapi.yaml",
   output_server: "./gen/my_api",
   output_client: "./gen_client/my_api",
   package: "my_api",
   mode: config.Both,
+  validate: False,
 )
 
 case generate.generate(spec, cfg) {

@@ -64,5 +64,8 @@ jobs:
         run: |
           cd examples/server_adapter && gleam deps download && gleam build --warnings-as-errors && gleam run
 
+      - name: README library examples compile check
+        run: bash scripts/check_readme_examples.sh
+
       - name: Check version and count sync
         run: bash scripts/check_sync.sh
