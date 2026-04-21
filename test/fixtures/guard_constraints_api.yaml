@@ -1,0 +1,65 @@
+openapi: "3.0.3"
+info:
+  title: Guard Constraints API
+  description: |
+    Fixture that concentrates constraint validation cases so the
+    integration test can exercise every guard-emitting family. Each
+    schema in components deliberately carries a distinct constraint
+    type so the generated guards.gleam has runtime-testable functions
+    for numeric, string, array, and object validators.
+  version: "1.0.0"
+paths:
+  /items:
+    post:
+      operationId: createItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Item"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+components:
+  schemas:
+    Item:
+      type: object
+      required:
+        - name
+        - quantity
+        - tags
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 20
+        slug:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        price:
+          type: integer
+          exclusiveMinimum: 0
+          exclusiveMaximum: 10000
+        weight:
+          type: number
+          minimum: 0.1
+          maximum: 99.9
+        batch_size:
+          type: integer
+          multipleOf: 5
+        tags:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true

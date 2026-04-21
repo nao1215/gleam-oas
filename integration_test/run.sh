@@ -833,4 +833,344 @@ rm -rf "$KW_CLIENT_DIR"
 
 info "Reserved-keyword integration tests passed."
 
+# -------------------------------------------------------
+# Step 15: Exercise generated guards end-to-end against invalid input
+# -------------------------------------------------------
+# Compile the guard_constraints_api spec and call every emitted guard
+# function directly with both valid and invalid values. This protects
+# against regressions in guards.gleam that would otherwise only surface
+# when a user enables `validate: true` on a spec with constraints.
+info "Testing generated guards end-to-end (reject invalid data)..."
+
+GUARD_DIR="$SCRIPT_DIR/guard_constraints_test"
+rm -rf "$GUARD_DIR"
+mkdir -p "$GUARD_DIR/src" "$GUARD_DIR/test"
+
+cat > "$GUARD_DIR/oaspec-guard.yaml" << 'YAML_EOF'
+input: test/fixtures/guard_constraints_api.yaml
+output:
+  server: ./integration_test/guard_constraints_test/src/api
+package: api
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$GUARD_DIR/oaspec-guard.yaml" \
+  --mode=server
+
+# Replace panic stubs so server code compiles.
+cat > "$GUARD_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
+import api/request_types
+import api/response_types
+
+pub fn create_item(req: request_types.CreateItemRequest) -> response_types.CreateItemResponse {
+  let _ = req
+  response_types.CreateItemResponseCreated(req.body)
+}
+GLEAM_EOF
+
+cat > "$GUARD_DIR/gleam.toml" << 'TOML_EOF'
+name = "guard_constraints_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_regexp = ">= 1.0.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$GUARD_DIR/src/guard_constraints_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cat > "$GUARD_DIR/test/guard_constraints_test_test.gleam" << 'GLEAM_EOF'
+// E2E tests for generated guard functions. Each constraint family
+// (string length, string pattern, integer range, exclusive range,
+// multipleOf, float range, array length, array uniqueness, and the
+// composite schema validator) is exercised with both a valid and an
+// invalid value so a regression in any single branch fails this suite.
+
+import api/guards
+import api/types
+import gleam/dict
+import gleam/option.{None, Some}
+import gleeunit
+import gleeunit/should
+
+pub fn main() {
+  gleeunit.main()
+}
+
+// --- string length ---------------------------------------------------
+
+pub fn name_length_valid_test() {
+  guards.validate_item_name_length("acme")
+  |> should.equal(Ok("acme"))
+}
+
+pub fn name_length_too_short_test() {
+  guards.validate_item_name_length("ab")
+  |> should.be_error
+}
+
+pub fn name_length_too_long_test() {
+  guards.validate_item_name_length("xxxxxxxxxxxxxxxxxxxxxx")
+  |> should.be_error
+}
+
+// --- string pattern --------------------------------------------------
+
+pub fn slug_pattern_valid_test() {
+  guards.validate_item_slug_pattern("good_slug1")
+  |> should.equal(Ok("good_slug1"))
+}
+
+pub fn slug_pattern_invalid_test() {
+  guards.validate_item_slug_pattern("Bad Slug")
+  |> should.be_error
+}
+
+// --- integer range ---------------------------------------------------
+
+pub fn quantity_range_valid_test() {
+  guards.validate_item_quantity_range(50)
+  |> should.equal(Ok(50))
+}
+
+pub fn quantity_range_below_minimum_test() {
+  guards.validate_item_quantity_range(0)
+  |> should.be_error
+}
+
+pub fn quantity_range_above_maximum_test() {
+  guards.validate_item_quantity_range(1001)
+  |> should.be_error
+}
+
+// --- integer exclusive range ----------------------------------------
+
+pub fn price_exclusive_valid_test() {
+  guards.validate_item_price_exclusive_range(5000)
+  |> should.equal(Ok(5000))
+}
+
+pub fn price_exclusive_at_lower_bound_test() {
+  guards.validate_item_price_exclusive_range(0)
+  |> should.be_error
+}
+
+pub fn price_exclusive_at_upper_bound_test() {
+  guards.validate_item_price_exclusive_range(10_000)
+  |> should.be_error
+}
+
+// --- integer multipleOf ---------------------------------------------
+
+pub fn batch_size_multiple_of_valid_test() {
+  guards.validate_item_batch_size_multiple_of(25)
+  |> should.equal(Ok(25))
+}
+
+pub fn batch_size_multiple_of_invalid_test() {
+  guards.validate_item_batch_size_multiple_of(7)
+  |> should.be_error
+}
+
+// --- float range -----------------------------------------------------
+
+pub fn weight_range_valid_test() {
+  guards.validate_item_weight_range(50.0)
+  |> should.equal(Ok(50.0))
+}
+
+pub fn weight_range_below_minimum_test() {
+  guards.validate_item_weight_range(0.05)
+  |> should.be_error
+}
+
+pub fn weight_range_above_maximum_test() {
+  guards.validate_item_weight_range(100.0)
+  |> should.be_error
+}
+
+// --- array length ----------------------------------------------------
+
+pub fn tags_length_valid_test() {
+  guards.validate_item_tags_length(["a", "b"])
+  |> should.equal(Ok(["a", "b"]))
+}
+
+pub fn tags_length_empty_test() {
+  guards.validate_item_tags_length([])
+  |> should.be_error
+}
+
+pub fn tags_length_too_long_test() {
+  guards.validate_item_tags_length(["a", "b", "c", "d", "e", "f"])
+  |> should.be_error
+}
+
+// --- array uniqueness -----------------------------------------------
+
+pub fn tags_unique_valid_test() {
+  guards.validate_item_tags_unique(["a", "b"])
+  |> should.equal(Ok(["a", "b"]))
+}
+
+pub fn tags_unique_duplicate_test() {
+  guards.validate_item_tags_unique(["a", "a"])
+  |> should.be_error
+}
+
+// --- composite validator --------------------------------------------
+
+fn valid_item() -> types.Item {
+  types.Item(
+    name: "acme",
+    slug: Some("good_slug"),
+    quantity: 10,
+    price: Some(500),
+    weight: Some(5.0),
+    batch_size: Some(10),
+    tags: ["a", "b"],
+    additional_properties: dict.new(),
+  )
+}
+
+pub fn composite_valid_test() {
+  let item = valid_item()
+  guards.validate_item(item)
+  |> should.equal(Ok(item))
+}
+
+pub fn composite_collects_multiple_errors_test() {
+  let item =
+    types.Item(
+      name: "ab",
+      slug: Some("Bad"),
+      quantity: 0,
+      price: Some(0),
+      weight: Some(1000.0),
+      batch_size: Some(7),
+      tags: [],
+      additional_properties: dict.new(),
+    )
+  let result = guards.validate_item(item)
+  case result {
+    Error(errors) -> {
+      should.be_true(case errors {
+        [] -> False
+        _ -> True
+      })
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
+// --- opt-in: default (validate omitted) does NOT embed guard calls --
+
+// Sanity: the omitted-validate router we compile for this step must
+// NOT carry `guards.validate_item(` in its body — that pattern only
+// appears when validate:true is set. We assert that by reading the
+// generated router.gleam below from run.sh, not from inside gleeunit.
+GLEAM_EOF
+
+cd "$GUARD_DIR"
+gleam deps download
+
+if gleam test 2>&1; then
+  info "PASS: Generated guards reject invalid data end-to-end."
+else
+  fail "Generated guard E2E tests failed."
+fi
+
+# Confirm the default (validate omitted => false) path does NOT emit
+# guard calls into router.gleam. This locks the opt-in semantics.
+if grep -q "guards.validate_item(" "$GUARD_DIR/src/api/router.gleam"; then
+  fail "Default router.gleam unexpectedly calls guards.validate_item — opt-in semantics broken."
+else
+  info "PASS: Default (validate unset) router.gleam does not embed guard calls."
+fi
+
+rm -rf "$GUARD_DIR"
+
+# -------------------------------------------------------
+# Step 16: Verify validate:true wires guard calls into generated code
+# -------------------------------------------------------
+info "Testing validate:true wiring (opt-in guard invocation)..."
+
+GUARD_V_DIR="$SCRIPT_DIR/guard_validate_on_test"
+rm -rf "$GUARD_V_DIR"
+mkdir -p "$GUARD_V_DIR/src"
+
+cat > "$GUARD_V_DIR/oaspec-guard-v.yaml" << 'YAML_EOF'
+input: test/fixtures/guard_constraints_api.yaml
+output:
+  server: ./integration_test/guard_validate_on_test/src/api
+package: api
+validate: true
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$GUARD_V_DIR/oaspec-guard-v.yaml" \
+  --mode=server
+
+cat > "$GUARD_V_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
+import api/request_types
+import api/response_types
+
+pub fn create_item(req: request_types.CreateItemRequest) -> response_types.CreateItemResponse {
+  let _ = req
+  response_types.CreateItemResponseCreated(req.body)
+}
+GLEAM_EOF
+
+cat > "$GUARD_V_DIR/gleam.toml" << 'TOML_EOF'
+name = "guard_validate_on_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_regexp = ">= 1.0.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$GUARD_V_DIR/src/guard_validate_on_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cd "$GUARD_V_DIR"
+gleam deps download
+
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: validate:true code compiles (warnings-as-errors)."
+else
+  fail "validate:true code failed to compile."
+fi
+
+if grep -q "guards.validate_item(" "$GUARD_V_DIR/src/api/router.gleam"; then
+  info "PASS: validate:true router.gleam embeds guards.validate_item."
+else
+  fail "validate:true router.gleam is missing expected guards.validate_item call."
+fi
+
+rm -rf "$GUARD_V_DIR"
+
+info "Guard constraint integration tests passed."
+
 info "All integration tests passed!"
