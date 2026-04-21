@@ -1,0 +1,97 @@
+openapi: "3.0.3"
+info:
+  title: Reserved Keywords API
+  description: |
+    Fixture that intentionally uses Gleam reserved keywords in every
+    identifier context emitted by the code generator. If any call site
+    skips naming.escape_keyword(), the generated code will fail to
+    compile and this fixture's integration test will catch it.
+  version: "1.0.0"
+paths:
+  /let:
+    get:
+      operationId: let
+      summary: operationId uses a reserved keyword
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordFields"
+  /type:
+    get:
+      operationId: type
+      summary: operationId uses a reserved keyword
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordFields"
+  /case:
+    get:
+      operationId: case
+      summary: operationId uses a reserved keyword
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordFields"
+  /use:
+    get:
+      operationId: use
+      summary: operationId uses a reserved keyword and has keyword parameters
+      parameters:
+        - name: use
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: fn
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordFields"
+  /fn:
+    get:
+      operationId: fn
+      summary: operationId uses a reserved keyword
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordFields"
+components:
+  schemas:
+    KeywordFields:
+      description: |
+        Every property name here is a Gleam reserved keyword. Record
+        field emission must suffix each with `_` to stay valid Gleam.
+      type: object
+      required:
+        - type
+        - let
+        - case
+        - import
+      properties:
+        type:
+          type: string
+        let:
+          type: string
+        case:
+          type: string
+        import:
+          type: string
