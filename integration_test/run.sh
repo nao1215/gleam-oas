@@ -727,4 +727,110 @@ rm -rf "$DEEP_DIR"
 
 info "DeepObject params integration tests passed."
 
+# -------------------------------------------------------
+# Step 14: Generate reserved-keyword spec and verify it compiles
+# -------------------------------------------------------
+# Guards the escape pipeline in src/oaspec/util/naming.gleam against
+# regressions: if any codegen site forgets to call escape_keyword for a
+# record field, operationId-derived function, or parameter name, the
+# emitted Gleam will fail to parse and this step will fail.
+info "Testing reserved-keyword spec code generation (server + client)..."
+
+KW_SERVER_DIR="$SCRIPT_DIR/reserved_keywords_server_test"
+rm -rf "$KW_SERVER_DIR"
+mkdir -p "$KW_SERVER_DIR/src"
+
+cat > "$KW_SERVER_DIR/oaspec-kw-server.yaml" << 'YAML_EOF'
+input: test/fixtures/reserved_keywords.yaml
+output:
+  server: ./integration_test/reserved_keywords_server_test/src/api
+package: api
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$KW_SERVER_DIR/oaspec-kw-server.yaml" \
+  --mode=server
+
+cat > "$KW_SERVER_DIR/gleam.toml" << 'TOML_EOF'
+name = "reserved_keywords_server_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$KW_SERVER_DIR/src/reserved_keywords_server_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cd "$KW_SERVER_DIR"
+gleam deps download
+
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: Generated reserved-keyword server code compiles (warnings-as-errors)."
+else
+  fail "Generated reserved-keyword server code failed to compile."
+fi
+
+rm -rf "$KW_SERVER_DIR"
+
+KW_CLIENT_DIR="$SCRIPT_DIR/reserved_keywords_client_test"
+rm -rf "$KW_CLIENT_DIR"
+mkdir -p "$KW_CLIENT_DIR/src"
+
+cat > "$KW_CLIENT_DIR/oaspec-kw-client.yaml" << 'YAML_EOF'
+input: test/fixtures/reserved_keywords.yaml
+output:
+  client: ./integration_test/reserved_keywords_client_test/src/api
+package: api
+YAML_EOF
+
+cd "$PROJECT_ROOT"
+
+gleam run -- generate \
+  --config="$KW_CLIENT_DIR/oaspec-kw-client.yaml" \
+  --mode=client
+
+cat > "$KW_CLIENT_DIR/gleam.toml" << 'TOML_EOF'
+name = "reserved_keywords_client_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_http = ">= 4.0.0 and < 5.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+TOML_EOF
+
+cat > "$KW_CLIENT_DIR/src/reserved_keywords_client_test.gleam" << 'GLEAM_EOF'
+pub fn main() {
+  Nil
+}
+GLEAM_EOF
+
+cd "$KW_CLIENT_DIR"
+gleam deps download
+
+if gleam build --warnings-as-errors 2>&1; then
+  info "PASS: Generated reserved-keyword client code compiles (warnings-as-errors)."
+else
+  fail "Generated reserved-keyword client code failed to compile."
+fi
+
+rm -rf "$KW_CLIENT_DIR"
+
+info "Reserved-keyword integration tests passed."
+
 info "All integration tests passed!"
