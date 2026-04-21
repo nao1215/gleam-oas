@@ -69,20 +69,14 @@ pub fn naming_operation_to_function_name_mixed_case_keyword_escaped_test() {
 // refactor cannot silently start over-escaping type names.
 
 pub fn naming_schema_to_type_name_keyword_becomes_pascal_test() {
+  // Every keyword is a single lowercase word, so the expected PascalCase
+  // is just the keyword with its first character capitalized. Asserting
+  // exact equality (rather than "not empty / not the escape suffix")
+  // catches silent regressions where the pipeline starts mangling type
+  // names — e.g. accidentally emitting `Type_` or `TYPE`.
   list.each(gleam_keywords, fn(kw) {
-    let result = naming.schema_to_type_name(kw)
-    // Type names must not carry the escape suffix.
-    should.be_false(result == kw <> "_")
-    // And they must start with an uppercase letter.
-    should.be_true(result != "" && result != kw)
+    let expected = naming.capitalize(kw)
+    naming.schema_to_type_name(kw)
+    |> should.equal(expected)
   })
-}
-
-pub fn naming_schema_to_type_name_known_cases_test() {
-  naming.schema_to_type_name("type")
-  |> should.equal("Type")
-  naming.schema_to_type_name("case")
-  |> should.equal("Case")
-  naming.schema_to_type_name("import")
-  |> should.equal("Import")
 }
