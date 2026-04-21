@@ -13,7 +13,16 @@ Generate usable Gleam code from OpenAPI 3.x specifications.
 - Handle real-world OpenAPI patterns: unions, nullable fields, `additionalProperties`, form bodies, multipart, and security
 - Backed by 677 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 221 test fixtures (including 94 OSS-derived edge-case specs)
 
-## Why oaspec
+## Why oaspec?
+
+**oaspec is the OpenAPI code generator built for Gleam.** Generated code
+is regular Gleam: no templates, no runtime magic, type-safe end to end.
+
+|                                                           | `oaspec` | Generic multi-language generators (e.g. openapi-generator) | Single-language generators for other targets (e.g. oapi-codegen for Go) |
+|-----------------------------------------------------------|:--------:|:----------------------------------------------------------:|:----------------------------------------------------------------------:|
+| First-class Gleam output                                  |    Yes   |                             No                             |                                   No                                   |
+| Idiomatic types, decoders, encoders, and request/response records |    Yes   |                 Templated, not always idiomatic            |                           Language-specific                           |
+| Refuses to emit broken code on unsupported spec patterns  |    Yes   |                          Sometimes                         |                                Partial                                 |
 
 - Built for Gleam: the generated code is shaped like normal Gleam modules, not generic templates awkwardly translated from another ecosystem.
 - Focused on practical OpenAPI: coverage is strongest around the features teams actually ship with, not just toy Petstore specs.
