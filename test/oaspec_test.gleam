@@ -4036,9 +4036,12 @@ components:
   let spec = hoist.hoist(spec)
   let ctx = make_ctx_from_spec(spec)
   let files = list.append(decoders.generate(ctx), encoders.generate(ctx))
-  let assert [decode_file, _encode_file] = files
+  let assert [decode_file, encode_file] = files
   // Must generate tag_list_decoder() function
   string.contains(decode_file.content, "tag_list_decoder")
+  |> should.be_true()
+  // Must generate the matching encoder function for the array alias
+  string.contains(encode_file.content, "encode_tag_list")
   |> should.be_true()
 }
 
