@@ -227,10 +227,67 @@ paths: {}
   string.contains(detail, "4.0.0") |> should.be_true()
 }
 
-pub fn parse_rejects_bare_openapi_3_test() {
+pub fn parse_rejects_openapi_3_2_0_test() {
+  // An as-yet-unreleased 3.2 must not sneak through a "starts with 3"
+  // check. oaspec only supports 3.0.x and 3.1.x.
   let yaml =
     "
-openapi: \"3\"
+openapi: 3.2.0
+info:
+  title: Future Minor API
+  version: 1.0.0
+paths: {}
+"
+  let result = parser.parse_string(yaml)
+  should.be_error(result)
+  let assert Error(Diagnostic(
+    code: "invalid_value",
+    pointer: "openapi",
+    message: detail,
+    ..,
+  )) = result
+  string.contains(detail, "Unsupported OpenAPI version") |> should.be_true()
+  string.contains(detail, "3.2.0") |> should.be_true()
+}
+
+pub fn parse_rejects_malformed_patch_segment_test() {
+  // A non-numeric patch must be rejected — if we let `3.0.foo` through,
+  // the "exact accepted range" promise stops being exact.
+  let yaml =
+    "
+openapi: 3.0.foo
+info:
+  title: Garbage Patch API
+  version: 1.0.0
+paths: {}
+"
+  let result = parser.parse_string(yaml)
+  should.be_error(result)
+  let assert Error(Diagnostic(code: "invalid_value", ..)) = result
+}
+
+pub fn parse_rejects_openapi_with_extra_segment_test() {
+  // More than three segments is not a valid SemVer-ish form.
+  let yaml =
+    "
+openapi: 3.0.0.1
+info:
+  title: Over-Segmented API
+  version: 1.0.0
+paths: {}
+"
+  let result = parser.parse_string(yaml)
+  should.be_error(result)
+  let assert Error(Diagnostic(code: "invalid_value", ..)) = result
+}
+
+pub fn parse_rejects_bare_openapi_3_test() {
+  // YAML-integer `openapi: 3` should also be rejected (the parser
+  // stringifies it to "3"), since oaspec cannot infer whether this is
+  // 3.0.x or 3.1.x.
+  let yaml =
+    "
+openapi: 3
 info:
   title: Ambiguous API
   version: 1.0.0

@@ -169,8 +169,15 @@ fn validate_openapi_version(
 
 fn is_supported_openapi_version(version: String) -> Bool {
   case string.split(version, ".") {
-    ["3", "0", _, ..] | ["3", "1", _, ..] -> True
-    // A two-segment "3.0" / "3.1" is tolerated: float-parsed YAML numbers
+    // Three-segment form: major.minor.patch. The patch must be a
+    // non-negative integer — `3.0.foo`, `3.0.-1`, and `3.0.0.1` must all
+    // fail so the "exact accepted range" guarantee holds.
+    ["3", "0", patch] | ["3", "1", patch] ->
+      case int.parse(patch) {
+        Ok(n) if n >= 0 -> True
+        _ -> False
+      }
+    // Two-segment "3.0" / "3.1" is tolerated: float-parsed YAML numbers
     // like `openapi: 3.0` arrive as "3.0" after normalization.
     ["3", "0"] | ["3", "1"] -> True
     _ -> False
