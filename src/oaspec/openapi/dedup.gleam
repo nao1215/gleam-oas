@@ -236,6 +236,28 @@ pub fn dedup_property_names(prop_names: List(String)) -> List(String) {
   deduplicate_strings(snake_names)
 }
 
+/// Given the parameters of a single operation, return a parallel list of
+/// deduped snake_case Gleam field names. Parameters whose wire names map to
+/// the same snake_case field (e.g. `id` in path AND `id` in query) get the
+/// same `_2`/`_3` suffix treatment used for property names. The reserved
+/// label `body` is taken first so a parameter literally named `body` is
+/// renamed instead of clashing with the request type's body field.
+///
+/// The function is order-sensitive: the first occurrence keeps its base
+/// snake_case form, later occurrences get the suffix. Pass the parameters
+/// in the same order the spec lists them so type emission, server dispatch,
+/// and client builder agree on the final field name.
+pub fn dedup_param_field_names(
+  params: List(spec.Parameter(stage)),
+) -> List(String) {
+  let snake_names = list.map(params, fn(p) { naming.to_snake_case(p.name) })
+  let with_body_reserved = ["body", ..snake_names]
+  case deduplicate_strings(with_body_reserved) {
+    [_body, ..rest] -> rest
+    _ -> []
+  }
+}
+
 /// Given a list of original enum values (JSON wire values), return a list
 /// of deduped PascalCase Gleam variant suffixes. The returned list is
 /// parallel to the input.

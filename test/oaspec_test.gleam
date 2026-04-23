@@ -827,6 +827,79 @@ pub fn dedup_resolves_duplicate_operation_id_test() {
   |> should.be_false()
 }
 
+pub fn dedup_resolves_request_param_field_name_collision_test() {
+  // Regression for issue #236: two parameters that collapse to the same
+  // snake_case field name (e.g. path `id` and query `id` on the same op)
+  // must be renamed so the generated request type compiles.
+  let ctx = make_ctx("test/fixtures/collision.yaml")
+
+  let type_files = types.generate(ctx)
+  let assert Ok(request_types_file) =
+    list.find(type_files, fn(f) {
+      string.contains(f.path, "request_types.gleam")
+    })
+
+  // The record body must not have two fields sharing a label.
+  string.contains(request_types_file.content, "id: String, id: Option")
+  |> should.be_false()
+  string.contains(request_types_file.content, "id: String, id_2: Option")
+  |> should.be_true()
+
+  // The server and client must agree with the renamed field, otherwise
+  // construction of the request record would fail to compile.
+  let server_files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(server_files, fn(f) { string.contains(f.path, "router.gleam") })
+  string.contains(router_file.content, "id: id, id_2:")
+  |> should.be_true()
+
+  let client_files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(client_files, fn(f) { string.contains(f.path, "client.gleam") })
+  string.contains(client_file.content, "req.id_2") |> should.be_true()
+}
+
+pub fn dedup_param_field_names_reserves_body_label_test() {
+  // A parameter literally named `body` must not collide with the
+  // request type's `body` field (used for request bodies).
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Body Collision
+  version: 1.0.0
+paths:
+  /items:
+    post:
+      operationId: createItem
+      parameters:
+        - name: body
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string } } }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+
+  let type_files = types.generate(ctx)
+  let assert Ok(request_types_file) =
+    list.find(type_files, fn(f) {
+      string.contains(f.path, "request_types.gleam")
+    })
+
+  // Exactly one `body: ` field (the request body). The `body` query
+  // parameter must have been renamed to `body_2`.
+  string.contains(request_types_file.content, "body_2: Option(String)")
+  |> should.be_true()
+}
+
 pub fn validate_accepts_typed_additional_properties_test() {
   let yaml =
     "

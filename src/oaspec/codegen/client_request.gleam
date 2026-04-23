@@ -1,3 +1,4 @@
+import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -5,11 +6,55 @@ import oaspec/codegen/context.{type Context}
 import oaspec/codegen/ir_build
 import oaspec/codegen/operation_ir
 import oaspec/codegen/schema_dispatch
+import oaspec/openapi/dedup
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{Inline, Reference}
 import oaspec/openapi/spec.{type Resolved, ParameterSchema, Value}
 import oaspec/util/naming
 import oaspec/util/string_extra as se
+
+/// Map from a parameter's `(wire name, location)` pair to its deduped Gleam
+/// field name within an operation. Used to keep type emission, server
+/// dispatch, and client builders in sync when two parameters in different
+/// locations would otherwise collide on the same snake_case field.
+pub type ParamFieldNames =
+  Dict(#(String, spec.ParameterIn), String)
+
+/// Build a `(name, in)` → deduped-field-name map for a single operation.
+/// The dedup order matches the spec's parameter order, so all codegen
+/// callers that use this map agree on the final field names.
+pub fn build_param_field_names(
+  operation: spec.Operation(Resolved),
+) -> ParamFieldNames {
+  let resolved =
+    list.filter_map(operation.parameters, fn(r) {
+      case r {
+        Value(p) -> Ok(p)
+        _ -> Error(Nil)
+      }
+    })
+  let deduped = dedup.dedup_param_field_names(resolved)
+  list.zip(resolved, deduped)
+  |> list.fold(dict.new(), fn(acc, pair) {
+    let #(param, name) = pair
+    dict.insert(acc, #(param.name, param.in_), name)
+  })
+}
+
+/// Look up the deduped field name for a parameter. The map is built from
+/// the same operation the caller iterates, so the lookup always hits —
+/// the fallback is just a safety net that keeps the output valid Gleam
+/// if a caller ever passes a mismatched map.
+pub fn field_name_for(
+  map: ParamFieldNames,
+  param: spec.Parameter(Resolved),
+) -> String {
+  case dict.get(map, #(param.name, param.in_)) {
+    Ok(name) -> name
+    // nolint: thrown_away_error -- dict.get's Error just means the map did not carry this parameter; fall back to raw snake_case so codegen still produces a valid (if un-deduped) identifier
+    Error(_) -> naming.to_snake_case(param.name)
+  }
+}
 
 /// Build the call-site argument list for the `_with_request` wrapper that
 /// unpacks a `request_types.*Request` record into the flat client function
@@ -36,8 +81,9 @@ pub fn build_request_object_call_args(
   case list.is_empty(all_params), has_body {
     True, False -> None
     _, _ -> {
+      let field_names = build_param_field_names(operation)
       let param_refs =
-        list.map(all_params, fn(p) { "req." <> naming.to_snake_case(p.name) })
+        list.map(all_params, fn(p) { "req." <> field_name_for(field_names, p) })
       case operation.request_body {
         Some(Value(rb)) -> {
           let content_entries = ir_build.sorted_entries(rb.content)
@@ -66,10 +112,11 @@ pub fn build_param_list(
     list.append(path_params, query_params)
     |> list.append(header_params)
     |> list.append(cookie_params)
+  let field_names = build_param_field_names(operation)
 
   let param_strs =
     list.map(all_params, fn(p) {
-      let param_name = naming.to_snake_case(p.name)
+      let param_name = field_name_for(field_names, p)
       let param_type = param_to_type(p, ctx)
       ", " <> param_name <> ": " <> param_type
     })
