@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-04-23
+
+This release tightens the OpenAPI 3.0/3.1 support boundary: every shape
+that used to succeed parsing but silently lose semantics at codegen now
+fails fast with a dedicated diagnostic, and the two remaining reliability
+gaps (request-type field collisions, external-ref cycles) are fixed.
+
+### Added
+
+- **Callbacks: lossless `$ref` preservation and consistent warnings (#232)**: `Components` gained a `callbacks: Dict(String, RefOr(Callback(stage)))` field and the parser now populates `components.callbacks`. Operation-level `{ myEvent: { $ref: '#/components/callbacks/foo' } }` is kept as `Ref(...)` instead of being silently re-interpreted as an inline URL-expression map. `resolve` walks ref-alias chains (rejecting dangling targets and cycles), and `capability_check` emits `Warning` diagnostics for both operation-level and component-level callbacks so `validate` on callback-heavy specs no longer prints a bare `Validation passed.`
+- **Cyclic external-ref detection (#233)**: `parser.parse_file` threads a visited-file stack through every recursive external-ref load (top-level schemas, nested property / array / composition / parameter / requestBody / response / callback rewrites). Re-entering a file that is already on the stack returns an `invalid_value` diagnostic that shows the full `A → B → A` chain instead of looping forever.
+
+### Changed
+
+- **Reject non-3.x OpenAPI versions (#235)**: the root `openapi` field is now validated up front. Only `3.0.x` and `3.1.x` (plus the two-segment `3.0` / `3.1` forms for YAML-float compatibility) are accepted. Bare `3`, `2.0`, `4.0.0`, and malformed forms like `3.0.foo` / `3.0.0.1` fail with an `invalid_value` diagnostic; previously these all silently produced meaningless output.
+- **Reject duplicate `operationId` (#237)**: the dedup pass no longer rewrites duplicate operationIds to `foo_2` / `foo_3`. `validate` now emits a hard `invalid_value` diagnostic that lists every `METHOD /path` site claiming a colliding name, catching both literal duplicates and case-only collisions (`listItems` and `list_items` both normalize to the same generated `list_items` function).
+- **OpenAPI 3.1 `$id`-backed URL refs are an explicit boundary (#234)**: URL-style `$ref` values (`$ref: https://...`), the shape same-document `$id` refs take, now produce a dedicated `URL-style $ref ... is not supported` diagnostic with a hint to rewrite to a local `#/components/schemas/...` ref. Previously they slipped through parsing and failed validation with a generic external-ref error.
+- **Reject non-string `const` and lossy multi-type schemas (#238)**: `normalize` now flags non-string `const` (bool, int, number, object, array, null) as `const (non-string)` in `unsupported_keywords`, and multi-type schemas (`type: [T1, T2]`) that carry type-specific constraints (`pattern`, `minLength`, `minimum`, etc.) as `type: [T1, T2] with type-specific constraints`. Both are rejected by `capability_check` at generate time so the previous silent `pub type BoolConst = Bool` (const dropped) and silent constraint loss during the multi-type → `oneOf` rewrite never slip into generated code. Unconstrained multi-type schemas still normalize to `oneOf` unchanged.
+
+### Fixed
+
+- **Request-type field names collide when a parameter name is reused across locations (#236)**: the request record generated for an operation with path `id` AND query `id` would emit `GetUserRequest(id: String, id: Option(String))` and fail `gleam check` with "Duplicate label `id`". Parameter field names are now deduped with the same `_2` / `_3` suffix rule used for property names, and the dedup is collision-aware so a later literal `foo_2` keeps its label while an earlier duplicate `foo` advances to `foo_3`. Server dispatch, request-type declarations, and client builders all agree on the renamed field, and the `body` label is reserved up front so a parameter literally named `body` cannot clash with the request type's request-body field.
+
+### Tooling
+
+- **`just` recipes run without requiring `mise activate` (#231)**: every recipe re-sources the `scripts/lib/mise_bootstrap.sh` helper up front so fresh shells pick up the mise-managed Erlang / Gleam / rebar toolchain automatically.
+
+### Test / tooling
+
+- 704 → 729 unit tests (+25 across the eight Issues above).
+- 223 → 229 test fixtures (+6: `collision.yaml` reshaped, `error_duplicate_operation_id.yaml` (existing) now covers rejection, 2 two-file cycle fixtures, 3 three-file cycle fixtures, 1 constrained-multi-type fixture).
+
 ## [0.16.0] - 2026-04-22
 
 ### Added
