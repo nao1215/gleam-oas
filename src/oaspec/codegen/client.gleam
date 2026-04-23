@@ -558,6 +558,7 @@ fn generate_client_function(
       }
     })
 
+  let field_names = client_request.build_param_field_names(operation)
   let path_params =
     list.filter(unwrapped_params, fn(p) {
       case p.in_ {
@@ -689,7 +690,7 @@ fn generate_client_function(
   let sb = sb |> se.indent(1, "let path = \"" <> path <> "\"")
   let sb =
     list.fold(path_params, sb, fn(sb, p) {
-      let param_name = naming.to_snake_case(p.name)
+      let param_name = client_request.field_name_for(field_names, p)
       let to_string_expr =
         client_request.param_to_string_expr(p, param_name, ctx)
       sb
@@ -710,7 +711,7 @@ fn generate_client_function(
       let sb = sb |> se.indent(1, "let query_parts = []")
       let sb =
         list.fold(query_params, sb, fn(sb, p) {
-          let param_name = naming.to_snake_case(p.name)
+          let param_name = client_request.field_name_for(field_names, p)
           // Check for deepObject style with object schema
           case p.style, client_request.is_deep_object_param(p, ctx) {
             Some(spec.DeepObjectStyle), True ->
@@ -893,7 +894,7 @@ fn generate_client_function(
   // Set header parameters
   let sb =
     list.fold(header_params, sb, fn(sb, p) {
-      let param_name = naming.to_snake_case(p.name)
+      let param_name = client_request.field_name_for(field_names, p)
       let header_name = string.lowercase(p.name)
       case p.required {
         True -> {
@@ -933,7 +934,7 @@ fn generate_client_function(
       let sb = sb |> se.indent(1, "let cookie_parts = []")
       let sb =
         list.fold(cookie_params, sb, fn(sb, p) {
-          let param_name = naming.to_snake_case(p.name)
+          let param_name = client_request.field_name_for(field_names, p)
           case p.required {
             True -> {
               let to_str =

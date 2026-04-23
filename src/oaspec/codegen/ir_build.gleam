@@ -109,12 +109,18 @@ fn request_type_decl(
     True -> Error(Nil)
     False -> {
       let type_name = naming.schema_to_type_name(op_id) <> "Request"
-      let param_fields =
+      let resolved_params =
         list.filter_map(params, fn(ref_p) {
           case ref_p {
-            Value(param) -> Ok(request_param_field(param))
+            Value(param) -> Ok(param)
             _ -> Error(Nil)
           }
+        })
+      let deduped_names = dedup.dedup_param_field_names(resolved_params)
+      let param_fields =
+        list.map(list.zip(resolved_params, deduped_names), fn(pair) {
+          let #(param, field_name) = pair
+          request_param_field(param, field_name)
         })
       let body_field = case operation.request_body {
         Some(Value(rb)) -> [request_body_field(rb, op_id, ctx)]
@@ -131,8 +137,10 @@ fn request_type_decl(
   }
 }
 
-fn request_param_field(param: spec.Parameter(Resolved)) -> Field {
-  let field_name = naming.to_snake_case(param.name)
+fn request_param_field(
+  param: spec.Parameter(Resolved),
+  field_name: String,
+) -> Field {
   let field_type = case param.payload {
     spec.ParameterSchema(Inline(StringSchema(..))) -> "String"
     spec.ParameterSchema(Inline(IntegerSchema(..))) -> "Int"

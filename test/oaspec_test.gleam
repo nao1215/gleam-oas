@@ -827,6 +827,130 @@ pub fn dedup_resolves_duplicate_operation_id_test() {
   |> should.be_false()
 }
 
+pub fn dedup_resolves_request_param_field_name_collision_test() {
+  // Regression for issue #236: two parameters that collapse to the same
+  // snake_case field name (e.g. path `id` and query `id` on the same op)
+  // must be renamed so the generated request type compiles.
+  let ctx = make_ctx("test/fixtures/collision.yaml")
+
+  let type_files = types.generate(ctx)
+  let assert Ok(request_types_file) =
+    list.find(type_files, fn(f) {
+      string.contains(f.path, "request_types.gleam")
+    })
+
+  // The request record must not carry two fields sharing a label.
+  string.contains(request_types_file.content, "id: String, id: Option")
+  |> should.be_false()
+  string.contains(request_types_file.content, "id: String, id: String")
+  |> should.be_false()
+  // The renamed second field must appear somewhere in the record.
+  string.contains(request_types_file.content, "id_2:") |> should.be_true()
+
+  // The server must construct the renamed field. The raw (pre-format)
+  // output puts each field on its own line, so check the field assignment
+  // rather than a comma-separated fragment.
+  let server_files = server_gen.generate(ctx)
+  let assert Ok(router_file) =
+    list.find(server_files, fn(f) { string.contains(f.path, "router.gleam") })
+  string.contains(router_file.content, "id_2:") |> should.be_true()
+
+  // The client's _with_request wrapper unpacks the renamed field.
+  let client_files = client_gen.generate(ctx)
+  let assert Ok(client_file) =
+    list.find(client_files, fn(f) { string.contains(f.path, "client.gleam") })
+  string.contains(client_file.content, "req.id_2") |> should.be_true()
+}
+
+pub fn dedup_param_field_names_reserves_body_label_test() {
+  // A parameter literally named `body` must not collide with the
+  // request type's `body` field (used for request bodies).
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Body Collision
+  version: 1.0.0
+paths:
+  /items:
+    post:
+      operationId: createItem
+      parameters:
+        - name: body
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string } } }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+
+  let type_files = types.generate(ctx)
+  let assert Ok(request_types_file) =
+    list.find(type_files, fn(f) {
+      string.contains(f.path, "request_types.gleam")
+    })
+
+  // Exactly one `body: ` field (the request body). The `body` query
+  // parameter must have been renamed to `body_2`.
+  string.contains(request_types_file.content, "body_2: Option(String)")
+  |> should.be_true()
+}
+
+pub fn dedup_param_field_names_skips_existing_suffix_test() {
+  // Regression: when a later parameter literally matches a suffix the
+  // deduper would otherwise generate (e.g. wire names `body`, `body`,
+  // `body_2`), the deduper must pick the next free suffix (`body_3`)
+  // rather than minting a second `body_2`.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Suffix Collision
+  version: 1.0.0
+paths:
+  /items:
+    post:
+      operationId: createItem
+      parameters:
+        - name: body
+          in: query
+          required: false
+          schema: { type: string }
+        - name: body_2
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string } } }
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+
+  let type_files = types.generate(ctx)
+  let assert Ok(request_types_file) =
+    list.find(type_files, fn(f) {
+      string.contains(f.path, "request_types.gleam")
+    })
+
+  // The reserved `body` (request body) is kept, the query `body` is
+  // renamed to `body_3` (since `body_2` is already a real wire name),
+  // and the header `body_2` keeps its original label.
+  string.contains(request_types_file.content, "body_3:") |> should.be_true()
+  string.contains(request_types_file.content, "body_2:") |> should.be_true()
+}
+
 pub fn validate_accepts_typed_additional_properties_test() {
   let yaml =
     "

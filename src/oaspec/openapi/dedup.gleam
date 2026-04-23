@@ -236,6 +236,28 @@ pub fn dedup_property_names(prop_names: List(String)) -> List(String) {
   deduplicate_strings(snake_names)
 }
 
+/// Given the parameters of a single operation, return a parallel list of
+/// deduped snake_case Gleam field names. Parameters whose wire names map to
+/// the same snake_case field (e.g. `id` in path AND `id` in query) get the
+/// same `_2`/`_3` suffix treatment used for property names. The reserved
+/// label `body` is taken first so a parameter literally named `body` is
+/// renamed instead of clashing with the request type's body field.
+///
+/// The function is order-sensitive: the first occurrence keeps its base
+/// snake_case form, later occurrences get the suffix. Pass the parameters
+/// in the same order the spec lists them so type emission, server dispatch,
+/// and client builder agree on the final field name.
+pub fn dedup_param_field_names(
+  params: List(spec.Parameter(stage)),
+) -> List(String) {
+  let snake_names = list.map(params, fn(p) { naming.to_snake_case(p.name) })
+  let with_body_reserved = ["body", ..snake_names]
+  case deduplicate_strings(with_body_reserved) {
+    [_body, ..rest] -> rest
+    _ -> []
+  }
+}
+
 /// Given a list of original enum values (JSON wire values), return a list
 /// of deduped PascalCase Gleam variant suffixes. The returned list is
 /// parallel to the input.
@@ -245,25 +267,43 @@ pub fn dedup_enum_variants(enum_values: List(String)) -> List(String) {
 }
 
 /// Deduplicate a list of strings by appending "_2", "_3", etc. for duplicates.
+/// The chosen suffix skips any name that already appears elsewhere in the
+/// input (so a later literal `foo_2` keeps its label and an earlier
+/// duplicate `foo` advances to `foo_3`) and any suffix this call has
+/// already handed out, so the output has no collisions in either
+/// direction.
 fn deduplicate_strings(names: List(String)) -> List(String) {
+  let input_names =
+    list.fold(names, dict.new(), fn(acc, name) { dict.insert(acc, name, True) })
   let #(result_rev, _) =
     list.fold(names, #([], dict.new()), fn(acc, name) {
-      let #(result, counts) = acc
-      case dict.get(counts, name) {
-        // nolint: thrown_away_error -- dict.get's Error signals absence of key; no diagnostic info to propagate
-        Error(_) -> {
-          let counts = dict.insert(counts, name, 1)
-          #([name, ..result], counts)
-        }
-        Ok(count) -> {
-          let new_count = count + 1
-          let unique_name = name <> "_" <> int.to_string(new_count)
-          let counts = dict.insert(counts, name, new_count)
-          #([unique_name, ..result], counts)
+      let #(result, claimed) = acc
+      case dict.has_key(claimed, name) {
+        False -> #([name, ..result], dict.insert(claimed, name, True))
+        True -> {
+          let unique_name = next_unique_name(name, input_names, claimed, 2)
+          #([unique_name, ..result], dict.insert(claimed, unique_name, True))
         }
       }
     })
   list.reverse(result_rev)
+}
+
+/// Pick the first `base_<n>` suffix that collides neither with another
+/// literal input name nor with a name this call has already minted.
+fn next_unique_name(
+  base: String,
+  input_names: Dict(String, Bool),
+  claimed: Dict(String, Bool),
+  suffix: Int,
+) -> String {
+  let candidate = base <> "_" <> int.to_string(suffix)
+  case
+    dict.has_key(input_names, candidate) || dict.has_key(claimed, candidate)
+  {
+    True -> next_unique_name(base, input_names, claimed, suffix + 1)
+    False -> candidate
+  }
 }
 
 /// Get element at index from a list.

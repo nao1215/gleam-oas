@@ -8,6 +8,7 @@ import oaspec/codegen/guards
 import oaspec/codegen/import_analysis
 import oaspec/codegen/server_request_decode as decode_helpers
 import oaspec/config
+import oaspec/openapi/dedup
 import oaspec/openapi/operations
 import oaspec/openapi/schema.{Inline, Reference}
 import oaspec/openapi/spec.{type Resolved, Value}
@@ -898,6 +899,8 @@ fn generate_safe_request_and_dispatch(
         _ -> Error(Nil)
       }
     })
+  let deduped_field_names = dedup.dedup_param_field_names(params)
+  let params_with_field_names = list.zip(params, deduped_field_names)
 
   // Collect path params that need Result-based parsing (int, float)
   let path_params_needing_parse =
@@ -1019,8 +1022,8 @@ fn generate_safe_request_and_dispatch(
     |> se.indent(3, "let request = request_types." <> request_type_name <> "(")
 
   let sb =
-    list.fold(params, sb, fn(sb, param) {
-      let field_name = naming.to_snake_case(param.name)
+    list.fold(params_with_field_names, sb, fn(sb, entry) {
+      let #(param, field_name) = entry
       let trailing = ","
       let value_expr = case param.in_ {
         spec.InPath -> {
