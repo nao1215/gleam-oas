@@ -58,15 +58,21 @@ fn validate_unique_operation_ids(
 
   // A spec with "listItems" and "list_items" has no literal collision but
   // generates two functions called `list_items/N` — catch that too.
-  let literal_keys = dict.keys(literal)
+  // Skip cases where every site is already covered by a literal-duplicate
+  // diagnostic (same sites, same name), to avoid emitting two diagnostics
+  // for the same root cause.
   let function_errors =
     dict.to_list(by_function)
     |> list.filter_map(fn(entry) {
       let #(fn_name, sites) = entry
-      case sites, list.contains(literal_keys, fn_name) {
-        [_, _, ..], False ->
-          Ok(duplicate_function_name_diagnostic(fn_name, sites))
-        _, _ -> Error(Nil)
+      case sites {
+        [_, _, ..] -> {
+          case dict.get(literal, fn_name) {
+            Ok(literal_sites) if literal_sites == sites -> Error(Nil)
+            _ -> Ok(duplicate_function_name_diagnostic(fn_name, sites))
+          }
+        }
+        _ -> Error(Nil)
       }
     })
 
