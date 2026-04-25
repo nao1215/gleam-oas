@@ -4,7 +4,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AnyOfSchema, Forbidden, Inline,
-  ObjectSchema, OneOfSchema, Reference, Typed, Untyped,
+  ObjectSchema, OneOfSchema, Reference, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type OpenApiSpec, Components, OpenApiSpec}
 import oaspec/util/naming
@@ -69,6 +69,7 @@ fn dedup_schema_object(schema_obj: SchemaObject) -> SchemaObject {
           Typed(ap) -> Typed(dedup_schema_ref(ap))
           Forbidden -> Forbidden
           Untyped -> Untyped
+          Unspecified -> Unspecified
         },
       )
     }

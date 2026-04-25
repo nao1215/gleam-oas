@@ -21,7 +21,7 @@ import oaspec/openapi/operations
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
-  OneOfSchema, Reference, StringSchema, Typed, Untyped,
+  OneOfSchema, Reference, StringSchema, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/content_type
@@ -636,7 +636,10 @@ fn schema_type_decls(
           Field(name: field_name, type_expr: final_type)
         })
 
-      // Add additional_properties field if present
+      // Add additional_properties field only when the spec opted in.
+      // Forbidden (explicit false) and Unspecified (key absent) both
+      // suppress the field; the latter avoids constructor-noise on
+      // closed-object schemas — see Issue #249.
       let fields = case additional_properties {
         Typed(ap_ref) -> {
           let inner_type = schema_ref_to_type(ap_ref, ctx)
@@ -655,7 +658,7 @@ fn schema_type_decls(
             ),
           ])
         }
-        Forbidden -> fields
+        Forbidden | Unspecified -> fields
       }
 
       [

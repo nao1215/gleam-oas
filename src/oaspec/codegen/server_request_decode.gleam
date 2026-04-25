@@ -9,7 +9,7 @@ import oaspec/codegen/operation_ir
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type AdditionalProperties, type SchemaRef, Forbidden, Inline, ObjectSchema,
-  Reference, Untyped,
+  Reference, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/content_type
@@ -454,7 +454,9 @@ fn deep_object_constructor_expr(
     None -> Forbidden
   }
   let fields = case ap_kind {
-    Forbidden -> fields
+    // Forbidden and Unspecified both suppress the generated record's
+    // additional_properties field — see Issue #249.
+    Forbidden | Unspecified -> fields
     Untyped -> {
       let prop_names =
         deep_object_properties(param, ctx)
@@ -468,7 +470,7 @@ fn deep_object_constructor_expr(
         <> "]))"
       list.append(fields, ["additional_properties: " <> expr])
     }
-    _ -> {
+    Typed(_) -> {
       // Typed additional properties need type-specific conversion;
       // use empty dict as fallback until type-aware collection is implemented
       list.append(fields, ["additional_properties: dict.new()"])
@@ -771,8 +773,10 @@ fn form_urlencoded_object_constructor_expr(
     })
     |> string.join(", ")
   let additional_props_suffix = case additional_properties {
-    Forbidden -> ""
-    _ -> ", additional_properties: dict.new()"
+    // Forbidden and Unspecified both mean the generated record has no
+    // additional_properties field — Issue #249.
+    Forbidden | Unspecified -> ""
+    Typed(_) | Untyped -> ", additional_properties: dict.new()"
   }
   type_name <> "(" <> fields <> additional_props_suffix <> ")"
 }
@@ -916,8 +920,10 @@ fn multipart_body_constructor_expr(
   let additional_props_suffix = case
     body_additional_properties(rb, "multipart/form-data", ctx)
   {
-    Forbidden -> ""
-    _ -> ", additional_properties: dict.new()"
+    // Forbidden and Unspecified both mean the generated record has no
+    // additional_properties field — Issue #249.
+    Forbidden | Unspecified -> ""
+    Typed(_) | Untyped -> ", additional_properties: dict.new()"
   }
   multipart_body_type_name(rb, op_id)
   <> "("

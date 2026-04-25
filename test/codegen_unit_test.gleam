@@ -1236,6 +1236,10 @@ paths:
 }
 
 pub fn router_deep_object_includes_additional_properties_field_test() {
+  // Per Issue #249, absent `additionalProperties` is now `Unspecified` and
+  // suppresses the generated record's AP field. To exercise the deepObject
+  // additional-properties collection path we have to opt in explicitly with
+  // `additionalProperties: true`.
   let assert Ok(test_spec) =
     parser.parse_string(
       "
@@ -1255,6 +1259,7 @@ paths:
           required: true
           schema:
             type: object
+            additionalProperties: true
             required:
               - name
             properties:
@@ -1269,8 +1274,6 @@ paths:
   let files = server_gen.generate(ctx)
   let assert Ok(router_file) =
     list.find(files, fn(f) { f.path == "router.gleam" })
-  // deepObject constructor must include additional_properties field
-  // because absent additionalProperties defaults to Untyped
   string.contains(
     router_file.content,
     "additional_properties: coerce_dict(deep_object_additional_properties(query, \"filter\", [\"name\"]))",

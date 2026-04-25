@@ -23,7 +23,7 @@ import oaspec/openapi/operations
 import oaspec/openapi/schema.{
   type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema, BooleanSchema,
   Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
-  Reference, StringSchema, Typed, Untyped,
+  Reference, StringSchema, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/naming
@@ -270,8 +270,13 @@ fn generate_encoder(
           <> ") -> json.Json {",
         )
 
-      // When additional_properties exist, we merge fixed props with dict entries
-      let has_ap = additional_properties != Forbidden
+      // When additional_properties is Typed or Untyped we emit a `base_props`
+      // list and merge in dict entries; Forbidden and Unspecified (Issue #249)
+      // both go through `json.object([...])` directly with no AP merge.
+      let has_ap = case additional_properties {
+        Typed(_) | Untyped -> True
+        Forbidden | Unspecified -> False
+      }
       let sb = case has_ap {
         True ->
           sb
@@ -362,7 +367,7 @@ fn generate_encoder(
           )
           |> se.indent(1, "json.object(list.append(base_props, extra_props))")
         }
-        Forbidden ->
+        Forbidden | Unspecified ->
           sb
           |> se.indent(1, "])")
       }
