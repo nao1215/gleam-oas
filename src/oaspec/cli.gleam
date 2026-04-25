@@ -188,14 +188,14 @@ package: api
 
   case simplifile.is_file(path) {
     Ok(True) -> {
-      io.println("Error: " <> path <> " already exists")
+      io.println_error("Error: " <> path <> " already exists")
       halt(1)
     }
     _ -> {
       case simplifile.write(path, template) {
         Ok(_) -> io.println("Created " <> path)
         Error(write_err) -> {
-          io.println(
+          io.println_error(
             "Error: failed to write "
             <> path
             <> ": "
@@ -242,8 +242,8 @@ fn run_generate(
   print_warnings(summary.warnings)
   case fail_on_warnings && summary.warnings != [] {
     True -> {
-      io.println("")
-      io.println("Error: warnings present and --fail-on-warnings is set.")
+      io.println_error("")
+      io.println_error("Error: warnings present and --fail-on-warnings is set.")
       halt(1)
     }
     False -> Nil
@@ -328,9 +328,9 @@ fn run_check(files: List(context.GeneratedFile), cfg: config.Config) -> Nil {
       io.println("All files up to date, check passed.")
     }
     _ -> {
-      io.println("")
-      list.each(all_issues, fn(d) { io.println("  " <> d) })
-      io.println(
+      io.println_error("")
+      list.each(all_issues, fn(d) { io.println_error("  " <> d) })
+      io.println_error(
         "\n"
         <> int.to_string(list.length(all_issues))
         <> " file(s) out of date. Run 'oaspec generate' to update.",
@@ -483,7 +483,7 @@ fn require(
   case result {
     Ok(value) -> continue(value)
     Error(err) -> {
-      io.println(to_message(err))
+      io.println_error(to_message(err))
       halt(1)
     }
   }
@@ -501,14 +501,15 @@ fn format_generate_error(err: generate.GenerateError) -> String {
   )
 }
 
-/// Print warnings if any exist.
+/// Print warnings if any exist. Warnings are diagnostics, so they go to stderr
+/// to keep stdout reserved for requested output.
 fn print_warnings(warnings: List(diagnostic.Diagnostic)) -> Nil {
   case warnings {
     [] -> Nil
     _ -> {
-      io.println("Warnings:")
+      io.println_error("Warnings:")
       list.each(warnings, fn(w) {
-        io.println("  - " <> diagnostic.to_short_string(w))
+        io.println_error("  - " <> diagnostic.to_short_string(w))
       })
     }
   }
