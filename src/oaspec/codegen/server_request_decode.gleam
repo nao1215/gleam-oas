@@ -920,8 +920,10 @@ fn multipart_body_constructor_expr(
   let additional_props_suffix = case
     body_additional_properties(rb, "multipart/form-data", ctx)
   {
-    Forbidden -> ""
-    _ -> ", additional_properties: dict.new()"
+    // Forbidden and Unspecified both mean the generated record has no
+    // additional_properties field — Issue #249.
+    Forbidden | Unspecified -> ""
+    Typed(_) | Untyped -> ", additional_properties: dict.new()"
   }
   multipart_body_type_name(rb, op_id)
   <> "("

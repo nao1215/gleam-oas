@@ -47,15 +47,14 @@ cat > "$SCRIPT_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
 import api/request_types
 import api/response_types
 import api/types
-import gleam/dict
 import gleam/option.{None, Some}
 
 /// List all pets - returns hardcoded test data.
 pub fn list_pets(req: request_types.ListPetsRequest) -> response_types.ListPetsResponse {
   let _ = req
   let pets = [
-    types.Pet(id: 1, name: "Fido", status: types.PetStatusAvailable, tag: Some("dog"), additional_properties: dict.new()),
-    types.Pet(id: 2, name: "Whiskers", status: types.PetStatusPending, tag: None, additional_properties: dict.new()),
+    types.Pet(id: 1, name: "Fido", status: types.PetStatusAvailable, tag: Some("dog")),
+    types.Pet(id: 2, name: "Whiskers", status: types.PetStatusPending, tag: None),
   ]
   response_types.ListPetsResponseOk(pets)
 }
@@ -67,7 +66,6 @@ pub fn create_pet(req: request_types.CreatePetRequest) -> response_types.CreateP
     name: req.body.name,
     status: types.PetStatusAvailable,
     tag: req.body.tag,
-    additional_properties: dict.new(),
   )
   response_types.CreatePetResponseCreated(pet)
 }
@@ -76,7 +74,7 @@ pub fn create_pet(req: request_types.CreatePetRequest) -> response_types.CreateP
 pub fn get_pet(req: request_types.GetPetRequest) -> response_types.GetPetResponse {
   case req.pet_id {
     1 -> response_types.GetPetResponseOk(
-      types.Pet(id: 1, name: "Fido", status: types.PetStatusAvailable, tag: Some("dog"), additional_properties: dict.new()),
+      types.Pet(id: 1, name: "Fido", status: types.PetStatusAvailable, tag: Some("dog")),
     )
     _ -> response_types.GetPetResponseNotFound
   }
@@ -625,11 +623,10 @@ cat > "$COOKIE_DIR/src/api/handlers.gleam" << 'GLEAM_EOF'
 import api/request_types
 import api/response_types
 import api/types
-import gleam/dict
 
 pub fn list_items(req: request_types.ListItemsRequest) -> response_types.ListItemsResponse {
   let _ = req
-  response_types.ListItemsResponseOk(types.ItemList(items: ["item1"], additional_properties: dict.new()))
+  response_types.ListItemsResponseOk(types.ItemList(items: ["item1"]))
 }
 GLEAM_EOF
 
@@ -901,8 +898,7 @@ cat > "$GUARD_DIR/test/guard_constraints_test_test.gleam" << 'GLEAM_EOF'
 
 import api/guards
 import api/types
-import gleam/dict
-import gleam/option.{None, Some}
+import gleam/option.{Some}
 import gleeunit
 import gleeunit/should
 
@@ -1042,7 +1038,6 @@ fn valid_item() -> types.Item {
     weight: Some(5.0),
     batch_size: Some(10),
     tags: ["a", "b"],
-    additional_properties: dict.new(),
   )
 }
 
@@ -1062,7 +1057,6 @@ pub fn composite_collects_multiple_errors_test() {
       weight: Some(1000.0),
       batch_size: Some(7),
       tags: [],
-      additional_properties: dict.new(),
     )
   let result = guards.validate_item(item)
   case result {
