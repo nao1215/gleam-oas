@@ -193,7 +193,7 @@ Working examples live under [`examples/`](./examples):
 
 ## Configuration
 
-Generated server code is written to `<dir>/<package>`. Generated client code is written to `<dir>_client/<package>`. The basename of each output directory must match `package` so imports such as `import my_api/types` resolve correctly.
+Generated server code is written to `<dir>/<package>` and generated client code is written to `<dir>/<package>_client`. Both default paths land inside the same `<dir>`, so a single `gleam build` rooted at `<dir>` (e.g. when `<dir>` is the project's `src/`) picks up both. The basename of each output directory must match the package name so imports such as `import my_api/types` (server) and `import my_api_client/types` (client) resolve correctly. To split server and client into separate Gleam projects, set `output.server` and/or `output.client` explicitly.
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
@@ -203,7 +203,7 @@ Generated server code is written to `<dir>/<package>`. Generated client code is 
 | `validate` | no | `false` | Enable guard validation in generated server/client code |
 | `output.dir` | no | `./gen` | Base output directory |
 | `output.server` | no | `<dir>/<package>` | Server output path |
-| `output.client` | no | `<dir>_client/<package>` | Client output path |
+| `output.client` | no | `<dir>/<package>_client` | Client output path |
 
 ### Configuration paths
 
@@ -413,7 +413,7 @@ let assert Ok(spec) = parser.parse_file("openapi.yaml")
 let cfg = config.new(
   input: "openapi.yaml",
   output_server: "./gen/my_api",
-  output_client: "./gen_client/my_api",
+  output_client: "./gen/my_api_client",
   package: "my_api",
   mode: config.Both,
   validate: False,

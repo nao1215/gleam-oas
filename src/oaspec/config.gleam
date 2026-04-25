@@ -139,6 +139,15 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
 
   // Determine output base directory first, then derive server/client paths.
   // Priority: output.server/client (explicit) > output.dir (base) > default "./gen"
+  //
+  // Both default paths land *inside* the base dir (Issue #248): the previous
+  // sibling `<dir>_client/<package>` derivation put client code where
+  // `gleam build` could not see it. The new layout is
+  //   server: <dir>/<package>
+  //   client: <dir>/<package>_client
+  // so a single `gleam build` rooted at <dir> sees both. Users who actually
+  // want server and client in separate Gleam projects keep setting
+  // output.server / output.client explicitly.
   let output_dir =
     extract_nested_string(root, "output", "dir")
     |> option.unwrap("./gen")
@@ -149,7 +158,7 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
 
   let output_client =
     extract_nested_string(root, "output", "client")
-    |> option.unwrap(output_dir <> "_client/" <> package)
+    |> option.unwrap(output_dir <> "/" <> package <> "_client")
 
   use mode <- result.try(
     case yay.extract_optional_string(root, "mode") |> result.unwrap(None) {
@@ -193,21 +202,31 @@ pub fn with_validate(config: Config, validate: Bool) -> Config {
 }
 
 /// Apply output base directory override.
-/// Derives server/client paths as <dir>/<package> and <dir>_client/<package>.
+/// Derives server/client paths as <dir>/<package> and <dir>/<package>_client.
+/// Issue #248: the client default used to be a sibling `<dir>_client/<package>`,
+/// which left the generated client code outside any Gleam src/ root. The new
+/// layout keeps both paths under <dir> so a single `gleam build` sees both.
 pub fn with_output(config: Config, output: Option(String)) -> Config {
   case output {
     Some(dir) ->
       Config(
         ..config,
         output_server: dir <> "/" <> config.package,
-        output_client: dir <> "_client/" <> config.package,
+        output_client: dir <> "/" <> config.package <> "_client",
       )
     None -> config
   }
 }
 
-/// Validate that output directory basenames match the package name.
-/// Gleam imports require `import <package>/types`, so the directory must match.
+/// Validate that output directory basenames are valid Gleam module names
+/// usable as import roots.
+///
+/// Server output must end in `<package>` so generated imports such as
+/// `import <package>/types` resolve. Client output may end in either
+/// `<package>` (when client lives in its own project) or `<package>_client`
+/// (the new default since Issue #248 — both server and client share the same
+/// `<dir>` and need distinct basenames). Anything else is a misconfigured
+/// package/output mismatch the user should be told about.
 pub fn validate_output_package_match(config: Config) -> Result(Nil, ConfigError) {
   case config.mode {
     Server | Both ->
@@ -227,19 +246,26 @@ pub fn validate_output_package_match(config: Config) -> Result(Nil, ConfigError)
   }
   |> result.try(fn(_) {
     case config.mode {
-      Client | Both ->
-        case basename(config.output_client) == config.package {
+      Client | Both -> {
+        let client_basename = basename(config.output_client)
+        let client_suffix = config.package <> "_client"
+        case
+          client_basename == config.package || client_basename == client_suffix
+        {
           True -> Ok(Nil)
           False ->
             Error(InvalidValue(
               field: "output.client",
               detail: "Directory basename '"
-                <> basename(config.output_client)
+                <> client_basename
                 <> "' must match package '"
                 <> config.package
+                <> "' or '"
+                <> client_suffix
                 <> "'",
             ))
         }
+      }
       Server -> Ok(Nil)
     }
   })

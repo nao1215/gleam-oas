@@ -465,6 +465,43 @@ Describe 'oaspec validate'
 End
 
 # ===================================================================
+# output.dir default derivation tests (Issue #248)
+# ===================================================================
+
+Describe 'oaspec output.dir default derivation'
+  Include "$SHELLSPEC_SPECDIR/spec_helper.sh"
+
+  setup_dir_only_config() {
+    rm -rf "$PROJECT_ROOT/test_dir_only"
+    cat > "$PROJECT_ROOT/test_dir_only.yaml" <<EOF
+input: test/fixtures/petstore.yaml
+package: api
+output:
+  dir: ./test_dir_only
+EOF
+  }
+
+  cleanup_dir_only_config() {
+    rm -rf "$PROJECT_ROOT/test_dir_only" "$PROJECT_ROOT/test_dir_only.yaml"
+  }
+
+  Before 'setup_dir_only_config'
+  After 'cleanup_dir_only_config'
+
+  It 'puts server under <dir>/<package> and client under <dir>/<package>_client'
+    When run generate --config=./test_dir_only.yaml
+    The status should be success
+    The output should include 'Successfully generated'
+    The path "$PROJECT_ROOT/test_dir_only/api/types.gleam" should be file
+    The path "$PROJECT_ROOT/test_dir_only/api_client/types.gleam" should be file
+    # Both default paths must land inside <dir> so that `gleam build` rooted
+    # at <dir> picks up both. The pre-#248 sibling `./test_dir_only_client/`
+    # location must NOT be written.
+    The path "$PROJECT_ROOT/test_dir_only_client" should not be exist
+  End
+End
+
+# ===================================================================
 # generate --check tests
 # ===================================================================
 

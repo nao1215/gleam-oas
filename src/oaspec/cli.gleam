@@ -208,9 +208,13 @@ package: api
 
 # Output settings (optional).
 # output:
-#   dir: ./gen                    # Base output directory (default: ./gen)
+#   dir: ./gen                    # Base directory; default paths are
+#                                 #   server -> <dir>/<package>
+#                                 #   client -> <dir>/<package>_client
+#                                 # so a single `gleam build` rooted at <dir>
+#                                 # picks up both.
 #   server: ./gen/api             # Override server output path
-#   client: ./gen_client/api      # Override client output path
+#   client: ./gen/api_client      # Override client output path
 "
 
   case simplifile.is_file(path) {
