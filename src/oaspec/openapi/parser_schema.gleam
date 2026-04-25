@@ -355,8 +355,10 @@ fn parse_typed_schema(
             ))
             Ok(schema.Typed(sr))
           }
-          // Per JSON Schema, absent additionalProperties means allowed
-          _ -> Ok(schema.Untyped)
+          // Per JSON Schema, absent additionalProperties still permits extra
+          // keys at runtime, but we surface them in generated types only when
+          // the spec asks for them (true / schema). See Issue #249.
+          _ -> Ok(schema.Unspecified)
         },
       )
       let min_properties =

@@ -5,7 +5,7 @@ import oaspec/codegen/context.{type Context}
 import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type AdditionalProperties, type SchemaRef, Forbidden, Inline, ObjectSchema,
-  Reference, Typed, Untyped,
+  Reference, Typed, Unspecified, Untyped,
 }
 
 /// Result of merging allOf sub-schemas.
@@ -29,7 +29,7 @@ pub fn merge_allof_schemas(
     MergedAllOf(
       properties: dict.new(),
       required: [],
-      additional_properties: Forbidden,
+      additional_properties: Unspecified,
     ),
     fn(acc, s_ref, idx) {
       let resolved = case s_ref {
@@ -42,11 +42,18 @@ pub fn merge_allof_schemas(
             additional_properties,
             acc.additional_properties
           {
+            // Strongest declaration wins: Typed > Untyped > Forbidden >
+            // Unspecified. Forbidden beats Unspecified because explicit
+            // false is a real constraint while absent AP just means "no
+            // surface in generated types"; merging the two should keep
+            // the constraint.
             Typed(x), _ -> Typed(x)
             _, Typed(x) -> Typed(x)
             Untyped, _ -> Untyped
             _, Untyped -> Untyped
-            Forbidden, Forbidden -> Forbidden
+            Forbidden, _ -> Forbidden
+            _, Forbidden -> Forbidden
+            Unspecified, Unspecified -> Unspecified
           }
           MergedAllOf(
             properties: dict.merge(acc.properties, properties),

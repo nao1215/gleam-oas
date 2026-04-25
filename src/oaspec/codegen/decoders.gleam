@@ -14,7 +14,7 @@ import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
-  OneOfSchema, Reference, StringSchema, Typed, Untyped,
+  OneOfSchema, Reference, StringSchema, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved, Value}
 import oaspec/util/http
@@ -560,7 +560,7 @@ fn generate_object_decoder(
           <> ")",
       )
     }
-    Forbidden -> sb
+    Forbidden | Unspecified -> sb
   }
 
   let param_names =
@@ -571,13 +571,15 @@ fn generate_object_decoder(
       field_name <> ": " <> field_name
     })
 
-  // Add additional_properties to param names if present
+  // Add additional_properties to param names only when the generated record
+  // surfaces the field (Typed or Untyped). Forbidden / Unspecified suppress
+  // it — see Issue #249.
   let param_names = case additional_properties {
     Typed(_) | Untyped ->
       list.append(param_names, [
         "additional_properties: additional_properties",
       ])
-    Forbidden -> param_names
+    Forbidden | Unspecified -> param_names
   }
 
   let sb =

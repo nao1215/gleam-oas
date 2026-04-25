@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Closed-object schemas no longer emit `additional_properties` (#249) — breaking for downstream consumers**: previously the parser folded "key absent in source" and `additionalProperties: true` into the same `Untyped` variant, so every generated object record carried a noisy `additional_properties: Dict(String, Dynamic)` field that constructor calls had to populate with `dict.new()`. The AST now distinguishes `Unspecified` (key absent) from `Untyped` (explicit `true`); only the latter (and `Typed(...)`) emits the field. Closed-object record types — by far the common case — drop the field entirely. **Migration**: callers who relied on the implicit Dict on a closed schema must either remove the `additional_properties: dict.new()` argument from their constructor calls, or add `additionalProperties: true` to the spec to keep the field. allOf merge, dedup, deepObject collection, and form-urlencoded constructors are all updated to honour the new variant.
+
 ### Added
 
 - **`--version` flag and `version` subcommand (#252)**: both `oaspec --version` and `oaspec version` now print `oaspec v<X.Y.Z>` (sourced from `context.version`) and exit 0. The flag is intercepted by `main()` before glint is invoked so it does not need to be wired through every subcommand; the subcommand is registered through glint so it appears in `--help` and supports `oaspec version --help`. Both forms answer the "what version of oaspec wrote this generated code?" question without requiring users to inspect package metadata.

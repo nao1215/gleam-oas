@@ -684,9 +684,12 @@ pub fn parse_additional_properties_untyped_test() {
   ))) = dict.get(props, "payload")
 }
 
-/// Per JSON Schema, absent additionalProperties means allowed (Untyped),
-/// not forbidden.
-pub fn parse_absent_additional_properties_is_untyped_test() {
+/// Per Issue #249: absent additionalProperties is parsed as Unspecified so
+/// the codegen can omit the noisy `additional_properties: Dict(...)` field
+/// from closed-object record types. JSON Schema still permits unknown keys at
+/// runtime; the AST distinction lets explicit `true` / typed schemas opt back
+/// in to surfacing them.
+pub fn parse_absent_additional_properties_is_unspecified_test() {
   let yaml =
     "
 openapi: 3.0.3
@@ -703,8 +706,7 @@ components:
   let assert Some(components) = spec.components
   let assert Ok(schema.Inline(schema.ObjectSchema(additional_properties: ap, ..))) =
     dict.get(components.schemas, "Bag")
-  // Absent additionalProperties MUST be Untyped (allowed), not Forbidden
-  ap |> should.equal(schema.Untyped)
+  ap |> should.equal(schema.Unspecified)
 }
 
 // --- Validation Tests ---

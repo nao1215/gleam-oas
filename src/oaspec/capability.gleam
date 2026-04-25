@@ -52,7 +52,7 @@ pub fn registry() -> List(Capability) {
       "additionalProperties",
       "schema",
       Supported,
-      "Typed, untyped, forbidden",
+      "Typed, untyped, forbidden; absent key omits the additional_properties field from generated records",
     ),
     Capability("$ref", "schema", Supported, "Local $ref resolution"),
     Capability("enum", "schema", Supported, "String enum values"),

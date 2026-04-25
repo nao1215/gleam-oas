@@ -13,7 +13,7 @@ import oaspec/openapi/resolver
 import oaspec/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
-  OneOfSchema, Reference, StringSchema, Typed, Untyped,
+  OneOfSchema, Reference, StringSchema, Typed, Unspecified, Untyped,
 }
 import oaspec/openapi/spec.{type Resolved}
 import oaspec/util/content_type
@@ -1114,7 +1114,7 @@ fn validate_schema_recursive(
             ap_ref,
             ctx,
           )
-        Forbidden | Untyped -> []
+        Forbidden | Untyped | Unspecified -> []
       }
       // Recurse into properties
       let prop_errors =

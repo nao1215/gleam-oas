@@ -63,12 +63,18 @@ pub fn default_metadata() -> SchemaMetadata {
 
 /// How additionalProperties is modeled in the AST.
 pub type AdditionalProperties {
-  /// additionalProperties: false (or absent with no schema)
+  /// additionalProperties: false (extra keys rejected)
   Forbidden
-  /// additionalProperties: true (accept any JSON value)
+  /// additionalProperties: true (accept any JSON value, surfaced in
+  /// generated types as `Dict(String, Dynamic)`)
   Untyped
-  /// additionalProperties: { schema }
+  /// additionalProperties: { schema } (typed dict in generated types)
   Typed(SchemaRef)
+  /// additionalProperties key absent from the spec. Per JSON Schema
+  /// any extra keys are still permitted at runtime, but the generated
+  /// record does not surface them — users opt in by writing `true` or
+  /// a schema explicitly.
+  Unspecified
 }
 
 /// Represents a JSON Schema object within OpenAPI 3.x.
