@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI diagnostics now route to stderr (#251)**: error messages, warnings, and `--check` mismatch reports are written via `io.println_error` instead of `io.println`, and the top-level entry point uses `glint.execute` so glint's own usage/error text goes to stderr with exit code 1. Help text requested explicitly via `--help` still goes to stdout. Pipelines like `oaspec | jq` no longer receive diagnostic noise on stdin, and `2>&1` redirection produces the expected ordering.
+
 ## [0.17.0] - 2026-04-23
 
 This release tightens the OpenAPI 3.0/3.1 support boundary: every shape
