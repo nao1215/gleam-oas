@@ -208,11 +208,15 @@ package: api
 # Generation mode: server, client, or both (default: both).
 # mode: both
 
-# Enable guard validation in generated server/client code (default: false).
-# When enabled, generated routers validate request bodies against schema
-# constraints and return 422 on failure. Generated clients validate
-# request bodies before sending.
-# validate: false
+# Enable guard validation in generated server/client code.
+# Default: true for mode: server / both (fail-closed: server handlers
+# should not receive schema-invalid input by default), false for
+# mode: client (clients pre-validating before sending is nice but
+# optional). When enabled, generated routers validate request bodies
+# against schema constraints and return 422 on failure. Generated
+# clients validate request bodies before sending. Set explicitly to
+# override the mode-dependent default.
+# validate: true
 
 # Output settings (optional).
 # output:

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (default)**: when `validate:` is omitted from
+  `oaspec.yaml`, the default is now mode-dependent rather than always
+  `false`: `mode: server` and `mode: both` default to `true`, while
+  `mode: client` defaults to `false`. Previously the silent default
+  was `false` for every mode, which let schema-invalid input
+  (`minimum`, `maximum`, `pattern`, `minLength`, `maxLength`
+  violations) flow straight into user handlers — security-adjacent
+  because handlers can do real work (SRS / scoring algorithms,
+  length-bounded fields with downstream compute, pattern-bounded
+  fields used for SQL parameter generation, etc.) on input they
+  assumed was constraint-checked. Server-side codegen is now
+  fail-closed by default. Explicit `validate: true` / `validate:
+  false` keeps overriding regardless of mode. Migration: if you
+  generated server code and relied on the no-validation default,
+  add `validate: false` explicitly to opt out, or remove handler
+  code that handled out-of-range input. The CLI flag
+  `--validate=true` (which only adds, never removes, validation)
+  is unchanged. (#268)
+
 ### Added
 
 - `application/x-ndjson` (newline-delimited JSON) is now accepted as

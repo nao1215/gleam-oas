@@ -850,6 +850,11 @@ input: test/fixtures/guard_constraints_api.yaml
 output:
   server: ./integration_test/guard_constraints_test/src/api
 package: api
+# validate is explicit because issue #268 changed the default for
+# server-producing modes from `false` to `true`. This step intentionally
+# exercises the opt-out path so the grep below for the absence of
+# `guards.validate_item(` keeps verifying the off-state semantics.
+validate: false
 YAML_EOF
 
 cd "$PROJECT_ROOT"
