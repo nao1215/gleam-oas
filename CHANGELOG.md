@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `oaspec generate --config oaspec.yaml` (GNU long-option form with a
+  space between flag and value) is now accepted in addition to the
+  existing `--config=oaspec.yaml`. Previously the space-separated form
+  failed with the misleading `invalid flag 'config'`, because the
+  underlying CLI parser (glint 1.x) only recognises the `=`-joined
+  form. `oaspec.main` now normalises the argv before handing it to
+  glint, translating `--name value` into `--name=value` for the
+  value-bearing long options listed in `oaspec/cli.value_flag_names`
+  (`--config`, `--mode`, `--output`). Equals-form, boolean-flag,
+  positional, and unknown-flag callers are unaffected. Same behaviour
+  for `validate` and `init`. (#260)
+
 ## [0.18.0] - 2026-04-25
 
 This release is a UX overhaul of the generated server / client surface.
