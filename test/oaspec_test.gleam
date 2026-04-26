@@ -133,6 +133,46 @@ pub fn config_validate_default_client_test() {
   config.validate(cfg) |> should.be_false()
 }
 
+// Issue #262: in client-only mode the default `output.client` must drop
+// the `_client` suffix so generated `import <package>/...` lines resolve
+// against the directory layout. In `Both` mode the suffix is still applied
+// (server and client need distinct basenames inside the same `<dir>`).
+
+pub fn config_client_only_default_drops_client_suffix_test() {
+  let assert Ok(cfg) =
+    config.load("test/fixtures/oaspec_client_default_path.yaml")
+  config.output_client(cfg) |> should.equal("./gen/api")
+}
+
+pub fn config_with_output_client_only_drops_suffix_test() {
+  let cfg =
+    config.new(
+      input: "test/fixtures/petstore.yaml",
+      output_server: "./old/api",
+      output_client: "./old/api_client",
+      package: "api",
+      mode: config.Client,
+      validate: False,
+    )
+  let updated = config.with_output(cfg, Some("./new"))
+  config.output_client(updated) |> should.equal("./new/api")
+}
+
+pub fn config_with_output_both_keeps_suffix_test() {
+  let cfg =
+    config.new(
+      input: "test/fixtures/petstore.yaml",
+      output_server: "./old/api",
+      output_client: "./old/api_client",
+      package: "api",
+      mode: config.Both,
+      validate: True,
+    )
+  let updated = config.with_output(cfg, Some("./new"))
+  config.output_server(updated) |> should.equal("./new/api")
+  config.output_client(updated) |> should.equal("./new/api_client")
+}
+
 pub fn config_validate_default_both_test() {
   let assert Ok(cfg) =
     config.load("test/fixtures/oaspec_validate_default_both.yaml")

@@ -137,29 +137,6 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
     |> result.unwrap(None)
     |> option.unwrap("api")
 
-  // Determine output base directory first, then derive server/client paths.
-  // Priority: output.server/client (explicit) > output.dir (base) > default "./gen"
-  //
-  // Both default paths land *inside* the base dir (Issue #248): the previous
-  // sibling `<dir>_client/<package>` derivation put client code where
-  // `gleam build` could not see it. The new layout is
-  //   server: <dir>/<package>
-  //   client: <dir>/<package>_client
-  // so a single `gleam build` rooted at <dir> sees both. Users who actually
-  // want server and client in separate Gleam projects keep setting
-  // output.server / output.client explicitly.
-  let output_dir =
-    extract_nested_string(root, "output", "dir")
-    |> option.unwrap("./gen")
-
-  let output_server =
-    extract_nested_string(root, "output", "server")
-    |> option.unwrap(output_dir <> "/" <> package)
-
-  let output_client =
-    extract_nested_string(root, "output", "client")
-    |> option.unwrap(output_dir <> "/" <> package <> "_client")
-
   use mode <- result.try(
     case yay.extract_optional_string(root, "mode") |> result.unwrap(None) {
       Some("server") -> Ok(Server)
@@ -173,6 +150,37 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
         ))
     },
   )
+
+  // Determine output base directory, then derive mode-aware server/client
+  // defaults. Priority: output.server/client (explicit) > output.dir (base)
+  // > default "./gen".
+  //
+  // The `_client` suffix is only needed in `Both` mode to disambiguate the
+  // two output trees inside a single `<dir>`. In client-only mode there is
+  // no server output to clash with, so the default client output is just
+  // `<dir>/<package>` and the generated `import <package>/...` lines
+  // resolve correctly (Issue #262).
+  //
+  // The unused field in single-mode configs (e.g. `output_server` in
+  // client-only mode) is set to a sensible-looking placeholder for
+  // diagnostics; it is never read by the writer or codegen.
+  let output_dir =
+    extract_nested_string(root, "output", "dir")
+    |> option.unwrap("./gen")
+
+  let server_default = output_dir <> "/" <> package
+  let client_default = case mode {
+    Client -> output_dir <> "/" <> package
+    Server | Both -> output_dir <> "/" <> package <> "_client"
+  }
+
+  let output_server =
+    extract_nested_string(root, "output", "server")
+    |> option.unwrap(server_default)
+
+  let output_client =
+    extract_nested_string(root, "output", "client")
+    |> option.unwrap(client_default)
 
   // When `validate:` is omitted, the default is mode-dependent (issue #268).
   // Server-mode codegen with `validate: false` lets schema-invalid input
@@ -215,17 +223,19 @@ pub fn with_validate(config: Config, validate: Bool) -> Config {
 }
 
 /// Apply output base directory override.
-/// Derives server/client paths as <dir>/<package> and <dir>/<package>_client.
-/// Issue #248: the client default used to be a sibling `<dir>_client/<package>`,
-/// which left the generated client code outside any Gleam src/ root. The new
-/// layout keeps both paths under <dir> so a single `gleam build` sees both.
+/// Derives server/client paths as <dir>/<package> and <dir>/<package>_client
+/// in `Both` mode. In client-only mode the client path drops the suffix
+/// (Issue #262) so generated `import <package>/...` lines resolve.
 pub fn with_output(config: Config, output: Option(String)) -> Config {
   case output {
     Some(dir) ->
       Config(
         ..config,
         output_server: dir <> "/" <> config.package,
-        output_client: dir <> "/" <> config.package <> "_client",
+        output_client: case config.mode {
+          Client -> dir <> "/" <> config.package
+          Server | Both -> dir <> "/" <> config.package <> "_client"
+        },
       )
     None -> config
   }
