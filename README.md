@@ -303,6 +303,17 @@ oaspec generate --config=oaspec.yaml --validate
 
 When enabled, generated routers validate request bodies against schema constraints and return 422 on failure. Generated clients validate request bodies before sending.
 
+The 422 response body is a JSON array of `ValidationFailure` objects with the violating field, the JSON Schema keyword that failed, and a human-readable message:
+
+```json
+[
+  {"field": "name", "code": "minLength", "message": "must be at least 1 character"},
+  {"field": "age", "code": "maximum", "message": "must be at most 150"}
+]
+```
+
+Generated clients surface the same failures via `ClientError.ValidationError(errors: List(guards.ValidationFailure))`.
+
 ### CI integration
 
 Use `--check` and `--fail-on-warnings` to verify generated code stays in sync:
