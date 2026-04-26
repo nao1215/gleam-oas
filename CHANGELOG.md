@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-26
+
 ### Changed
 
 - **BREAKING (default)**: when `validate:` is omitted from
