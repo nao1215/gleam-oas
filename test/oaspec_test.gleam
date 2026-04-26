@@ -117,6 +117,28 @@ pub fn parse_mode_test() {
   config.parse_mode("invalid") |> should.be_error()
 }
 
+// Issue #268: when `validate:` is omitted, the default depends on `mode:`.
+// Server / Both default to True (fail-closed: server handlers should not
+// receive schema-invalid input by default). Client defaults to False.
+
+pub fn config_validate_default_server_test() {
+  let assert Ok(cfg) =
+    config.load("test/fixtures/oaspec_validate_default_server.yaml")
+  config.validate(cfg) |> should.be_true()
+}
+
+pub fn config_validate_default_client_test() {
+  let assert Ok(cfg) =
+    config.load("test/fixtures/oaspec_validate_default_client.yaml")
+  config.validate(cfg) |> should.be_false()
+}
+
+pub fn config_validate_default_both_test() {
+  let assert Ok(cfg) =
+    config.load("test/fixtures/oaspec_validate_default_both.yaml")
+  config.validate(cfg) |> should.be_true()
+}
+
 pub fn config_package_dir_mismatch_test() {
   let cfg =
     config.new(
@@ -12573,13 +12595,16 @@ pub fn config_validate_field_test() {
   Nil
 }
 
-/// Config load should default validate to False when not specified.
-pub fn config_validate_default_false_test() {
+/// Config load: when `validate:` is omitted and `mode:` is also omitted,
+/// `mode` defaults to `Both`, which yields `validate: true` (issue #268,
+/// fail-closed for any mode that produces a server). Explicit overrides
+/// still win — covered by `config_validate_default_client_test`.
+pub fn config_validate_default_when_omitted_test() {
   let yaml_content = "input: test.yaml\npackage: api\n"
   let temp_path = "/tmp/oaspec_validate_default_test.yaml"
   let assert Ok(Nil) = simplifile.write(temp_path, yaml_content)
   let assert Ok(cfg) = config.load(temp_path)
-  config.validate(cfg) |> should.be_false()
+  config.validate(cfg) |> should.be_true()
   let _ = simplifile.delete(temp_path)
   Nil
 }

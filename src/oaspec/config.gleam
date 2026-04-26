@@ -174,12 +174,25 @@ pub fn load(path: String) -> Result(Config, ConfigError) {
     },
   )
 
+  // When `validate:` is omitted, the default is mode-dependent (issue #268).
+  // Server-mode codegen with `validate: false` lets schema-invalid input
+  // (`minimum`, `maximum`, `pattern`, `minLength`, `maxLength` violations)
+  // through to user handlers — security-adjacent and surprising. The
+  // generator emits the guard functions either way; the only knob is whether
+  // the router calls them. So fail-closed by default for any mode that
+  // produces a server (`Server` and `Both`), and keep `False` only for the
+  // pure-client case where pre-validating before send is nice but optional.
+  // Explicit `validate: true` / `validate: false` continues to override.
   use validate <- result.try(
     case yay.select_sugar(from: root, selector: "validate") {
       Ok(yay.NodeBool(True)) | Ok(yay.NodeStr("true")) -> Ok(True)
       Ok(yay.NodeBool(False)) | Ok(yay.NodeStr("false")) -> Ok(False)
-      // nolint: thrown_away_error -- missing optional 'validate' key defaults to False
-      Error(_) -> Ok(False)
+      // nolint: thrown_away_error -- missing optional 'validate' key defaults to mode-dependent value
+      Error(_) ->
+        case mode {
+          Server | Both -> Ok(True)
+          Client -> Ok(False)
+        }
       Ok(_) ->
         Error(InvalidValue(
           field: "validate",

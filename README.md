@@ -11,7 +11,7 @@ Generate usable Gleam code from OpenAPI 3.x specifications.
 - Generate client and server-side modules from a single spec
 - Produce readable Gleam types, encoders, decoders, request types, and response types
 - Handle real-world OpenAPI patterns: unions, nullable fields, `additionalProperties`, form bodies, multipart, and security
-- Backed by 743 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 229 test fixtures (including 94 OSS-derived edge-case specs)
+- Backed by 746 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 232 test fixtures (including 94 OSS-derived edge-case specs)
 
 ## Why oaspec?
 
@@ -201,7 +201,7 @@ Generated server code is written to `<dir>/<package>` and generated client code 
 | `input` | yes | - | Path to an OpenAPI 3.x spec in YAML or JSON |
 | `package` | no | `api` | Gleam module namespace prefix |
 | `mode` | no | `both` | `server`, `client`, or `both` |
-| `validate` | no | `false` | Enable guard validation in generated server/client code |
+| `validate` | no | mode-dependent (`true` for `server` / `both`, `false` for `client`) | Enable guard validation in generated server/client code |
 | `output.dir` | no | `./gen` | Base output directory |
 | `output.server` | no | `<dir>/<package>` | Server output path |
 | `output.client` | no | `<dir>/<package>_client` | Client output path |
