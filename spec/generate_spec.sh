@@ -300,10 +300,12 @@ Describe 'oaspec generate'
     End
 
     It 'handlers_generated.gleam delegates each operation to handlers'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.list_pets(req)'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.create_pet(req)'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.get_pet(req)'
-      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.delete_pet(req)'
+      # Issue #264: every delegator threads `state` as the first
+      # argument before the request value.
+      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.list_pets(state, req)'
+      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.create_pet(state, req)'
+      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.get_pet(state, req)'
+      The contents of file "$TEST_OUTPUT_DIR/api/handlers_generated.gleam" should include 'handlers.delete_pet(state, req)'
     End
 
     # --- Router ---
