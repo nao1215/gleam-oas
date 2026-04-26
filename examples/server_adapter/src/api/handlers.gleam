@@ -1,37 +1,91 @@
-//// Thin delegator. `oaspec generate` emits `panic` stubs into this
-//// file; the example replaces each stub with a one-line call into
-//// `example_handlers` so real domain logic can live outside the
-//// regeneration-affected `api/` directory.
+//// User-owned handler implementations for the server_adapter example.
 ////
-//// After regenerating the server, restore this file by replacing the
-//// generated `panic` body of each function with the matching
-//// `example_handlers.<fn>(req)` call. That restoration is mechanical
-//// and version-control-diffable.
+//// `oaspec generate` writes panic stubs into this file on first
+//// generation and skips it on subsequent runs (`SkipIfExists`), so
+//// edits made here survive regeneration. Issue #264 introduced the
+//// `State` type as a placeholder for application-level dependencies
+//// (database connections, configuration, loggers, etc.) — extend the
+//// constructor here when you start wiring real values.
 
+import api/guards
 import api/request_types
 import api/response_types
-import example_handlers
+import api/types
+import gleam/option.{None, Some}
+
+/// Application state passed to every handler. The example does not
+/// need any DB connection or configuration, so this is an empty
+/// constructor — extend with fields when wiring real dependencies.
+pub type State {
+  State
+}
 
 pub fn list_pets(
+  state: State,
   req: request_types.ListPetsRequest,
 ) -> response_types.ListPetsResponse {
-  example_handlers.list_pets(req)
+  let _ = state
+  let _ = req
+  response_types.ListPetsResponseOk([
+    types.Pet(
+      id: 1,
+      name: "Fido",
+      status: types.PetStatusAvailable,
+      tag: Some("dog"),
+    ),
+    types.Pet(
+      id: 2,
+      name: "Whiskers",
+      status: types.PetStatusPending,
+      tag: None,
+    ),
+  ])
 }
 
 pub fn create_pet(
+  state: State,
   req: request_types.CreatePetRequest,
 ) -> response_types.CreatePetResponse {
-  example_handlers.create_pet(req)
+  let _ = state
+  // Run the generated validation guard before constructing the response.
+  // A well-formed OpenAPI spec will reject out-of-range values at the
+  // guard layer; returning 400 is the idiomatic mapping.
+  case guards.validate_create_pet_request(req.body) {
+    Error(_) -> response_types.CreatePetResponseBadRequest
+    Ok(_) ->
+      response_types.CreatePetResponseCreated(types.Pet(
+        id: 100,
+        name: req.body.name,
+        status: types.PetStatusAvailable,
+        tag: req.body.tag,
+      ))
+  }
 }
 
 pub fn get_pet(
+  state: State,
   req: request_types.GetPetRequest,
 ) -> response_types.GetPetResponse {
-  example_handlers.get_pet(req)
+  let _ = state
+  case req.pet_id {
+    1 ->
+      response_types.GetPetResponseOk(types.Pet(
+        id: 1,
+        name: "Fido",
+        status: types.PetStatusAvailable,
+        tag: Some("dog"),
+      ))
+    _ -> response_types.GetPetResponseNotFound
+  }
 }
 
 pub fn delete_pet(
+  state: State,
   req: request_types.DeletePetRequest,
 ) -> response_types.DeletePetResponse {
-  example_handlers.delete_pet(req)
+  let _ = state
+  case req.pet_id {
+    1 -> response_types.DeletePetResponseNoContent
+    _ -> response_types.DeletePetResponseNotFound
+  }
 }
