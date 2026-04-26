@@ -84,6 +84,20 @@ Describe 'oaspec generate'
       The output should include 'Successfully generated'
       The output should include '16 files'
     End
+
+    It 'accepts space-separated --config FILE form'
+      clean_test_output
+      When run generate --config test/fixtures/oaspec.yaml
+      The status should be success
+      The output should include 'Successfully generated'
+    End
+
+    It 'accepts space-separated --mode VALUE form'
+      clean_test_output
+      When run generate --config test/fixtures/oaspec.yaml --mode server
+      The status should be success
+      The output should include 'Successfully generated'
+    End
   End
 
   # -------------------------------------------------------------------

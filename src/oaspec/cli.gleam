@@ -32,6 +32,14 @@ fn maybe_pretty_help(glint: glint.Glint(a)) -> glint.Glint(a) {
   }
 }
 
+/// Long-option flag names that take a value across all subcommands. Used by
+/// the argv-normalisation step in `oaspec.main` to translate the GNU
+/// `--name value` form into glint's expected `--name=value` form. Must stay
+/// in sync with the `glint.string_flag(...)` calls below: any new
+/// value-bearing long-option flag must be added here, otherwise the
+/// space-separated form will fail with `invalid flag '<name>'`.
+pub const value_flag_names = ["config", "mode", "output"]
+
 /// Set up the CLI application.
 pub fn app() -> glint.Glint(Nil) {
   glint.new()
