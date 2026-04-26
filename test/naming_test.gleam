@@ -46,6 +46,34 @@ pub fn naming_to_snake_case_non_keyword_unaffected_test() {
   |> should.equal("list_pets")
 }
 
+// Issue #283: letter+digit identifiers stay together in generated
+// Gleam, matching the convention sqlode landed on in nao1215/sqlode#480.
+// `rev_b58` keeps its trailing digits attached to the preceding letter
+// run; the digit→letter direction (`256sha`) still splits because the
+// rule is asymmetric.
+pub fn naming_to_snake_case_keeps_letter_digit_suffix_attached_test() {
+  naming.to_snake_case("rev_b58") |> should.equal("rev_b58")
+  naming.to_snake_case("sha256") |> should.equal("sha256")
+  naming.to_snake_case("utf8") |> should.equal("utf8")
+  naming.to_snake_case("base64") |> should.equal("base64")
+  naming.to_snake_case("oauth2") |> should.equal("oauth2")
+  naming.to_snake_case("md5") |> should.equal("md5")
+  naming.to_snake_case("ipv4") |> should.equal("ipv4")
+  naming.to_snake_case("port_8080") |> should.equal("port_8080")
+  naming.to_snake_case("iso8601") |> should.equal("iso8601")
+}
+
+pub fn naming_to_snake_case_pascal_with_letter_digit_suffix_test() {
+  naming.to_snake_case("Sha256Hash") |> should.equal("sha256_hash")
+  naming.to_snake_case("GetV2Author") |> should.equal("get_v2_author")
+  naming.to_snake_case("OAuth2Token") |> should.equal("o_auth2_token")
+}
+
+pub fn naming_to_snake_case_digit_letter_still_splits_test() {
+  // Digit→letter remains a split point — only letter→digit is glued.
+  naming.to_snake_case("256sha") |> should.equal("256_sha")
+}
+
 // naming.operation_to_function_name tests
 // ===================================================================
 
