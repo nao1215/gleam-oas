@@ -1892,6 +1892,11 @@ components:
   // `Some(v)` that would assign a raw String into the enum slot.
   string.contains(router_file.content, "Ok([v, ..]) -> Some(v)")
   |> should.be_false()
+  // Issue #318: when the router body references types.* (e.g.
+  // `Some(types.VisibilityPublic)`), the file must `import api/types`
+  // so the generated module compiles without manual edits.
+  string.contains(router_file.content, "import api/types")
+  |> should.be_true()
 }
 
 /// Required `$ref` enum query parameter must emit the same Result
@@ -1960,6 +1965,11 @@ components:
     router_file.content,
     "[#(\"content-type\", \"application/problem+json\")]",
   )
+  |> should.be_true()
+  // Issue #318: when the router body references types.* (e.g.
+  // `Ok(types.PriorityLow)`), the file must `import api/types` so the
+  // generated module compiles without manual edits.
+  string.contains(router_file.content, "import api/types")
   |> should.be_true()
 }
 
