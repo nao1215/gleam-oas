@@ -606,8 +606,18 @@ fn generate_router(
     config.package(context.config(ctx)) <> "/handlers",
     config.package(context.config(ctx)) <> "/handlers_generated",
   ]
+  // Issue #318: enum query / header / cookie parameters resolved through
+  // `$ref` cause the router body to emit `types.<EnumType><Variant>`
+  // references (see decode_helpers.enum_match_result_expr and
+  // enum_match_option_expr). The `types` import must be present in
+  // those cases too, not just for deep object / form / multipart.
+  let has_enum_ref_params =
+    decode_helpers.operations_have_enum_ref_params(operations, ctx)
   let pkg_imports = case
-    has_deep_object || has_form_urlencoded_body || has_multipart_body
+    has_deep_object
+    || has_form_urlencoded_body
+    || has_multipart_body
+    || has_enum_ref_params
   {
     True ->
       list.append(pkg_imports, [config.package(context.config(ctx)) <> "/types"])

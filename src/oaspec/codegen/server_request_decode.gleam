@@ -317,6 +317,42 @@ pub fn schema_ref_string_enum(
   }
 }
 
+/// True iff any query / header / cookie parameter on any of the given
+/// operations has a `$ref` schema that resolves to a string-enum.
+///
+/// Issue #318: the router emits `types.<EnumType><Variant>` references
+/// for these parameters (see `enum_match_result_expr` and
+/// `enum_match_option_expr` below), but the import of the `types`
+/// module is gated on a separate set of features (deep object, form,
+/// multipart). This helper lets the router-import logic ask "does any
+/// of my emitted code reference `types`?" without re-implementing the
+/// per-param dispatch.
+pub fn operations_have_enum_ref_params(
+  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
+  ctx: Context,
+) -> Bool {
+  list.any(operations, fn(op) {
+    let #(_, operation, _, _) = op
+    list.any(operation.parameters, fn(ref_p) {
+      case ref_p {
+        Value(p) -> parameter_is_enum_ref(p, ctx)
+        _ -> False
+      }
+    })
+  })
+}
+
+fn parameter_is_enum_ref(p: spec.Parameter(Resolved), ctx: Context) -> Bool {
+  case p.in_, spec.parameter_schema(p) {
+    spec.InQuery, Some(s) | spec.InHeader, Some(s) | spec.InCookie, Some(s) ->
+      case schema_ref_string_enum(s, ctx) {
+        Some(_) -> True
+        None -> False
+      }
+    _, _ -> False
+  }
+}
+
 /// Render the inline Gleam expression that converts a raw query-string
 /// `<bound_var>` into `Result(types.<TypeName><Variant>, Nil)`. Used by
 /// the required-enum query path (server.gleam opens a case on this

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **codegen**: Generated `router.gleam` now imports the package's
+  `types` module when an OpenAPI operation has an `$ref`-based string
+  enum query, header, or cookie parameter. Previously the router body
+  emitted `types.<EnumType><Variant>` references in the inline match
+  expressions for those parameters but the import was gated only on
+  deep object / form / multipart bodies, so a spec like `parameters: [{
+  in: query, name: status, schema: { $ref:
+  '#/components/schemas/BookStatus' } }]` produced a router that
+  failed to compile (`Unknown module types`). Closes #318.
+
 ## [0.24.0] - 2026-04-28
 
 ### Changed
