@@ -13432,3 +13432,57 @@ fn count_occurrences(haystack: String, needle: String) -> Int {
     Ok(#(_, after)) -> 1 + count_occurrences(after, needle)
   }
 }
+
+// --- Issue #336: additionalProperties: false must be enforced at
+//                 decode time (extra fields rejected, not dropped) ---
+
+pub fn additional_properties_false_emits_unknown_key_check_test() {
+  // A schema with `additionalProperties: false` must produce a
+  // decoder that rejects JSON objects containing keys outside the
+  // declared property set. The check happens in the decoder body
+  // because composite/post-decode validation cannot recover the
+  // raw JSON object's key set after `gleam/dynamic/decode` has run.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /uploads:
+    post:
+      operationId: createUpload
+      responses:
+        '200': { description: ok }
+components:
+  schemas:
+    Upload:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let ctx = make_ctx_from_spec(spec)
+  let assert Ok(decode_file) =
+    list.find(decoders.generate(ctx), fn(f) { f.path == "decode.gleam" })
+
+  // The decoder must mention the unknown-key rejection. Whether it
+  // calls a runtime helper or inlines the check is an implementation
+  // detail; we assert the spec-driven contract: the closed-schema
+  // signal `\"additionalProperties\": false` materialises in the
+  // decoder body either via a dict-based pre-check (decoding to
+  // Dict to inspect keys) or via a custom failure for unknown keys.
+  let has_dict_check =
+    string.contains(decode_file.content, "decode.dict(decode.string,")
+    && string.contains(decode_file.content, "dict.drop(")
+  let has_unknown_key_failure =
+    string.contains(decode_file.content, "additionalProperties")
+    && string.contains(decode_file.content, "decode.failure")
+  case has_dict_check && has_unknown_key_failure {
+    True -> Nil
+    False -> should.fail()
+  }
+}

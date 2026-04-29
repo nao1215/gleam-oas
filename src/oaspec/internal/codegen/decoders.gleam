@@ -66,11 +66,15 @@ fn generate_decoders(
       type_gen.schema_has_optional_fields(schema_ref, ctx)
     })
 
-  // Check if dict module is needed (any schema with typed or untyped additionalProperties)
+  // Check if dict module is needed (any schema with typed/untyped
+  // additionalProperties surfaces a Dict in the record; `additionalProperties:
+  // false` also needs Dict at decode time for the closed-schema unknown-key
+  // check, even though the field is suppressed from the record).
   let needs_dict =
     list.any(schemas, fn(entry) {
       let #(_, schema_ref) = entry
       type_gen.schema_has_additional_properties(schema_ref, ctx)
+      || type_gen.schema_has_forbidden_additional_properties(schema_ref, ctx)
     })
 
   // Check if types module is needed (any non-primitive schema)
@@ -589,7 +593,26 @@ fn generate_object_decoder(
           <> ")",
       )
     }
-    Forbidden | Unspecified -> sb
+    // Closed schema: read every key, drop the declared ones, and reject
+    // the decode if anything remains. The check has to live in the decoder
+    // body because `gleam/dynamic/decode` consumes only declared fields,
+    // so a post-decode validator would have nothing to inspect.
+    Forbidden -> {
+      sb
+      |> se.indent(
+        1,
+        "use all_props <- decode.then(decode.dict(decode.string, decode.new_primitive_decoder(\"Dynamic\", fn(x) { Ok(x) })))",
+      )
+      |> se.indent(
+        1,
+        "let extra_props = dict.drop(all_props, " <> known_keys_expr <> ")",
+      )
+      |> se.indent(1, "use _ <- decode.then(case dict.is_empty(extra_props) {")
+      |> se.indent(2, "True -> decode.success(Nil)")
+      |> se.indent(2, "False -> decode.failure(Nil, \"additionalProperties\")")
+      |> se.indent(1, "})")
+    }
+    Unspecified -> sb
   }
 
   let param_names =
