@@ -346,26 +346,60 @@ pub fn parse_json_string_minimal_spec_test() {
   spec.info.version |> should.equal("2.5.0")
 }
 
-pub fn parse_json_string_preserves_path_order_test() {
-  // Codegen iterates paths in spec order so the generated client/
-  // server function ordering matches the source. Erlang map order
-  // is undefined for >32 keys; the JSON FFI uses ordered list
-  // accumulators so this stays deterministic.
+pub fn parse_json_string_preserves_required_array_order_test() {
+  // The OTP `json:decode/3` decoders produce ordered list
+  // accumulators for arrays, so List-shaped fields like `required`
+  // must come out in the same order they appear in the source.
+  // `required` is the cleanest place to pin this because it's a
+  // bare JSON array of strings — no downstream `Dict` to erase
+  // order — and the same mechanism backs `oneOf`/`anyOf` variants
+  // and `parameters` lists, which break codegen output ordering if
+  // the FFI ever loses array order.
   let json =
     "{
       \"openapi\": \"3.0.3\",
       \"info\": {\"title\": \"Order API\", \"version\": \"1.0.0\"},
-      \"paths\": {
-        \"/zebra\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}},
-        \"/alpha\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}},
-        \"/middle\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}}
+      \"paths\": {},
+      \"components\": {
+        \"schemas\": {
+          \"Pinned\": {
+            \"type\": \"object\",
+            \"required\": [\"zebra\", \"alpha\", \"middle\", \"yak\"],
+            \"properties\": {
+              \"zebra\": {\"type\": \"string\"},
+              \"alpha\": {\"type\": \"string\"},
+              \"middle\": {\"type\": \"string\"},
+              \"yak\": {\"type\": \"string\"}
+            }
+          }
+        }
       }
     }"
   let assert Ok(spec) = parser.parse_json_string(json)
-  dict.size(spec.paths) |> should.equal(3)
-  dict.has_key(spec.paths, "/zebra") |> should.be_true()
-  dict.has_key(spec.paths, "/alpha") |> should.be_true()
-  dict.has_key(spec.paths, "/middle") |> should.be_true()
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(required:, ..))) =
+    dict.get(components.schemas, "Pinned")
+  // Exact list equality — a regression that loses order would
+  // surface as e.g. ["alpha", "middle", "yak", "zebra"].
+  required |> should.equal(["zebra", "alpha", "middle", "yak"])
+}
+
+pub fn parse_json_string_handles_many_paths_test() {
+  // Stress the FFI with more keys than Erlang's flat-map threshold
+  // (32) to exercise the HAMT path. We only assert membership and
+  // count here — Erlang map iteration is unspecified above 32
+  // keys, so order claims belong on List-shaped fields like
+  // `required` (covered above) where the FFI's order preservation
+  // is observable.
+  let assert Ok(spec) = parser.parse_file("test/fixtures/many_paths.json")
+  dict.size(spec.paths) |> should.equal(40)
+  // Spot-check a few path keys: the first, the last, and one
+  // from the middle. Pinning a sample is enough — a regression
+  // that drops paths would surface as a count mismatch above,
+  // and a regression that mangles names would surface here.
+  dict.has_key(spec.paths, "/p00") |> should.be_true()
+  dict.has_key(spec.paths, "/p20") |> should.be_true()
+  dict.has_key(spec.paths, "/p39") |> should.be_true()
 }
 
 pub fn parse_json_string_rejects_malformed_test() {
@@ -384,16 +418,14 @@ pub fn parse_json_string_rejects_malformed_test() {
 }
 
 pub fn parse_file_dispatches_json_path_for_json_extension_test() {
-  // The minimal kin-openapi JSON fixture is parsed end-to-end via
-  // the new OTP json:decode path (selected by the `.json` suffix).
-  // This is the same fixture that
-  // `oss_kin_openapi_minimal_json_parses_test` covers; we assert
-  // here that the JSON-only entry point alone returns the same
-  // shape, which proves the fast path is symmetrical with the YAML
-  // path on real-world input.
-  let assert Ok(content) =
-    simplifile.read("test/fixtures/oss_kin_openapi_minimal.json")
-  let assert Ok(spec) = parser.parse_json_string(content)
+  // Call `parse_file` end-to-end so the `.json` extension dispatch
+  // is what's under test — if the routing regressed and `.json`
+  // started going through the yamerl path again, an assertion
+  // against `parse_json_string` directly wouldn't notice. Reading
+  // the file separately and calling `parse_json_string(content)`
+  // would happily pass even if the dispatch was broken.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_minimal.json")
   spec.openapi |> should.equal("3.0.0")
 }
 
@@ -468,19 +500,49 @@ pub fn oss_oai_webhook_example_yaml_and_json_agree_test() {
 }
 
 pub fn oss_oai_webhook_example_components_match_test() {
-  // The webhook example uses a `Pet` component referenced from
-  // the webhook body. Both parsers must surface the same component
-  // shape (name + property keys) — a divergence would mean one
-  // path lost the $ref or reordered properties.
+  // The webhook example uses a `Pet` component referenced from the
+  // webhook body. Both parsers must surface the *same* Pet schema
+  // — same required list, same property keys. Asserting only
+  // presence + count would let a regression in property names or
+  // required ordering through; comparing the bodies catches a
+  // divergence at the schema-shape level. The fixture's `required`
+  // list is `[id, name]` in source order, which also pins the
+  // JSON FFI's array-order preservation on a real-world fixture.
   let assert Ok(yaml_spec) =
     parser.parse_file("test/fixtures/oss_oai_webhook_example.yaml")
   let assert Ok(json_spec) =
     parser.parse_file("test/fixtures/oss_oai_webhook_example.json")
   let assert Some(yaml_c) = yaml_spec.components
   let assert Some(json_c) = json_spec.components
-  dict.has_key(yaml_c.schemas, "Pet") |> should.be_true()
-  dict.has_key(json_c.schemas, "Pet") |> should.be_true()
   dict.size(yaml_c.schemas) |> should.equal(dict.size(json_c.schemas))
+
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: yaml_props,
+    required: yaml_required,
+    ..,
+  ))) = dict.get(yaml_c.schemas, "Pet")
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: json_props,
+    required: json_required,
+    ..,
+  ))) = dict.get(json_c.schemas, "Pet")
+
+  // `required` is a List(String), so order matters and the OAI
+  // fixture lists `id` before `name`. A divergence here means one
+  // of the two parsers lost array order.
+  yaml_required |> should.equal(["id", "name"])
+  json_required |> should.equal(yaml_required)
+
+  // Property *keys* must match across the two paths. We compare
+  // sorted key lists so the assertion is order-insensitive at the
+  // Dict layer (Erlang map iteration above 32 entries is
+  // unspecified, and ObjectSchema.properties is a Dict). Property
+  // *order* is not part of OpenAPI's contract; the array-order
+  // assertion above already pins what matters.
+  let yaml_keys = dict.keys(yaml_props) |> list.sort(string.compare)
+  let json_keys = dict.keys(json_props) |> list.sort(string.compare)
+  yaml_keys |> should.equal(json_keys)
+  yaml_keys |> should.equal(["id", "name", "tag"])
 }
 
 // --- OpenAPI version gate (issue #235) ---
