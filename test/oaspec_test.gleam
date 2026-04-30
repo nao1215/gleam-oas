@@ -322,6 +322,229 @@ pub fn parse_file_not_found_test() {
   should.be_error(result)
 }
 
+// --- JSON fast path (issue #352) ---
+//
+// Large OpenAPI specs are commonly distributed as JSON (the GitHub
+// REST OpenAPI is ~12 MB). Routing every JSON file through yamerl
+// caused effective hangs (>>10 minutes for what should be a few
+// seconds), so `.json` inputs go through OTP's `json:decode/3` via
+// `parser.parse_json_string`. The semantic shape of the resulting
+// `OpenApiSpec` is identical to the YAML path; these tests pin that
+// invariant so a future change to the JSON FFI doesn't silently
+// drift from yamerl behaviour.
+
+pub fn parse_json_string_minimal_spec_test() {
+  let json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"JSON API\", \"version\": \"2.5.0\"},
+      \"paths\": {}
+    }"
+  let assert Ok(spec) = parser.parse_json_string(json)
+  spec.openapi |> should.equal("3.0.3")
+  spec.info.title |> should.equal("JSON API")
+  spec.info.version |> should.equal("2.5.0")
+}
+
+pub fn parse_json_string_preserves_required_array_order_test() {
+  // The OTP `json:decode/3` decoders produce ordered list
+  // accumulators for arrays, so List-shaped fields like `required`
+  // must come out in the same order they appear in the source.
+  // `required` is the cleanest place to pin this because it's a
+  // bare JSON array of strings — no downstream `Dict` to erase
+  // order — and the same mechanism backs `oneOf`/`anyOf` variants
+  // and `parameters` lists, which break codegen output ordering if
+  // the FFI ever loses array order.
+  let json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"Order API\", \"version\": \"1.0.0\"},
+      \"paths\": {},
+      \"components\": {
+        \"schemas\": {
+          \"Pinned\": {
+            \"type\": \"object\",
+            \"required\": [\"zebra\", \"alpha\", \"middle\", \"yak\"],
+            \"properties\": {
+              \"zebra\": {\"type\": \"string\"},
+              \"alpha\": {\"type\": \"string\"},
+              \"middle\": {\"type\": \"string\"},
+              \"yak\": {\"type\": \"string\"}
+            }
+          }
+        }
+      }
+    }"
+  let assert Ok(spec) = parser.parse_json_string(json)
+  let assert Some(components) = spec.components
+  let assert Ok(schema.Inline(schema.ObjectSchema(required:, ..))) =
+    dict.get(components.schemas, "Pinned")
+  // Exact list equality — a regression that loses order would
+  // surface as e.g. ["alpha", "middle", "yak", "zebra"].
+  required |> should.equal(["zebra", "alpha", "middle", "yak"])
+}
+
+pub fn parse_json_string_handles_many_paths_test() {
+  // Stress the FFI with more keys than Erlang's flat-map threshold
+  // (32) to exercise the HAMT path. We only assert membership and
+  // count here — Erlang map iteration is unspecified above 32
+  // keys, so order claims belong on List-shaped fields like
+  // `required` (covered above) where the FFI's order preservation
+  // is observable.
+  let assert Ok(spec) = parser.parse_file("test/fixtures/many_paths.json")
+  dict.size(spec.paths) |> should.equal(40)
+  // Spot-check a few path keys: the first, the last, and one
+  // from the middle. Pinning a sample is enough — a regression
+  // that drops paths would surface as a count mismatch above,
+  // and a regression that mangles names would surface here.
+  dict.has_key(spec.paths, "/p00") |> should.be_true()
+  dict.has_key(spec.paths, "/p20") |> should.be_true()
+  dict.has_key(spec.paths, "/p39") |> should.be_true()
+}
+
+pub fn parse_json_string_rejects_malformed_test() {
+  // Trailing junk after the closing brace is not valid JSON; the
+  // OTP decoder reports `unexpected_byte` which we map onto the
+  // same `yaml_error`-style diagnostic that yamerl emits, so the
+  // CLI prints the same shape regardless of which path ran.
+  let bad_json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"\", \"version\": \"\"},
+      \"paths\": {}
+    }extra"
+  let result = parser.parse_json_string(bad_json)
+  should.be_error(result)
+}
+
+pub fn parse_file_dispatches_json_path_for_json_extension_test() {
+  // Call `parse_file` end-to-end so the `.json` extension dispatch
+  // is what's under test — if the routing regressed and `.json`
+  // started going through the yamerl path again, an assertion
+  // against `parse_json_string` directly wouldn't notice. Reading
+  // the file separately and calling `parse_json_string(content)`
+  // would happily pass even if the dispatch was broken.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_kin_openapi_minimal.json")
+  spec.openapi |> should.equal("3.0.0")
+}
+
+// --- YAML/JSON parity on real-world OAI examples (issue #352) ---
+//
+// The yamerl path and the OTP json:decode fast path must agree on
+// the parsed `OpenApiSpec` for any spec that is valid in both
+// serializations. These tests vendor the OpenAPI Initiative's
+// publicly distributed example specs (Apache 2.0; see
+// `test/fixtures/ATTRIBUTION.md` and the original repo at
+// https://github.com/OAI/OpenAPI-Specification/tree/3.1.1/examples)
+// in both YAML and JSON, then assert that key fields, schema
+// counts, and operation IDs match between the two paths.
+//
+// Why both formats: large public specs (GitHub REST, Stripe, etc.)
+// ship as JSON because YAML parsers tend to choke on multi-MB
+// inputs. Vendoring smaller real-world examples in both formats
+// pins the two paths' equivalence without committing 12 MB to the
+// repo.
+
+pub fn oss_oai_petstore_expanded_yaml_and_json_agree_test() {
+  // OAI petstore-expanded.yaml/.json is OAS 3.0 with components,
+  // path-level parameters, schema $refs, and validation
+  // constraints. A divergence between the YAML and JSON parsers
+  // would surface here as a different operation count, schema
+  // count, or missing component.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.json")
+
+  yaml_spec.openapi |> should.equal(json_spec.openapi)
+  yaml_spec.info.title |> should.equal(json_spec.info.title)
+  yaml_spec.info.version |> should.equal(json_spec.info.version)
+  dict.size(yaml_spec.paths) |> should.equal(dict.size(json_spec.paths))
+
+  let assert Some(yaml_components) = yaml_spec.components
+  let assert Some(json_components) = json_spec.components
+  dict.size(yaml_components.schemas)
+  |> should.equal(dict.size(json_components.schemas))
+}
+
+pub fn oss_oai_petstore_expanded_yaml_path_count_pinned_test() {
+  // Pin the absolute counts so a future regression that silently
+  // drops a path or schema (rather than diverging between YAML
+  // and JSON) still trips the test. Numbers come from the OAI
+  // 3.1.1 tag of petstore-expanded.{yaml,json}.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.yaml")
+  spec.openapi |> should.equal("3.0.0")
+  dict.size(spec.paths) |> should.equal(2)
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(3)
+}
+
+pub fn oss_oai_webhook_example_yaml_and_json_agree_test() {
+  // OAS 3.1 webhook spec — paths is empty, webhooks carries the
+  // single operation. This exercises the 3.1-only `webhooks`
+  // top-level field through both parser paths.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.json")
+
+  yaml_spec.openapi |> should.equal("3.1.0")
+  json_spec.openapi |> should.equal("3.1.0")
+  yaml_spec.info.title |> should.equal(json_spec.info.title)
+  dict.size(yaml_spec.webhooks)
+  |> should.equal(dict.size(json_spec.webhooks))
+  dict.has_key(yaml_spec.webhooks, "newPet") |> should.be_true()
+  dict.has_key(json_spec.webhooks, "newPet") |> should.be_true()
+}
+
+pub fn oss_oai_webhook_example_components_match_test() {
+  // The webhook example uses a `Pet` component referenced from the
+  // webhook body. Both parsers must surface the *same* Pet schema
+  // — same required list, same property keys. Asserting only
+  // presence + count would let a regression in property names or
+  // required ordering through; comparing the bodies catches a
+  // divergence at the schema-shape level. The fixture's `required`
+  // list is `[id, name]` in source order, which also pins the
+  // JSON FFI's array-order preservation on a real-world fixture.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.json")
+  let assert Some(yaml_c) = yaml_spec.components
+  let assert Some(json_c) = json_spec.components
+  dict.size(yaml_c.schemas) |> should.equal(dict.size(json_c.schemas))
+
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: yaml_props,
+    required: yaml_required,
+    ..,
+  ))) = dict.get(yaml_c.schemas, "Pet")
+  let assert Ok(schema.Inline(schema.ObjectSchema(
+    properties: json_props,
+    required: json_required,
+    ..,
+  ))) = dict.get(json_c.schemas, "Pet")
+
+  // `required` is a List(String), so order matters and the OAI
+  // fixture lists `id` before `name`. A divergence here means one
+  // of the two parsers lost array order.
+  yaml_required |> should.equal(["id", "name"])
+  json_required |> should.equal(yaml_required)
+
+  // Property *keys* must match across the two paths. We compare
+  // sorted key lists so the assertion is order-insensitive at the
+  // Dict layer (Erlang map iteration above 32 entries is
+  // unspecified, and ObjectSchema.properties is a Dict). Property
+  // *order* is not part of OpenAPI's contract; the array-order
+  // assertion above already pins what matters.
+  let yaml_keys = dict.keys(yaml_props) |> list.sort(string.compare)
+  let json_keys = dict.keys(json_props) |> list.sort(string.compare)
+  yaml_keys |> should.equal(json_keys)
+  yaml_keys |> should.equal(["id", "name", "tag"])
+}
+
 // --- OpenAPI version gate (issue #235) ---
 //
 // oaspec advertises itself as an OpenAPI 3.x parser/generator. Feeding it a

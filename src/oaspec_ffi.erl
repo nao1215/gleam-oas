@@ -1,5 +1,11 @@
 -module(oaspec_ffi).
--export([find_executable/1, run_executable/2, is_stdout_tty/0, no_color_set/0]).
+-export([
+    find_executable/1,
+    run_executable/2,
+    is_stdout_tty/0,
+    no_color_set/0,
+    monotonic_ms/0
+]).
 
 %% Find an executable on PATH. Returns {ok, Path} or {error, nil}.
 -spec find_executable(binary()) -> {ok, binary()} | {error, nil}.
@@ -54,3 +60,11 @@ no_color_set() ->
         "" -> false;
         _ -> true
     end.
+
+%% Monotonic millisecond timestamp from the BEAM monotonic clock.
+%% Suitable for measuring elapsed time within a single VM run. The
+%% value is unaffected by system clock adjustments and only meaningful
+%% as a difference relative to another reading on the same node.
+-spec monotonic_ms() -> integer().
+monotonic_ms() ->
+    erlang:monotonic_time(millisecond).

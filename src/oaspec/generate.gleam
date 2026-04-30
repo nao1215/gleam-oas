@@ -15,6 +15,7 @@ import oaspec/internal/openapi/hoist
 import oaspec/internal/openapi/normalize
 import oaspec/internal/openapi/resolve
 import oaspec/internal/openapi/spec.{type OpenApiSpec, type Unresolved}
+import oaspec/internal/progress.{type Reporter}
 import oaspec/openapi/diagnostic.{type Diagnostic}
 
 /// Result of a successful code generation run.
@@ -44,25 +45,50 @@ type PreparedContext {
 
 /// Shared pipeline: normalize → resolve → capability_check → hoist → dedup → validate.
 /// Returns a validated context with accumulated warnings, or errors.
+///
+/// Each stage is wrapped with `progress.timed` so `reporter` sees a
+/// "stage: X took Yms" line per phase. The GitHub REST OpenAPI is
+/// large enough that without these lines callers can't tell whether
+/// the process is hung or working — see issue #352.
 fn prepare_context(
   spec: OpenApiSpec(Unresolved),
   cfg: Config,
+  reporter: Reporter,
 ) -> Result(PreparedContext, GenerateError) {
   let spec_title = spec.info.title <> " v" <> spec.info.version
 
   // Normalize OAS 3.1 patterns to 3.0-compatible form
-  let spec = normalize.normalize(spec)
+  let #(elapsed, spec) = progress.timed(fn() { normalize.normalize(spec) })
+  progress.report(
+    reporter,
+    "normalize OAS 3.1 → 3.0 patterns (took "
+      <> progress.format_ms(elapsed)
+      <> ")",
+  )
 
   // Resolve component entry aliases ($ref within components)
+  let #(elapsed, resolved) = progress.timed(fn() { resolve.resolve(spec) })
+  progress.report(
+    reporter,
+    "resolve component $ref aliases (took "
+      <> progress.format_ms(elapsed)
+      <> ")",
+  )
   use spec <- result.try(
-    resolve.resolve(spec)
+    resolved
     |> result.map_error(fn(errors) { ValidationErrors(errors:) }),
   )
 
   // Check for unsupported features using capability registry
-  let capability_issues =
-    capability_check.check(spec)
-    |> validate.filter_by_mode(config.mode(cfg))
+  let #(elapsed, capability_issues) =
+    progress.timed(fn() {
+      capability_check.check(spec)
+      |> validate.filter_by_mode(config.mode(cfg))
+    })
+  progress.report(
+    reporter,
+    "capability check (took " <> progress.format_ms(elapsed) <> ")",
+  )
   let capability_errors = validate.errors_only(capability_issues)
   let capability_warnings = validate.warnings_only(capability_issues)
   use _ <- result.try(case list.is_empty(capability_errors) {
@@ -71,23 +97,45 @@ fn prepare_context(
   })
 
   // Hoist inline complex schemas into components.schemas
-  let spec = hoist.hoist(spec)
+  let #(elapsed, spec) = progress.timed(fn() { hoist.hoist(spec) })
+  progress.report(
+    reporter,
+    "hoist inline complex schemas (took " <> progress.format_ms(elapsed) <> ")",
+  )
 
   // Deduplicate names to avoid collisions in generated code
-  let spec = dedup.dedup(spec)
+  let #(elapsed, spec) = progress.timed(fn() { dedup.dedup(spec) })
+  progress.report(
+    reporter,
+    "deduplicate generated names (took " <> progress.format_ms(elapsed) <> ")",
+  )
 
   // Create generation context
   let ctx = context.new(spec, cfg)
 
   // Check for parsed-but-unused features (capability warnings)
-  let preserved_warnings =
-    capability_check.check_preserved(ctx)
-    |> diagnostic.filter_by_mode(config.mode(cfg))
+  let #(elapsed, preserved_warnings) =
+    progress.timed(fn() {
+      capability_check.check_preserved(ctx)
+      |> diagnostic.filter_by_mode(config.mode(cfg))
+    })
+  progress.report(
+    reporter,
+    "preserved-feature warnings (took " <> progress.format_ms(elapsed) <> ")",
+  )
 
   // Validate spec for unsupported features
-  let validation_issues =
-    validate.validate(ctx)
-    |> validate.filter_by_mode(config.mode(cfg))
+  let #(elapsed, validation_issues) =
+    progress.timed(fn() {
+      validate.validate(ctx)
+      |> validate.filter_by_mode(config.mode(cfg))
+    })
+  progress.report(
+    reporter,
+    "validate spec for unsupported features (took "
+      <> progress.format_ms(elapsed)
+      <> ")",
+  )
   let blocking_errors = validate.errors_only(validation_issues)
   let validation_warnings = validate.warnings_only(validation_issues)
   use _ <- result.try(case list.is_empty(blocking_errors) {
@@ -107,8 +155,25 @@ pub fn generate(
   spec: OpenApiSpec(Unresolved),
   cfg: Config,
 ) -> Result(GenerationSummary, GenerateError) {
-  use prepared <- result.try(prepare_context(spec, cfg))
-  let files = generate_all_files(prepared.ctx)
+  generate_with_progress(spec, cfg, progress.noop())
+}
+
+/// Same as `generate`, with a `Reporter` that receives one line per
+/// pipeline stage with elapsed time. Used by the CLI to surface
+/// progress for large specs (issue #352); library callers should
+/// prefer `generate` and pass `progress.noop()` if needed.
+pub fn generate_with_progress(
+  spec: OpenApiSpec(Unresolved),
+  cfg: Config,
+  reporter: Reporter,
+) -> Result(GenerationSummary, GenerateError) {
+  use prepared <- result.try(prepare_context(spec, cfg, reporter))
+  let #(elapsed, files) =
+    progress.timed(fn() { generate_all_files(prepared.ctx) })
+  progress.report(
+    reporter,
+    "render generated source files (took " <> progress.format_ms(elapsed) <> ")",
+  )
   Ok(GenerationSummary(
     files:,
     spec_title: prepared.spec_title,
@@ -122,7 +187,17 @@ pub fn validate_only(
   spec: OpenApiSpec(Unresolved),
   cfg: Config,
 ) -> Result(ValidationSummary, GenerateError) {
-  use prepared <- result.try(prepare_context(spec, cfg))
+  validate_only_with_progress(spec, cfg, progress.noop())
+}
+
+/// Same as `validate_only`, with a `Reporter` that receives one line
+/// per pipeline stage with elapsed time. See `generate_with_progress`.
+pub fn validate_only_with_progress(
+  spec: OpenApiSpec(Unresolved),
+  cfg: Config,
+  reporter: Reporter,
+) -> Result(ValidationSummary, GenerateError) {
+  use prepared <- result.try(prepare_context(spec, cfg, reporter))
   Ok(ValidationSummary(
     spec_title: prepared.spec_title,
     warnings: prepared.warnings,

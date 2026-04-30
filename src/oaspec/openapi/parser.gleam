@@ -23,6 +23,7 @@ import oaspec/internal/openapi/spec.{
   Value,
 }
 import oaspec/internal/openapi/value
+import oaspec/internal/progress.{type Reporter}
 import oaspec/internal/util/http
 import oaspec/openapi/diagnostic.{type Diagnostic, NoSourceLoc, SourceLoc}
 import simplifile
@@ -35,7 +36,17 @@ import yay
 /// merging their schemas. Nested or parameter/response external refs are
 /// left to downstream validation.
 pub fn parse_file(path: String) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
-  parse_file_internal(path, [])
+  parse_file_with_progress(path, progress.noop())
+}
+
+/// Same as `parse_file`, with a `Reporter` that receives a line per
+/// stage (read, parse, resolve external refs). Used by the CLI to
+/// give the user feedback on big specs (issue #352).
+pub fn parse_file_with_progress(
+  path: String,
+  reporter: Reporter,
+) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
+  parse_file_internal(path, [], reporter)
 }
 
 /// Internal parse entry that threads the `visited` stack through every
@@ -44,6 +55,7 @@ pub fn parse_file(path: String) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
 fn parse_file_internal(
   path: String,
   visited: List(String),
+  reporter: Reporter,
 ) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
   let canonical = canonicalize_ref_path(path)
   use <- bool.guard(
@@ -51,8 +63,9 @@ fn parse_file_internal(
     Error(cyclic_external_ref_diagnostic(canonical, visited)),
   )
 
+  let #(elapsed, read_result) = progress.timed(fn() { simplifile.read(path) })
   use content <- result.try(
-    simplifile.read(path)
+    read_result
     |> result.map_error(fn(err) {
       diagnostic.file_error(
         detail: "Cannot read file: "
@@ -63,14 +76,63 @@ fn parse_file_internal(
       )
     }),
   )
-
-  use spec <- result.try(parse_string(content))
-  let new_visited = [canonical, ..visited]
-  external_loader.resolve_external_component_refs(
-    spec,
-    external_loader.base_dir_of(path),
-    fn(sub_path) { parse_file_internal(sub_path, new_visited) },
+  progress.report(
+    reporter,
+    "read "
+      <> path
+      <> " ("
+      <> format_size(string.byte_size(content))
+      <> ", took "
+      <> progress.format_ms(elapsed)
+      <> ")",
   )
+
+  let is_json = looks_like_json_path(path)
+  let #(elapsed, parsed) =
+    progress.timed(fn() {
+      case is_json {
+        True -> parse_json_string(content)
+        False -> parse_string(content)
+      }
+    })
+  progress.report(reporter, case is_json {
+    True ->
+      "parse JSON document via OTP json (took "
+      <> progress.format_ms(elapsed)
+      <> ")"
+    False ->
+      "parse YAML document via yamerl (took "
+      <> progress.format_ms(elapsed)
+      <> ")"
+  })
+  use spec <- result.try(parsed)
+  let new_visited = [canonical, ..visited]
+  let #(elapsed, resolved) =
+    progress.timed(fn() {
+      external_loader.resolve_external_component_refs(
+        spec,
+        external_loader.base_dir_of(path),
+        fn(sub_path) { parse_file_internal(sub_path, new_visited, reporter) },
+      )
+    })
+  progress.report(
+    reporter,
+    "resolve relative-file $ref components (took "
+      <> progress.format_ms(elapsed)
+      <> ")",
+  )
+  resolved
+}
+
+fn format_size(bytes: Int) -> String {
+  case bytes < 1024 {
+    True -> int.to_string(bytes) <> " B"
+    False ->
+      case bytes < 1024 * 1024 {
+        True -> int.to_string(bytes / 1024) <> " KiB"
+        False -> int.to_string(bytes / { 1024 * 1024 }) <> " MiB"
+      }
+  }
 }
 
 /// Normalize a path string for cycle detection. This is not a full
@@ -103,10 +165,41 @@ fn cyclic_external_ref_diagnostic(
   )
 }
 
-/// Parse an OpenAPI spec from a YAML/JSON string.
+/// Parse an OpenAPI spec from a YAML/JSON string. The default path
+/// runs the input through yamerl, which preserves YAML semantics and
+/// source locations but is too slow on large JSON specs (the GitHub
+/// REST OpenAPI is ~12 MB and yamerl effectively hangs — see issue
+/// #352). Use `parse_json_string` directly when the content is known
+/// to be JSON.
 pub fn parse_string(
   content: String,
 ) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
+  use #(root, index) <- result.try(parse_to_node(content))
+  parse_root(root, index)
+}
+
+/// Parse an OpenAPI spec from a JSON string using OTP's native JSON
+/// decoder instead of yamerl. Roughly two orders of magnitude faster
+/// than `parse_string` on large specs because the YAML pre-processing
+/// and constructor passes are skipped (issue #352). Behaves like
+/// `parse_string` once the tree is built — same `OpenApiSpec` shape,
+/// same downstream pipeline. Diagnostics from this path do not carry
+/// source line/column info because OTP `json:decode/3` does not
+/// expose decoder positions; the caller still gets the path-prefixed
+/// error message that downstream tooling relies on.
+pub fn parse_json_string(
+  content: String,
+) -> Result(OpenApiSpec(Unresolved), Diagnostic) {
+  use root <- result.try(decode_json_to_node(content))
+  parse_root(root, location_index.empty())
+}
+
+/// Run yamerl on `content` and return the root node plus a
+/// location index built from the same content. Both pieces are
+/// consumed by `parse_root` to produce the OpenApiSpec.
+fn parse_to_node(
+  content: String,
+) -> Result(#(yay.Node, LocationIndex), Diagnostic) {
   use docs <- result.try(
     yay.parse_string(content)
     |> result.map_error(fn(e) {
@@ -133,7 +226,44 @@ pub fn parse_string(
 
   let root = yay.document_root(doc)
   let index = location_index.build(content)
-  parse_root(root, index)
+  Ok(#(root, index))
+}
+
+@external(erlang, "oaspec_json_ffi", "parse_string")
+fn ffi_parse_json(content: String) -> Result(List(yay.Document), yay.YamlError)
+
+/// Decode a JSON string into a yay.Node via the OTP `json` module.
+/// Wraps the FFI's `Result(List(Document), YamlError)` shape into a
+/// `Diagnostic` so it lines up with `parse_to_node`'s contract.
+fn decode_json_to_node(content: String) -> Result(yay.Node, Diagnostic) {
+  use docs <- result.try(
+    ffi_parse_json(content)
+    |> result.map_error(fn(e) {
+      case e {
+        yay.ParsingError(msg:, loc:) ->
+          diagnostic.yaml_error(detail: msg, loc: case loc.line, loc.column {
+            0, 0 -> NoSourceLoc
+            _, _ -> SourceLoc(line: loc.line, column: loc.column)
+          })
+        yay.UnexpectedParsingError ->
+          diagnostic.yaml_error(
+            detail: "Unexpected JSON parsing error",
+            loc: NoSourceLoc,
+          )
+      }
+    }),
+  )
+
+  case docs {
+    [first, ..] -> Ok(yay.document_root(first))
+    [] ->
+      Error(diagnostic.yaml_error(detail: "Empty document", loc: NoSourceLoc))
+  }
+}
+
+fn looks_like_json_path(path: String) -> Bool {
+  let lower = string.lowercase(path)
+  string.ends_with(lower, ".json")
 }
 
 /// Parse the root OpenAPI object.
