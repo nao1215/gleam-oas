@@ -17,7 +17,7 @@ import oaspec/internal/util/content_type
 import oaspec/internal/util/http
 import oaspec/internal/util/naming
 import oaspec/openapi/diagnostic.{
-  type Diagnostic, SeverityError, TargetBoth, TargetServer,
+  type Diagnostic, SeverityError, SeverityWarning, TargetBoth, TargetServer,
 }
 
 /// Validate the parsed spec for unsupported patterns.
@@ -550,6 +550,25 @@ fn validate_server_cookie_param(
 
 /// Check if a parameter has a complex schema (object, oneOf, allOf, anyOf)
 /// that is not handled by deepObject style.
+///
+/// Path parameters: complex schemas in path params are still a hard
+/// error for server codegen — there is no sensible way to extract a
+/// nested object from a single path segment.
+///
+/// Query / header / cookie parameters: when the spec author omits
+/// `style`, the OpenAPI default is `form`, which only serializes
+/// primitives cleanly. Real-world specs (the GitHub REST OpenAPI is
+/// the canonical example — `cwes`, `affects`, `has`, `fields` are all
+/// `oneOf: [string, array<string>]`) routinely declare complex
+/// query parameters without an explicit style. Refusing those was
+/// blocking codegen on otherwise-supported specs, so we now emit a
+/// warning and let the parameter through. The generated client uses
+/// the form-style fallback (the same path that a primitive query
+/// parameter takes), which round-trips correctly for `oneOf`-of-
+/// primitives and for shallow `object` schemas with primitive
+/// properties — the two shapes that show up in practice. Spec
+/// authors who need true deepObject serialization should still
+/// declare `style: deepObject` explicitly. (issue #352)
 fn validate_complex_param_schema(
   path: String,
   param: spec.Parameter(Resolved),
@@ -585,12 +604,12 @@ fn validate_complex_param_schema(
               }
             _ -> [
               diagnostic.validation(
-                severity: SeverityError,
+                severity: SeverityWarning,
                 target: TargetBoth,
                 path: path,
-                detail: "Complex schema (object/oneOf/allOf/anyOf) parameters require style: deepObject. Without it, the parameter cannot be serialized.",
+                detail: "Complex schema (object/oneOf/allOf/anyOf) parameter has no explicit 'style'; falling back to form-style serialization. This works for oneOf-of-primitives and shallow objects but may not match the spec author's intent for deeply nested objects.",
                 hint: Some(
-                  "Add 'style: deepObject' to the parameter definition.",
+                  "Declare 'style: deepObject' explicitly if the parameter encodes a structured object.",
                 ),
               ),
             ]

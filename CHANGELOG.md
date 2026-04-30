@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Unrecognized `text/*` and `application/*` content types now fall
+  back to passthrough aliases instead of failing validation.** Real-
+  world specs (the GitHub REST OpenAPI is the canonical example)
+  routinely declare `text/html`, `application/vnd.github.diff`,
+  `application/octocat-stream`, and similar vendor-prefixed media
+  types. The parser now folds any unrecognized `text/*` to
+  `TextPlain` (raw String body) and any unrecognized `application/*`
+  to `ApplicationOctetStream` (raw bytes); other top-level types
+  (`image/*`, `audio/*`, `video/*`) still fail with the existing
+  unsupported-content-type diagnostic. The original media-type
+  string is preserved verbatim in the generated server's
+  `Content-Type` response header so the wire-level contract is
+  unchanged. (#352)
+- **Complex query / header / cookie parameters without an explicit
+  `style` now warn instead of erroring.** The OpenAPI 3.x default
+  style for query is `form`, which only handles primitives cleanly,
+  but real-world specs (the GitHub REST API's `cwes`, `affects`,
+  `has`, `fields` parameters all declared as
+  `oneOf: [string, array<string>]` with no `style`) routinely omit
+  the declaration. The generator now falls back to form-style
+  serialization (which round-trips correctly for `oneOf` of
+  primitives and shallow objects) and emits a warning prompting
+  the spec author to be explicit if true `deepObject` semantics are
+  required. Path parameters with complex schemas continue to be a
+  hard error for server codegen. (#352)
+
+### Fixed
+
+- **Property and enum names starting with `+`, `-`, or a digit are
+  now mapped to valid Gleam identifiers.** GitHub's reaction-count
+  schema uses `+1` and `-1` keys; both previously collapsed to a
+  bare `1`, colliding with each other and producing
+  `DiscussionReactions(1: Int, 1_2: Int, ...)` — invalid Gleam.
+  `to_snake_case` and `to_pascal_case` now rewrite a leading `+` /
+  `-` to `plus_` / `minus_` (so `+1` → `plus_1`, `-1` → `minus_1`)
+  and prepend `n_` / `N` when the result still starts with a digit
+  (so `404` → `n_404` for fields and `N404` for variants). (#352)
+
 ### Added
 
 - **JSON specs are now parsed via OTP's native `json:decode/3`** instead
