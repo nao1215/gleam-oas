@@ -81,6 +81,7 @@ BEAM-only packages (`simplifile`, `glint`, `argv`, `yay`).
 | `oaspec/internal/openapi/schema.gleam` | Schema AST |
 | `oaspec/internal/openapi/spec.gleam` | OpenAPI document AST |
 | `oaspec/internal/openapi/value.gleam` | Target-neutral `JsonValue` type |
+| `oaspec/internal/openapi/resolve.gleam` | `$ref` resolution (uses dual-target `@external` so the phantom-type cast is a runtime no-op on both BEAM and JS) |
 
 ### BEAM-coupled (requires the Erlang target today)
 
@@ -101,7 +102,6 @@ or transitively depend on a BEAM-only data type (e.g. yay nodes).
 | `oaspec/internal/openapi/parser_error.gleam` | Carries `yay` node positions |
 | `oaspec/internal/openapi/parser_schema.gleam` | Operates on `yay` nodes |
 | `oaspec/internal/openapi/parser_value.gleam` | Bridges `yay` nodes to the pure `JsonValue` type |
-| `oaspec/internal/openapi/resolve.gleam` | Uses `@external(erlang, "gleam_stdlib", "identity")` (could be lifted) |
 
 The four `.erl` files in `src/` (`oaspec_ffi.erl`, `oaspec_json_ffi.erl`,
 `yaml_loc_ffi.erl`) are unconditionally Erlang-only.

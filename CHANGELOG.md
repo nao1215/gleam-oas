@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: make `oaspec/internal/openapi/resolve` cross-target.**
+  The `coerce_stage` phantom-type cast now declares both an Erlang
+  and a JavaScript `@external` so it is a runtime no-op on either
+  Gleam target. The function is unchanged at runtime — `OpenApiSpec`
+  is byte-for-byte identical before and after the cast — but the
+  module no longer counts as BEAM-coupled in `ARCHITECTURE.md`.
+  (#344)
+
 ## [0.34.0] - 2026-04-30
 
 ### Changed
