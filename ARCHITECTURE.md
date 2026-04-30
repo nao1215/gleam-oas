@@ -82,6 +82,7 @@ BEAM-only packages (`simplifile`, `glint`, `argv`, `yay`).
 | `oaspec/internal/openapi/spec.gleam` | OpenAPI document AST |
 | `oaspec/internal/openapi/value.gleam` | Target-neutral `JsonValue` type |
 | `oaspec/internal/openapi/resolve.gleam` | `$ref` resolution (uses dual-target `@external` so the phantom-type cast is a runtime no-op on both BEAM and JS) |
+| `oaspec/internal/openapi/parser_error.gleam` | Pure helper for `missing_field` diagnostics with hint detail |
 
 ### BEAM-coupled (requires the Erlang target today)
 
@@ -99,9 +100,9 @@ or transitively depend on a BEAM-only data type (e.g. yay nodes).
 | `oaspec/internal/progress.gleam` | Monotonic clock via FFI for elapsed-time reporting |
 | `oaspec/internal/openapi/external_loader.gleam` | Loads remote `$ref` files via `simplifile` |
 | `oaspec/internal/openapi/location_index.gleam` | Walks yamerl AST via `yaml_loc_ffi` |
-| `oaspec/internal/openapi/parser_error.gleam` | Carries `yay` node positions |
 | `oaspec/internal/openapi/parser_schema.gleam` | Operates on `yay` nodes |
 | `oaspec/internal/openapi/parser_value.gleam` | Bridges `yay` nodes to the pure `JsonValue` type |
+| `oaspec/internal/openapi/parser_yay_error.gleam` | Bridges `yay` extraction / selector errors to pure diagnostic hints |
 
 The four `.erl` files in `src/` (`oaspec_ffi.erl`, `oaspec_json_ffi.erl`,
 `yaml_loc_ffi.erl`) are unconditionally Erlang-only.

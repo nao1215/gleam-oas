@@ -9,8 +9,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import oaspec/internal/openapi/location_index.{type LocationIndex}
-import oaspec/internal/openapi/parser_error
 import oaspec/internal/openapi/parser_value
+import oaspec/internal/openapi/parser_yay_error
 import oaspec/internal/openapi/schema.{
   type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
   AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
@@ -484,7 +484,7 @@ fn parse_discriminator(
 ) -> Result(Discriminator, Diagnostic) {
   use disc_node <- result.try(
     yay.select_sugar(from: node, selector: "discriminator")
-    |> result.map_error(parser_error.missing_field_from_selector(
+    |> result.map_error(parser_yay_error.missing_field_from_selector(
       _,
       path: "schema",
       field: "discriminator",
@@ -494,7 +494,7 @@ fn parse_discriminator(
 
   use property_name <- result.try(
     yay.extract_string(disc_node, "propertyName")
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "discriminator",
       field: "propertyName",
