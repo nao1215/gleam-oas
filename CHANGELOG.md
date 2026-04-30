@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-04-30
+
 ### Changed
 
 - **Unrecognized `text/*` and `application/*` content types now fall
