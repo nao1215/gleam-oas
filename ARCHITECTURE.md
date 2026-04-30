@@ -124,9 +124,9 @@ specific HTTP runtime, which is what makes per-target adapters viable.
 ## Minimum pure surface
 
 The following modules form the largest contiguous pure subgraph of the
-codebase. They could, in principle, be compiled with `target = "javascript"`
-once the BEAM-coupled inputs they currently consume (parsed `yay` nodes) are
-replaced by a target-agnostic equivalent:
+codebase. They are pure Gleam in the "Pure" sense above (no `yay`,
+`simplifile`, `glint`, `argv`, or `@external(erlang, ...)` imports of
+their own):
 
 - `oaspec/transport.gleam`, `oaspec/mock.gleam`
 - `oaspec/openapi/diagnostic.gleam`
@@ -136,11 +136,29 @@ replaced by a target-agnostic equivalent:
 - The pure subset of `oaspec/internal/openapi/**` (see table above)
 - `oaspec/generate.gleam`, once given an already-loaded spec value
 
-The blocker is that today's spec input arrives as `yay` nodes from
-`oaspec/openapi/parser.gleam`, and `yay` is BEAM-only. Decoupling the
-analysis core from `yay` (e.g. by introducing a target-neutral spec value
-type at the `parser.gleam` boundary) is the largest single piece of work
-required before any of the above could actually be cross-compiled.
+### What's actually JS-runnable today
+
+A subset of the surface above genuinely compiles _and_ runs on
+`target = "javascript"`:
+
+- `oaspec/transport.gleam`
+- `oaspec/mock.gleam`
+
+This is verified continuously by the `examples/js_smoke` example,
+which is built and run in CI as a Node program. Any change that
+re-couples those modules to BEAM-only code will break that job.
+
+### What's still blocked
+
+The other "Pure" modules above are pure at the source level but pull
+in BEAM-coupled code through transitive imports — most importantly
+`oaspec/openapi/diagnostic` → `oaspec/config` → `yay`, and `yay`'s
+JS FFI requires the `js-yaml` npm package, which fails to resolve in
+a plain `gleam run` on Node. Decoupling those transitive imports
+(introducing a target-neutral spec value type at the
+`oaspec/openapi/parser` boundary so the analysis core stops needing
+`yay`-typed inputs) is the largest single piece of work between
+today and a cross-target analysis core.
 
 ## BEAM shell coupling points
 

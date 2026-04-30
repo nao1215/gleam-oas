@@ -1,0 +1,8 @@
+name = "js_smoke"
+version = "0.0.0"
+target = "javascript"
+description = "Smoke test that the documented pure subset of oaspec compiles and runs on the JavaScript target."
+
+[dependencies]
+oaspec = { path = "../.." }
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
