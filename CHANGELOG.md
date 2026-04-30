@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: split the BEAM-only `yay` bridge out of
+  `oaspec/internal/openapi/value`.** The `JsonValue` type now lives
+  in a pure Gleam module with no `yay` dependency, and the
+  `extract_optional` / `extract_map` helpers that walk `yay` nodes
+  have moved to a new `parser_value` sibling module. Behavior is
+  unchanged; this shrinks the BEAM-coupled module count by one and
+  makes `value.gleam` actually compile on any Gleam target, in line
+  with the boundary documented in `ARCHITECTURE.md`. (#344)
+
 ## [0.33.0] - 2026-04-30
 
 ### Added

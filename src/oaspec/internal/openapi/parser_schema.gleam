@@ -10,12 +10,12 @@ import gleam/option.{None, Some}
 import gleam/result
 import oaspec/internal/openapi/location_index.{type LocationIndex}
 import oaspec/internal/openapi/parser_error
+import oaspec/internal/openapi/parser_value
 import oaspec/internal/openapi/schema.{
   type Discriminator, type SchemaObject, type SchemaRef, AllOfSchema,
   AnyOfSchema, ArraySchema, BooleanSchema, Discriminator, Inline, IntegerSchema,
   NumberSchema, ObjectSchema, OneOfSchema, StringSchema,
 }
-import oaspec/internal/openapi/value
 import oaspec/openapi/diagnostic.{type Diagnostic}
 import yay
 
@@ -68,11 +68,11 @@ fn parse_schema_object(
     |> result.unwrap(None)
     |> option.unwrap(False)
 
-  let default = value.extract_optional(node, "default")
+  let default = parser_value.extract_optional(node, "default")
 
-  let example = value.extract_optional(node, "example")
+  let example = parser_value.extract_optional(node, "example")
 
-  let const_value = value.extract_optional(node, "const")
+  let const_value = parser_value.extract_optional(node, "const")
 
   let unsupported_keywords = detect_unsupported_keywords(node)
 
