@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`examples/js_smoke` and a CI step that builds + runs it on
+  `target = "javascript"`.** This is the first executable proof
+  that oaspec's documented pure subgraph compiles and runs on a
+  non-BEAM target: the example imports `oaspec/transport` and
+  `oaspec/mock`, builds with Gleam's JS backend, and runs to
+  completion on Node. Any future change that re-couples those
+  modules to BEAM-only code will fail the CI job. (#344)
+
+### Changed
+
+- **`ARCHITECTURE.md` updated to distinguish "source-level pure"
+  from "actually JS-runnable today".** Many modules listed under
+  "Pure" still pull in `oaspec/config` (and through it `yay`) via
+  transitive imports, so a JS-target build of those modules works
+  but module-load on Node fails because `yay`'s JS FFI requires the
+  `js-yaml` npm package. The doc now states that explicitly and
+  identifies decoupling that transitive chain as the largest piece
+  of remaining cross-target work. (#344)
+
 ## [0.37.0] - 2026-04-30
 
 ### Changed
