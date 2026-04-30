@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **JSON specs are now parsed via OTP's native `json:decode/3`** instead
+  of yamerl, restoring usability on large public OpenAPI documents.
+  Routing every input through yamerl was effectively hanging on real-
+  world specs — the GitHub REST OpenAPI (~12 MB JSON) was processed in
+  >10 minutes before this change and now finishes parse + validate in
+  ~4 seconds. Parser dispatch is by file extension: `.json` takes the
+  fast path, `.yaml`/`.yml` keeps the existing yamerl path so any spec
+  that depends on YAML semantics is unaffected. JSON object key order
+  is preserved with custom decoders so codegen output ordering stays
+  deterministic. A new public entry point `parser.parse_json_string`
+  is available for callers that have JSON content in memory. (#352)
+- **Pipeline progress reporter** that emits one `[+elapsed] stage`
+  line per phase (read, parse, normalize, resolve, capability check,
+  hoist, dedup, validate, render) when the CLI runs `oaspec generate`
+  or `oaspec validate`. Large public specs spent enough time in each
+  phase that "stuck or working?" was unanswerable; the new reporter
+  surfaces real-time stage timing. The pure library API
+  (`generate.generate`, `generate.validate_only`,
+  `parser.parse_file`) is unchanged; opt in via the new
+  `*_with_progress` variants and `progress.from_fn` /
+  `progress.stdout_with_elapsed`. (#352)
+- **4 OAI-derived test fixtures** (`oss_oai_petstore_expanded.yaml`,
+  `oss_oai_petstore_expanded.json`, `oss_oai_webhook_example.yaml`,
+  `oss_oai_webhook_example.json`) from the OpenAPI Initiative's
+  examples (Apache-2.0, sourced from the `OAI/OpenAPI-Specification`
+  repository at tag `3.1.1`). Each fixture is vendored in both YAML
+  and JSON to drive new YAML/JSON parser parity tests covering OAS
+  3.0 components and OAS 3.1 webhooks.
+
 ## [0.31.0] - 2026-04-30
 
 ### Added

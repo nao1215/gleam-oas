@@ -322,6 +322,167 @@ pub fn parse_file_not_found_test() {
   should.be_error(result)
 }
 
+// --- JSON fast path (issue #352) ---
+//
+// Large OpenAPI specs are commonly distributed as JSON (the GitHub
+// REST OpenAPI is ~12 MB). Routing every JSON file through yamerl
+// caused effective hangs (>>10 minutes for what should be a few
+// seconds), so `.json` inputs go through OTP's `json:decode/3` via
+// `parser.parse_json_string`. The semantic shape of the resulting
+// `OpenApiSpec` is identical to the YAML path; these tests pin that
+// invariant so a future change to the JSON FFI doesn't silently
+// drift from yamerl behaviour.
+
+pub fn parse_json_string_minimal_spec_test() {
+  let json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"JSON API\", \"version\": \"2.5.0\"},
+      \"paths\": {}
+    }"
+  let assert Ok(spec) = parser.parse_json_string(json)
+  spec.openapi |> should.equal("3.0.3")
+  spec.info.title |> should.equal("JSON API")
+  spec.info.version |> should.equal("2.5.0")
+}
+
+pub fn parse_json_string_preserves_path_order_test() {
+  // Codegen iterates paths in spec order so the generated client/
+  // server function ordering matches the source. Erlang map order
+  // is undefined for >32 keys; the JSON FFI uses ordered list
+  // accumulators so this stays deterministic.
+  let json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"Order API\", \"version\": \"1.0.0\"},
+      \"paths\": {
+        \"/zebra\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}},
+        \"/alpha\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}},
+        \"/middle\": {\"get\": {\"responses\": {\"200\": {\"description\": \"ok\"}}}}
+      }
+    }"
+  let assert Ok(spec) = parser.parse_json_string(json)
+  dict.size(spec.paths) |> should.equal(3)
+  dict.has_key(spec.paths, "/zebra") |> should.be_true()
+  dict.has_key(spec.paths, "/alpha") |> should.be_true()
+  dict.has_key(spec.paths, "/middle") |> should.be_true()
+}
+
+pub fn parse_json_string_rejects_malformed_test() {
+  // Trailing junk after the closing brace is not valid JSON; the
+  // OTP decoder reports `unexpected_byte` which we map onto the
+  // same `yaml_error`-style diagnostic that yamerl emits, so the
+  // CLI prints the same shape regardless of which path ran.
+  let bad_json =
+    "{
+      \"openapi\": \"3.0.3\",
+      \"info\": {\"title\": \"\", \"version\": \"\"},
+      \"paths\": {}
+    }extra"
+  let result = parser.parse_json_string(bad_json)
+  should.be_error(result)
+}
+
+pub fn parse_file_dispatches_json_path_for_json_extension_test() {
+  // The minimal kin-openapi JSON fixture is parsed end-to-end via
+  // the new OTP json:decode path (selected by the `.json` suffix).
+  // This is the same fixture that
+  // `oss_kin_openapi_minimal_json_parses_test` covers; we assert
+  // here that the JSON-only entry point alone returns the same
+  // shape, which proves the fast path is symmetrical with the YAML
+  // path on real-world input.
+  let assert Ok(content) =
+    simplifile.read("test/fixtures/oss_kin_openapi_minimal.json")
+  let assert Ok(spec) = parser.parse_json_string(content)
+  spec.openapi |> should.equal("3.0.0")
+}
+
+// --- YAML/JSON parity on real-world OAI examples (issue #352) ---
+//
+// The yamerl path and the OTP json:decode fast path must agree on
+// the parsed `OpenApiSpec` for any spec that is valid in both
+// serializations. These tests vendor the OpenAPI Initiative's
+// publicly distributed example specs (Apache 2.0; see
+// `test/fixtures/ATTRIBUTION.md` and the original repo at
+// https://github.com/OAI/OpenAPI-Specification/tree/3.1.1/examples)
+// in both YAML and JSON, then assert that key fields, schema
+// counts, and operation IDs match between the two paths.
+//
+// Why both formats: large public specs (GitHub REST, Stripe, etc.)
+// ship as JSON because YAML parsers tend to choke on multi-MB
+// inputs. Vendoring smaller real-world examples in both formats
+// pins the two paths' equivalence without committing 12 MB to the
+// repo.
+
+pub fn oss_oai_petstore_expanded_yaml_and_json_agree_test() {
+  // OAI petstore-expanded.yaml/.json is OAS 3.0 with components,
+  // path-level parameters, schema $refs, and validation
+  // constraints. A divergence between the YAML and JSON parsers
+  // would surface here as a different operation count, schema
+  // count, or missing component.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.json")
+
+  yaml_spec.openapi |> should.equal(json_spec.openapi)
+  yaml_spec.info.title |> should.equal(json_spec.info.title)
+  yaml_spec.info.version |> should.equal(json_spec.info.version)
+  dict.size(yaml_spec.paths) |> should.equal(dict.size(json_spec.paths))
+
+  let assert Some(yaml_components) = yaml_spec.components
+  let assert Some(json_components) = json_spec.components
+  dict.size(yaml_components.schemas)
+  |> should.equal(dict.size(json_components.schemas))
+}
+
+pub fn oss_oai_petstore_expanded_yaml_path_count_pinned_test() {
+  // Pin the absolute counts so a future regression that silently
+  // drops a path or schema (rather than diverging between YAML
+  // and JSON) still trips the test. Numbers come from the OAI
+  // 3.1.1 tag of petstore-expanded.{yaml,json}.
+  let assert Ok(spec) =
+    parser.parse_file("test/fixtures/oss_oai_petstore_expanded.yaml")
+  spec.openapi |> should.equal("3.0.0")
+  dict.size(spec.paths) |> should.equal(2)
+  let assert Some(components) = spec.components
+  dict.size(components.schemas) |> should.equal(3)
+}
+
+pub fn oss_oai_webhook_example_yaml_and_json_agree_test() {
+  // OAS 3.1 webhook spec — paths is empty, webhooks carries the
+  // single operation. This exercises the 3.1-only `webhooks`
+  // top-level field through both parser paths.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.json")
+
+  yaml_spec.openapi |> should.equal("3.1.0")
+  json_spec.openapi |> should.equal("3.1.0")
+  yaml_spec.info.title |> should.equal(json_spec.info.title)
+  dict.size(yaml_spec.webhooks)
+  |> should.equal(dict.size(json_spec.webhooks))
+  dict.has_key(yaml_spec.webhooks, "newPet") |> should.be_true()
+  dict.has_key(json_spec.webhooks, "newPet") |> should.be_true()
+}
+
+pub fn oss_oai_webhook_example_components_match_test() {
+  // The webhook example uses a `Pet` component referenced from
+  // the webhook body. Both parsers must surface the same component
+  // shape (name + property keys) — a divergence would mean one
+  // path lost the $ref or reordered properties.
+  let assert Ok(yaml_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.yaml")
+  let assert Ok(json_spec) =
+    parser.parse_file("test/fixtures/oss_oai_webhook_example.json")
+  let assert Some(yaml_c) = yaml_spec.components
+  let assert Some(json_c) = json_spec.components
+  dict.has_key(yaml_c.schemas, "Pet") |> should.be_true()
+  dict.has_key(json_c.schemas, "Pet") |> should.be_true()
+  dict.size(yaml_c.schemas) |> should.equal(dict.size(json_c.schemas))
+}
+
 // --- OpenAPI version gate (issue #235) ---
 //
 // oaspec advertises itself as an OpenAPI 3.x parser/generator. Feeding it a

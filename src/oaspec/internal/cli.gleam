@@ -11,6 +11,7 @@ import oaspec/config
 import oaspec/generate
 import oaspec/internal/codegen/context
 import oaspec/internal/formatter
+import oaspec/internal/progress
 import oaspec/openapi/diagnostic
 import oaspec/openapi/parser
 import simplifile
@@ -275,11 +276,16 @@ fn run_generate(
   }
 
   io.println("Parsing OpenAPI spec: " <> config.input(cfg))
-  use spec <- require(parser.parse_file(config.input(cfg)), fn(e) {
-    "Error: " <> parser.parse_error_to_string(e)
-  })
+  let reporter = progress.stdout_with_elapsed()
+  use spec <- require(
+    parser.parse_file_with_progress(config.input(cfg), reporter),
+    fn(e) { "Error: " <> parser.parse_error_to_string(e) },
+  )
 
-  use summary <- require(generate.generate(spec, cfg), format_generate_error)
+  use summary <- require(
+    generate.generate_with_progress(spec, cfg, reporter),
+    format_generate_error,
+  )
 
   io.println("Spec loaded: " <> summary.spec_title)
   print_warnings(summary.warnings)
@@ -487,12 +493,14 @@ fn run_validate(config_path: String, mode_opt: Option(String)) -> Nil {
   )
 
   io.println("Parsing OpenAPI spec: " <> config.input(cfg))
-  use spec <- require(parser.parse_file(config.input(cfg)), fn(e) {
-    "Error: " <> parser.parse_error_to_string(e)
-  })
+  let reporter = progress.stdout_with_elapsed()
+  use spec <- require(
+    parser.parse_file_with_progress(config.input(cfg), reporter),
+    fn(e) { "Error: " <> parser.parse_error_to_string(e) },
+  )
 
   use summary <- require(
-    generate.validate_only(spec, cfg),
+    generate.validate_only_with_progress(spec, cfg, reporter),
     format_generate_error,
   )
 
