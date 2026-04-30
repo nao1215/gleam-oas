@@ -71,7 +71,46 @@ pub fn naming_to_snake_case_pascal_with_letter_digit_suffix_test() {
 
 pub fn naming_to_snake_case_digit_letter_still_splits_test() {
   // Digit→letter remains a split point — only letter→digit is glued.
-  naming.to_snake_case("256sha") |> should.equal("256_sha")
+  // The leading-digit guard then prepends `n_` so the result is a
+  // valid Gleam identifier (issue #352).
+  naming.to_snake_case("256sha") |> should.equal("n_256_sha")
+}
+
+pub fn naming_to_snake_case_leading_plus_becomes_plus_prefix_test() {
+  // GitHub's `+1` reaction key would otherwise collapse to `"1"`,
+  // colliding with `-1` and producing invalid identifiers — see #352.
+  naming.to_snake_case("+1") |> should.equal("plus_1")
+  naming.to_snake_case("+up_vote") |> should.equal("plus_up_vote")
+}
+
+pub fn naming_to_snake_case_leading_minus_becomes_minus_prefix_test() {
+  // The mirror of the `+` case so `+1` and `-1` end up at distinct
+  // identifiers (`plus_1` vs `minus_1`) instead of both collapsing
+  // to `1` and getting deduped to `1` / `1_2`.
+  naming.to_snake_case("-1") |> should.equal("minus_1")
+}
+
+pub fn naming_to_snake_case_leading_digit_gets_n_prefix_test() {
+  // Pure-numeric property names are valid in JSON but invalid as
+  // Gleam record fields. The pipeline prepends `n_` so they
+  // round-trip cleanly. `2fa` lands at `n_2_fa` because the camel-
+  // splitter treats the digit run as its own token and `fa` as a
+  // separate lower-case word — the prefix only cares about the
+  // first grapheme being a digit.
+  naming.to_snake_case("404") |> should.equal("n_404")
+  naming.to_snake_case("2fa") |> should.equal("n_2_fa")
+}
+
+pub fn naming_to_pascal_case_leading_plus_becomes_plus_prefix_test() {
+  naming.to_pascal_case("+1") |> should.equal("Plus1")
+}
+
+pub fn naming_to_pascal_case_leading_minus_becomes_minus_prefix_test() {
+  naming.to_pascal_case("-1") |> should.equal("Minus1")
+}
+
+pub fn naming_to_pascal_case_leading_digit_gets_n_prefix_test() {
+  naming.to_pascal_case("404") |> should.equal("N404")
 }
 
 // naming.operation_to_function_name tests

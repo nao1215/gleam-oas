@@ -2198,6 +2198,78 @@ pub fn content_type_x_ndjson_is_supported_response_test() {
   |> should.be_true()
 }
 
+// --- content type passthrough fallback (issue #352) ---
+//
+// Real-world specs (the GitHub REST OpenAPI is the canonical
+// example) declare `text/html` responses, vendor-prefixed types
+// like `application/vnd.github.diff`, and ad-hoc names like
+// `application/octocat-stream`. Refusing to generate code for any
+// of those was blocking adoption on otherwise-supported specs, so
+// the parser now folds:
+//
+//   - any `text/*` not specifically recognized → TextPlain
+//   - any `application/*` not specifically recognized → ApplicationOctetStream
+//
+// Other top-level types (`image/*`, `audio/*`, `video/*`) stay as
+// `UnsupportedContentType` because the generator has no sensible
+// default for binary media that is not already covered by
+// `application/octet-stream`.
+
+pub fn content_type_text_html_aliases_to_text_plain_test() {
+  content_type.from_string("text/html") |> should.equal(content_type.TextPlain)
+}
+
+pub fn content_type_text_x_markdown_aliases_to_text_plain_test() {
+  content_type.from_string("text/x-markdown")
+  |> should.equal(content_type.TextPlain)
+}
+
+pub fn content_type_vendor_application_aliases_to_octet_stream_test() {
+  // GitHub REST API vendor MIME types: diff/patch/sha/object plus
+  // the ad-hoc `octocat-stream`.
+  content_type.from_string("application/vnd.github.diff")
+  |> should.equal(content_type.ApplicationOctetStream)
+  content_type.from_string("application/vnd.github.patch")
+  |> should.equal(content_type.ApplicationOctetStream)
+  content_type.from_string("application/vnd.github.object")
+  |> should.equal(content_type.ApplicationOctetStream)
+  content_type.from_string("application/octocat-stream")
+  |> should.equal(content_type.ApplicationOctetStream)
+}
+
+pub fn content_type_image_png_still_unsupported_test() {
+  // Images don't match the text/ or application/ fallback so they
+  // stay UnsupportedContentType. This pins that the fallback is
+  // narrow on purpose — silently aliasing every MIME to bytes
+  // would mask real "this codegen does not support that" cases.
+  content_type.from_string("image/png")
+  |> should.equal(content_type.UnsupportedContentType("image/png"))
+}
+
+pub fn content_type_audio_video_still_unsupported_test() {
+  content_type.from_string("audio/mpeg")
+  |> should.equal(content_type.UnsupportedContentType("audio/mpeg"))
+  content_type.from_string("video/mp4")
+  |> should.equal(content_type.UnsupportedContentType("video/mp4"))
+}
+
+pub fn content_type_text_html_is_supported_response_test() {
+  content_type.is_supported_response(content_type.from_string("text/html"))
+  |> should.be_true()
+}
+
+pub fn content_type_vendor_diff_is_supported_response_test() {
+  content_type.is_supported_response(content_type.from_string(
+    "application/vnd.github.diff",
+  ))
+  |> should.be_true()
+}
+
+pub fn content_type_text_x_markdown_is_supported_request_test() {
+  content_type.is_supported_request(content_type.from_string("text/x-markdown"))
+  |> should.be_true()
+}
+
 pub fn content_type_to_string_test() {
   content_type.to_string(content_type.ApplicationJson)
   |> should.equal("application/json")
@@ -5783,8 +5855,15 @@ components:
 
 // --- Complex parameter schema validation tests ---
 
-/// Object schema query parameter without deepObject style must be rejected.
-pub fn object_query_param_without_deep_object_rejected_test() {
+/// Object schema query parameter without deepObject style now emits
+/// a warning instead of a hard error (issue #352). The OpenAPI 3.x
+/// default style for query is `form`, which only handles primitives
+/// cleanly, so the codegen falls back to form serialization and the
+/// warning prompts the spec author to be explicit if they need
+/// deepObject. Refusing the spec was blocking adoption on the
+/// GitHub REST API and other large public specs that routinely omit
+/// `style` for complex query params.
+pub fn object_query_param_without_deep_object_warns_not_errors_test() {
   let yaml =
     "
 openapi: 3.0.3
@@ -5822,10 +5901,65 @@ paths:
         validate: False,
       ),
     )
-  let errors = validate.validate(ctx)
-  // Must report error for object param without deepObject style
-  list.is_empty(errors)
-  |> should.be_false()
+  let issues = validate.validate(ctx)
+  // No blocking errors — codegen would proceed.
+  validate.errors_only(issues)
+  |> list.is_empty
+  |> should.be_true()
+  // But there's exactly one warning, pointing at the filter param.
+  let warnings = validate.warnings_only(issues)
+  list.length(warnings) |> should.equal(1)
+  let assert [Diagnostic(message: msg, ..)] = warnings
+  string.contains(msg, "no explicit 'style'")
+  |> should.be_true()
+}
+
+pub fn oneof_primitive_query_param_without_style_warns_test() {
+  // The GitHub REST API's `cwes` parameter is `oneOf: [string,
+  // array<string>]` with no explicit style. Pre-#352 oaspec
+  // refused to generate; now it emits a warning and proceeds.
+  let yaml =
+    "
+openapi: 3.0.3
+info:
+  title: Test
+  version: 1.0.0
+paths:
+  /advisories:
+    get:
+      operationId: listAdvisories
+      parameters:
+        - name: cwes
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+      responses:
+        '200': { description: ok }
+"
+  let assert Ok(spec) = parser.parse_string(yaml)
+  let assert Ok(spec) = resolve.resolve(spec)
+  let spec = hoist.hoist(spec)
+  let spec = dedup.dedup(spec)
+  let ctx =
+    context.new(
+      spec,
+      config.new(
+        input: "test.yaml",
+        output_server: "./test_output/api",
+        output_client: "./test_output_client/api",
+        package: "api",
+        mode: config.Client,
+        validate: False,
+      ),
+    )
+  let issues = validate.validate(ctx)
+  validate.errors_only(issues)
+  |> list.is_empty
+  |> should.be_true()
 }
 
 /// Object schema query parameter WITH deepObject style must pass.
@@ -5879,6 +6013,9 @@ paths:
 /// Validation error for unsupported request content type must list
 /// all actually supported types, including form-urlencoded.
 pub fn validate_request_content_type_message_includes_form_urlencoded_test() {
+  // `image/png` stays UnsupportedContentType after the issue #352
+  // fallback (which only catches `text/*` and `application/*`); use
+  // it instead of `text/csv` so the error path still fires.
   let yaml =
     "
 openapi: 3.0.3
@@ -5891,7 +6028,7 @@ paths:
       operationId: doX
       requestBody:
         content:
-          text/csv:
+          image/png:
             schema:
               type: string
       responses:
@@ -5923,6 +6060,8 @@ paths:
 /// Validation error for unsupported response content type must list
 /// all actually supported types, including XML.
 pub fn validate_response_content_type_message_includes_xml_test() {
+  // See note above on `text/csv` → `image/png` for the same #352
+  // fallback rationale.
   let yaml =
     "
 openapi: 3.0.3
@@ -5937,7 +6076,7 @@ paths:
         '200':
           description: ok
           content:
-            text/csv:
+            image/png:
               schema:
                 type: string
 "
