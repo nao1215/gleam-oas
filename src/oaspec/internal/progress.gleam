@@ -14,6 +14,7 @@ import gleam/io
 import gleam/string
 
 @external(erlang, "oaspec_ffi", "monotonic_ms")
+@external(javascript, "../../oaspec_ffi.mjs", "monotonic_ms")
 fn monotonic_ms() -> Int
 
 /// A progress reporter. The `emit` callback receives a one-line

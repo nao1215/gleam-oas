@@ -29,7 +29,6 @@ state. It does not commit the project to any particular split.
 |   src/oaspec/openapi/parser.gleam yay + FFI      |
 |   src/oaspec/codegen/writer.gleam simplifile     |
 |   src/oaspec/internal/formatter.gleam subprocess |
-|   src/oaspec/internal/progress.gleam clock FFI   |
 |   src/oaspec_*ffi.erl, src/yaml_loc_ffi.erl      |
 +-------------------|------------------------------+
                     | calls
@@ -83,6 +82,7 @@ BEAM-only packages (`simplifile`, `glint`, `argv`, `yay`).
 | `oaspec/internal/openapi/value.gleam` | Target-neutral `JsonValue` type |
 | `oaspec/internal/openapi/resolve.gleam` | `$ref` resolution (uses dual-target `@external` so the phantom-type cast is a runtime no-op on both BEAM and JS) |
 | `oaspec/internal/openapi/parser_error.gleam` | Pure helper for `missing_field` diagnostics with hint detail |
+| `oaspec/internal/progress.gleam` | Pipeline progress reporter (uses dual-target `@external` so the monotonic millisecond clock resolves on both BEAM and JS) |
 
 ### BEAM-coupled (requires the Erlang target today)
 
@@ -97,15 +97,17 @@ or transitively depend on a BEAM-only data type (e.g. yay nodes).
 | `oaspec/openapi/parser.gleam` | Loads files (`simplifile`), parses YAML (`yay`), JSON FFI (`oaspec_json_ffi`) |
 | `oaspec/internal/cli.gleam` | `glint` CLI framework, file IO, FFI for TTY/color |
 | `oaspec/internal/formatter.gleam` | Spawns `gleam format` subprocess via FFI |
-| `oaspec/internal/progress.gleam` | Monotonic clock via FFI for elapsed-time reporting |
 | `oaspec/internal/openapi/external_loader.gleam` | Loads remote `$ref` files via `simplifile` |
 | `oaspec/internal/openapi/location_index.gleam` | Walks yamerl AST via `yaml_loc_ffi` |
 | `oaspec/internal/openapi/parser_schema.gleam` | Operates on `yay` nodes |
 | `oaspec/internal/openapi/parser_value.gleam` | Bridges `yay` nodes to the pure `JsonValue` type |
 | `oaspec/internal/openapi/parser_yay_error.gleam` | Bridges `yay` extraction / selector errors to pure diagnostic hints |
 
-The four `.erl` files in `src/` (`oaspec_ffi.erl`, `oaspec_json_ffi.erl`,
-`yaml_loc_ffi.erl`) are unconditionally Erlang-only.
+The three `.erl` files in `src/` (`oaspec_ffi.erl`, `oaspec_json_ffi.erl`,
+`yaml_loc_ffi.erl`) are unconditionally Erlang-only. A sibling
+`oaspec_ffi.mjs` provides JavaScript implementations for the subset
+of `oaspec_ffi` helpers actually called from cross-target Gleam
+modules (today: `monotonic_ms`).
 
 ### Adapters (out of tree)
 

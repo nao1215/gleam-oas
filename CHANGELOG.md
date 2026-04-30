@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: make `oaspec/internal/progress` cross-target.** The
+  `monotonic_ms` clock helper now declares both an Erlang
+  `@external` (existing `oaspec_ffi:monotonic_ms/0`) and a
+  JavaScript `@external` backed by a new `src/oaspec_ffi.mjs` that
+  uses `performance.now()` for monotonic semantics, falling back to
+  `Date.now()` if `performance` is unavailable. Behavior on the
+  Erlang target is unchanged; this brings the BEAM-coupled module
+  count down by one and lets `progress.gleam` actually compile on
+  any Gleam target. (#344)
+
 ## [0.36.0] - 2026-04-30
 
 ### Changed
