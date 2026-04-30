@@ -8,9 +8,9 @@ import gleam/result
 import gleam/string
 import oaspec/internal/openapi/external_loader
 import oaspec/internal/openapi/location_index.{type LocationIndex}
-import oaspec/internal/openapi/parser_error
 import oaspec/internal/openapi/parser_schema
 import oaspec/internal/openapi/parser_value
+import oaspec/internal/openapi/parser_yay_error
 import oaspec/internal/openapi/schema.{type SchemaRef}
 import oaspec/internal/openapi/spec.{
   type Callback, type Components, type Contact, type Encoding, type ExternalDoc,
@@ -283,7 +283,7 @@ fn parse_root(
         }
       })
     })
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "",
       field: "openapi",
@@ -378,7 +378,7 @@ fn parse_optional_components(
 fn parse_info(root: yay.Node, index: LocationIndex) -> Result(Info, Diagnostic) {
   use info_node <- result.try(
     yay.select_sugar(from: root, selector: "info")
-    |> result.map_error(parser_error.missing_field_from_selector(
+    |> result.map_error(parser_yay_error.missing_field_from_selector(
       _,
       path: "",
       field: "info",
@@ -388,7 +388,7 @@ fn parse_info(root: yay.Node, index: LocationIndex) -> Result(Info, Diagnostic) 
 
   use title <- result.try(
     yay.extract_string(info_node, "title")
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "info",
       field: "title",
@@ -398,7 +398,7 @@ fn parse_info(root: yay.Node, index: LocationIndex) -> Result(Info, Diagnostic) 
 
   use version <- result.try(
     yay.extract_string(info_node, "version")
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "info",
       field: "version",
@@ -451,7 +451,7 @@ fn parse_server(
 ) -> Result(Server, Diagnostic) {
   use url <- result.try(
     yay.extract_string(node, "url")
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "servers",
       field: "url",
@@ -635,7 +635,7 @@ fn parse_operation_at(
 ) -> Result(Operation(Unresolved), Diagnostic) {
   use op_node <- result.try(
     yay.select_sugar(from: node, selector: method_key)
-    |> result.map_error(parser_error.missing_field_from_selector(
+    |> result.map_error(parser_yay_error.missing_field_from_selector(
       _,
       path:,
       field: method_key,
@@ -776,7 +776,7 @@ fn parse_parameter(
     _ -> {
       use name <- result.try(
         yay.extract_string(node, "name")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "parameter",
           field: "name",
@@ -786,7 +786,7 @@ fn parse_parameter(
 
       use in_str <- result.try(
         yay.extract_string(node, "in")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "parameter." <> name,
           field: "in",
@@ -959,7 +959,7 @@ fn parse_request_body_at(
 ) -> Result(RefOr(RequestBody(Unresolved)), Diagnostic) {
   use rb_node <- result.try(
     yay.select_sugar(from: node, selector: "requestBody")
-    |> result.map_error(parser_error.missing_field_from_selector(
+    |> result.map_error(parser_yay_error.missing_field_from_selector(
       _,
       path: context,
       field: "requestBody",
@@ -1158,7 +1158,7 @@ fn parse_response(
       use description <- result.try(
         yay.extract_string(node, "description")
         |> result.map(Some)
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "response",
           field: "description",
@@ -1182,7 +1182,7 @@ fn parse_components(
 ) -> Result(Components(Unresolved), Diagnostic) {
   use components_node <- result.try(
     yay.select_sugar(from: root, selector: "components")
-    |> result.map_error(parser_error.missing_field_from_selector(
+    |> result.map_error(parser_yay_error.missing_field_from_selector(
       _,
       path: "",
       field: "components",
@@ -1457,7 +1457,7 @@ fn parse_security_scheme(
 ) -> Result(spec.SecurityScheme, Diagnostic) {
   use type_str <- result.try(
     yay.extract_string(node, "type")
-    |> result.map_error(parser_error.missing_field_from_extraction(
+    |> result.map_error(parser_yay_error.missing_field_from_extraction(
       _,
       path: "securityScheme",
       field: "type",
@@ -1469,7 +1469,7 @@ fn parse_security_scheme(
     "apiKey" -> {
       use name <- result.try(
         yay.extract_string(node, "name")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "securityScheme.apiKey",
           field: "name",
@@ -1482,7 +1482,7 @@ fn parse_security_scheme(
       )
       use in_str <- result.try(
         yay.extract_string(node, "in")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "securityScheme.apiKey",
           field: "in",
@@ -1504,7 +1504,7 @@ fn parse_security_scheme(
     "http" -> {
       use scheme <- result.try(
         yay.extract_string(node, "scheme")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "securityScheme.http",
           field: "scheme",
@@ -1533,7 +1533,7 @@ fn parse_security_scheme(
         |> result.unwrap(None)
       use open_id_connect_url <- result.try(
         yay.extract_string(node, "openIdConnectUrl")
-        |> result.map_error(parser_error.missing_field_from_extraction(
+        |> result.map_error(parser_yay_error.missing_field_from_extraction(
           _,
           path: "securityScheme.openIdConnect",
           field: "openIdConnectUrl",

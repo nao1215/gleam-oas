@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: split the `yay` error bridge out of
+  `oaspec/internal/openapi/parser_error`.** The diagnostic-assembly
+  helper now lives in a pure Gleam module (`missing_field_with_hint`,
+  no `yay` import), and the BEAM-coupled `yay.ExtractionError` /
+  `yay.SelectorError` adapters that wrap it have moved to a new
+  `parser_yay_error` sibling module. Behavior is unchanged; this is
+  a relocation rather than a net reduction in BEAM-coupled modules,
+  but `parser_error.gleam` itself now compiles on any Gleam target,
+  in line with the boundary documented in `ARCHITECTURE.md`. (#344)
+
 ## [0.35.0] - 2026-04-30
 
 ### Changed
