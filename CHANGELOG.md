@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-04-30
+
 ### Added
 
 - **`text/plain` is now a supported request body content type** in both
