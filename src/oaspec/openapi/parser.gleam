@@ -10,6 +10,7 @@ import oaspec/internal/openapi/external_loader
 import oaspec/internal/openapi/location_index.{type LocationIndex}
 import oaspec/internal/openapi/parser_error
 import oaspec/internal/openapi/parser_schema
+import oaspec/internal/openapi/parser_value
 import oaspec/internal/openapi/schema.{type SchemaRef}
 import oaspec/internal/openapi/spec.{
   type Callback, type Components, type Contact, type Encoding, type ExternalDoc,
@@ -22,7 +23,6 @@ import oaspec/internal/openapi/spec.{
   Ref, RequestBody, Response, SecurityRequirement, Server, ServerVariable, Tag,
   Value,
 }
-import oaspec/internal/openapi/value
 import oaspec/internal/progress.{type Reporter}
 import oaspec/internal/util/http
 import oaspec/openapi/diagnostic.{type Diagnostic, NoSourceLoc, SourceLoc}
@@ -859,7 +859,7 @@ fn parse_parameter(
         |> option.unwrap(False)
 
       use content <- result.try(parse_content_map(node, index))
-      let examples = value.extract_map(node, "examples")
+      let examples = parser_value.extract_map(node, "examples")
 
       let payload = case param_schema {
         Ok(sr) -> spec.ParameterSchema(sr)
@@ -1023,8 +1023,9 @@ fn parse_required_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example = value.extract_optional(value_node, "example")
-            let mt_examples = value.extract_map(value_node, "examples")
+            let mt_example =
+              parser_value.extract_optional(value_node, "example")
+            let mt_examples = parser_value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
@@ -1079,8 +1080,9 @@ fn parse_content(
                 _ -> Ok(None)
               },
             )
-            let mt_example = value.extract_optional(value_node, "example")
-            let mt_examples = value.extract_map(value_node, "examples")
+            let mt_example =
+              parser_value.extract_optional(value_node, "example")
+            let mt_examples = parser_value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
@@ -1201,7 +1203,7 @@ fn parse_components(
   ))
   use path_items <- result.try(parse_path_items_map(components_node, index))
   use headers <- result.try(parse_headers_map(components_node, index))
-  let examples = value.extract_map(components_node, "examples")
+  let examples = parser_value.extract_map(components_node, "examples")
   use links <- result.try(parse_links_map(components_node))
   use callbacks <- result.try(parse_components_callbacks_map(
     components_node,
@@ -1984,8 +1986,9 @@ fn parse_content_map(
                 _ -> Ok(None)
               },
             )
-            let mt_example = value.extract_optional(value_node, "example")
-            let mt_examples = value.extract_map(value_node, "examples")
+            let mt_example =
+              parser_value.extract_optional(value_node, "example")
+            let mt_examples = parser_value.extract_map(value_node, "examples")
             use mt_encoding <- result.try(parse_encoding_map(value_node, index))
             Ok(dict.insert(
               acc,
