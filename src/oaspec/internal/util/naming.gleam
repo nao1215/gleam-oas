@@ -50,26 +50,105 @@ fn compile_regexes() -> Regexes {
 
 /// Convert a string to PascalCase for Gleam type names.
 /// Examples: "pet_store" -> "PetStore", "get-user" -> "GetUser"
+///
+/// As with `to_snake_case`, leading `+`/`-` and digit-led results
+/// are normalised (issue #352) so OpenAPI enum values like `+1`,
+/// `-1`, or `404` produce valid Gleam variant names (`Plus1`,
+/// `Minus1`, `N404`) instead of `1`, `1`, `404` — the latter would
+/// be rejected by the parser at the type-constructor position.
 pub fn to_pascal_case(input: String) -> String {
   let re = compile_regexes()
   input
+  |> rewrite_leading_signs
   |> split_words(re)
   |> list.map(capitalize)
   |> string.join("")
+  |> ensure_letter_start_pascal
+}
+
+/// Pascal-case equivalent of `ensure_letter_start`: digit-led
+/// results get an `N` prefix (instead of `n_`) so the result still
+/// reads as a single PascalCase token (`404` → `N404`, not
+/// `n_404` which would round-trip incorrectly through the snake/
+/// pascal converters).
+fn ensure_letter_start_pascal(input: String) -> String {
+  case string.pop_grapheme(input) {
+    Ok(#(first, _rest)) ->
+      case is_digit(first) {
+        True -> "N" <> input
+        False -> input
+      }
+    // nolint: thrown_away_error -- pop_grapheme only fails on empty input; passing it through unchanged is correct here
+    Error(_) -> input
+  }
 }
 
 /// Convert a string to snake_case for Gleam function/variable names.
 /// Examples: "PetStore" -> "pet_store", "getUserById" -> "get_user_by_id"
 /// Gleam keywords are suffixed with _ to avoid syntax errors.
+///
+/// OpenAPI property names like `+1`, `-1` (GitHub's reaction counts)
+/// or `404` (numeric keys) are not valid Gleam record field
+/// identifiers — Gleam fields must start with `a-z`. The naming
+/// pipeline therefore:
+///   - rewrites a leading `+` to `plus_` and a leading `-` to
+///     `minus_` so the sign is preserved as a readable prefix; and
+///   - prepends `n_` when the result still starts with a digit
+///     (e.g. `404` → `n_404`, `+1` → `plus_1`).
+/// Without these the generator produced syntactically invalid Gleam
+/// like `DiscussionReactions(1: Int, 1_2: Int, ...)` on the GitHub
+/// REST API spec, where `+1` and `-1` both collapsed to `1` (issue
+/// #352).
 pub fn to_snake_case(input: String) -> String {
   let re = compile_regexes()
   let result =
     input
+    |> rewrite_leading_signs
     |> insert_underscores_before_caps(re)
     |> split_words(re)
     |> list.map(string.lowercase)
     |> string.join("_")
+    |> ensure_letter_start
   escape_keyword(result)
+}
+
+/// Map a leading `+` to `plus_` and a leading `-` to `minus_` so
+/// `+1` / `-1` style property names survive the snake_case pipeline
+/// as `plus_1` / `minus_1` instead of colliding on a bare `1`.
+/// The body of the input is left untouched, so existing kebab-case
+/// inputs (`kebab-case`) keep splitting on `-` as before.
+fn rewrite_leading_signs(input: String) -> String {
+  case string.pop_grapheme(input) {
+    Ok(#("+", rest)) -> "plus_" <> rest
+    Ok(#("-", rest)) -> "minus_" <> rest
+    _ -> input
+  }
+}
+
+/// Prepend `n_` if the first grapheme is a digit, so a numeric-led
+/// result (`404`, `1_2` from a deduped `+1`/`-1`) becomes a valid
+/// Gleam identifier (`n_404`, `n_1_2`). Empty strings are left
+/// alone — that path is impossible from `to_snake_case` after
+/// non-empty input, but the guard keeps the helper composable.
+fn ensure_letter_start(input: String) -> String {
+  case string.pop_grapheme(input) {
+    Ok(#(first, _rest)) ->
+      case is_digit(first) {
+        True -> "n_" <> input
+        False -> input
+      }
+    // nolint: thrown_away_error -- pop_grapheme only fails on empty input; passing it through unchanged is correct here
+    Error(_) -> input
+  }
+}
+
+/// True for the ten ASCII digit graphemes. We avoid `int.parse` here
+/// because it accepts `+1`/`-1` and the goal is the bare digit test.
+fn is_digit(grapheme: String) -> Bool {
+  case grapheme {
+    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
+    _ -> False
+  }
 }
 
 /// Gleam reserved keywords that cannot be used as identifiers.

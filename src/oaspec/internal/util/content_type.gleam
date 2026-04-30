@@ -17,6 +17,28 @@ pub type ContentType {
 /// Parse a content type string into a ContentType.
 /// Recognizes structured syntax suffixes: types ending with `+json` are
 /// treated as JSON-compatible, and types ending with `+xml` as XML-compatible.
+///
+/// Unrecognized media types fall back to a passthrough alias so real-world
+/// specs like the GitHub REST API don't trip the "unsupported content
+/// type" diagnostic just because they declare vendor-prefixed responses
+/// (issue #352). The fallback table:
+///
+///   - `text/*` (e.g. `text/html`, `text/x-markdown`) aliases to
+///     `TextPlain` so the body passes through as a `String`.
+///   - `application/*` not already in the recognized list (e.g.
+///     `application/vnd.github.diff`, `application/octocat-stream`)
+///     aliases to `ApplicationOctetStream` so the body passes through
+///     as raw bytes.
+///   - Anything else (`image/*`, `audio/*`, `video/*`, …) stays as
+///     `UnsupportedContentType` and continues to fail validation —
+///     the generator has no sensible default for binary media that
+///     isn't already covered by `application/octet-stream`.
+///
+/// The original media-type string is still embedded verbatim into the
+/// generated server's `Content-Type` response header (codegen pulls
+/// the name from the spec, not from `to_string`), so the wire-level
+/// content type is preserved even though the in-memory typing falls
+/// back. This mirrors the existing `application/x-ndjson` aliasing.
 pub fn from_string(content_type: String) -> ContentType {
   case content_type {
     "application/json" -> ApplicationJson
@@ -41,7 +63,15 @@ pub fn from_string(content_type: String) -> ContentType {
         False ->
           case string.ends_with(other, "+xml") {
             True -> ApplicationXml
-            False -> UnsupportedContentType(other)
+            False ->
+              case string.starts_with(other, "text/") {
+                True -> TextPlain
+                False ->
+                  case string.starts_with(other, "application/") {
+                    True -> ApplicationOctetStream
+                    False -> UnsupportedContentType(other)
+                  }
+              }
           }
       }
   }
