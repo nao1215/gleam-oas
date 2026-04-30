@@ -23,8 +23,13 @@ pub fn resolve(
   Ok(coerce_stage(resolved))
 }
 
-/// Safe phantom type cast — stage has no runtime representation.
+/// Safe phantom type cast — `stage` has no runtime representation, so
+/// `coerce_stage` is the identity function under a different phantom
+/// label. Declared as a target-specific external so the cast is a true
+/// no-op on both BEAM and JavaScript runtimes (avoids the cost of a
+/// destructure-and-rebuild that pure Gleam would otherwise require).
 @external(erlang, "gleam_stdlib", "identity")
+@external(javascript, "../gleam_stdlib/gleam_stdlib.mjs", "identity")
 fn coerce_stage(spec: OpenApiSpec(a)) -> OpenApiSpec(b)
 
 /// Internal resolve that preserves the input stage parameter.
