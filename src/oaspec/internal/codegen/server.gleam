@@ -9,7 +9,7 @@ import oaspec/internal/codegen/context.{
   type Context, type GeneratedFile, GeneratedFile,
 }
 import oaspec/internal/codegen/guards
-import oaspec/internal/codegen/import_analysis
+import oaspec/internal/codegen/router_ir
 import oaspec/internal/codegen/server_request_decode as decode_helpers
 import oaspec/internal/openapi/dedup
 import oaspec/internal/openapi/schema.{Inline, Reference}
@@ -240,431 +240,8 @@ fn generate_router(
   ctx: Context,
   operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
 ) -> String {
-  let has_deep_object =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> decode_helpers.is_deep_object_param(p, ctx)
-          _ -> False
-        }
-      })
-    })
-  // Whether any deep object param has additional_properties (Untyped or Typed)
-  let has_deep_object_with_ap =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            decode_helpers.is_deep_object_param(p, ctx)
-            && decode_helpers.deep_object_has_additional_properties(p, ctx)
-          _ -> False
-        }
-      })
-    })
-  // Whether any optional deep object param does NOT use deep_object_present_any.
-  // deep_object_present_any is only used for Untyped AP; all other optional
-  // deep object params (no AP or Typed AP) use deep_object_present.
-  let needs_deep_object_present =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            decode_helpers.is_deep_object_param(p, ctx)
-            && !p.required
-            && !decode_helpers.deep_object_has_untyped_additional_properties(
-              p,
-              ctx,
-            )
-          _ -> False
-        }
-      })
-    })
-  // Whether any deep object param has Untyped additional_properties (needs dynamic import)
-  let has_deep_object_untyped_ap =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            decode_helpers.is_deep_object_param(p, ctx)
-            && decode_helpers.deep_object_has_untyped_additional_properties(
-              p,
-              ctx,
-            )
-          _ -> False
-        }
-      })
-    })
-  let has_form_urlencoded_body =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      decode_helpers.operation_uses_form_urlencoded_body(operation)
-    })
-  let has_multipart_body =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      decode_helpers.operation_uses_multipart_body(operation)
-    })
-  let has_nested_form_urlencoded_body =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.form_urlencoded_body_has_nested_object(rb, ctx)
-        _ -> False
-      }
-    })
-
-  // Determine which imports are needed based on operations.
-  // Dict is always needed for the route signature, so we skip a conditional
-  // check here.
-
-  let needs_int =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            decode_helpers.query_schema_needs_int(spec.parameter_schema(p))
-            || decode_helpers.deep_object_param_needs_int(p, ctx)
-          _ -> False
-        }
-      })
-      || case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.form_urlencoded_body_needs_int(rb, ctx)
-        _ -> False
-      }
-      || case operation.request_body {
-        Some(Value(rb)) -> decode_helpers.multipart_body_needs_int(rb, ctx)
-        _ -> False
-      }
-    })
-    // Issue #306: integer response headers stringify via int.to_string.
-    || operations_have_response_header_of_type(operations, "Int")
-
-  let needs_float =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            decode_helpers.query_schema_needs_float(spec.parameter_schema(p))
-            || decode_helpers.deep_object_param_needs_float(p, ctx)
-          _ -> False
-        }
-      })
-      || case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.form_urlencoded_body_needs_float(rb, ctx)
-        _ -> False
-      }
-      || case operation.request_body {
-        Some(Value(rb)) -> decode_helpers.multipart_body_needs_float(rb, ctx)
-        _ -> False
-      }
-    })
-    // Issue #306: float response headers stringify via float.to_string.
-    || operations_have_response_header_of_type(operations, "Float")
-
-  // Issue #306: boolean response headers stringify via bool.to_string —
-  // generated routers had no prior need for `gleam/bool`, so this is a
-  // brand new import condition.
-  let needs_bool = operations_have_response_header_of_type(operations, "Bool")
-
-  let needs_string =
-    has_form_urlencoded_body
-    || has_multipart_body
-    || has_deep_object_with_ap
-    || list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            case p.in_ {
-              spec.InCookie -> True
-              spec.InQuery | spec.InHeader ->
-                decode_helpers.query_schema_needs_string(spec.parameter_schema(
-                  p,
-                ))
-                || decode_helpers.deep_object_param_needs_string(p, ctx)
-              spec.InPath ->
-                decode_helpers.query_schema_needs_string(spec.parameter_schema(
-                  p,
-                ))
-            }
-          _ -> False
-        }
-      })
-      || case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.form_urlencoded_body_needs_string(rb, ctx)
-        _ -> False
-      }
-    })
-
-  let needs_cookie_lookup =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> p.in_ == spec.InCookie
-          _ -> False
-        }
-      })
-    })
-
-  let needs_list_import =
-    needs_cookie_lookup
-    || has_deep_object
-    || has_form_urlencoded_body
-    || has_multipart_body
-    // Issue #306: responses that declare headers materialise the
-    // ServerResponse `headers:` slot via `list.flatten([...])`.
-    || operations_have_response_headers(operations)
-    || list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) ->
-            case p.in_, spec.parameter_schema(p) {
-              spec.InQuery, Some(Inline(schema.ArraySchema(..))) -> True
-              spec.InHeader, Some(Inline(schema.ArraySchema(..))) -> True
-              _, _ -> False
-            }
-          _ -> False
-        }
-      })
-    })
-  let needs_uri_import = needs_cookie_lookup || has_form_urlencoded_body
-
-  let needs_option =
-    import_analysis.operations_have_optional_params(operations)
-    || import_analysis.operations_have_optional_body(operations)
-    || list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      let has_optional_deep_object_fields =
-        list.any(operation.parameters, fn(ref_p) {
-          case ref_p {
-            Value(p) ->
-              decode_helpers.deep_object_param_has_optional_fields(p, ctx)
-            _ -> False
-          }
-        })
-      let has_optional_form_urlencoded_fields = case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.form_urlencoded_body_has_optional_fields(rb, ctx)
-        _ -> False
-      }
-      let has_optional_multipart_fields = case operation.request_body {
-        Some(Value(rb)) ->
-          decode_helpers.multipart_body_has_optional_fields(rb, ctx)
-        _ -> False
-      }
-      has_optional_deep_object_fields
-      || has_optional_form_urlencoded_fields
-      || has_optional_multipart_fields
-    })
-    // Issue #306: optional response headers pattern-match `Some(v) | None`,
-    // which needs `gleam/option` even on operations whose request side
-    // has no Option-typed parameters.
-    || operations_have_optional_response_header(operations)
-
-  let needs_json =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      let responses = dict.to_list(operation.responses)
-      list.any(responses, fn(entry) {
-        let #(_, ref_or) = entry
-        case ref_or {
-          Value(response) -> {
-            let content_entries = dict.to_list(response.content)
-            case content_entries {
-              [#(media_type_name, media_type)] ->
-                case content_type.is_json_compatible(media_type_name) {
-                  True ->
-                    case media_type.schema {
-                      Some(_) -> True
-                      None -> False
-                    }
-                  False -> False
-                }
-              _ -> False
-            }
-          }
-          _ -> False
-        }
-      })
-    })
-
-  let needs_decode =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      case operation.request_body {
-        Some(Value(rb)) ->
-          list.any(dict.to_list(rb.content), fn(entry) {
-            let #(content_type, _) = entry
-            content_type.is_json_compatible(content_type)
-          })
-        _ -> False
-      }
-    })
-
-  let needs_encode = needs_json
-
-  let uses_query =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> p.in_ == spec.InQuery
-          _ -> False
-        }
-      })
-    })
-
-  let uses_headers =
-    has_multipart_body
-    || list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      list.any(operation.parameters, fn(ref_p) {
-        case ref_p {
-          Value(p) -> p.in_ == spec.InHeader || p.in_ == spec.InCookie
-          _ -> False
-        }
-      })
-    })
-
-  let uses_body =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      option.is_some(operation.request_body)
-    })
-
-  let has_params_ops =
-    list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      !list.is_empty(operation.parameters)
-      || option.is_some(operation.request_body)
-    })
-
-  // Build imports list (Dict always needed for route signature)
-  let std_imports = ["gleam/dict.{type Dict}"]
-  let std_imports = case needs_list_import {
-    True -> list.append(std_imports, ["gleam/list"])
-    False -> std_imports
-  }
-  let std_imports = case needs_uri_import {
-    True -> list.append(std_imports, ["gleam/uri"])
-    False -> std_imports
-  }
-  let std_imports = case needs_int {
-    True -> list.append(std_imports, ["gleam/int"])
-    False -> std_imports
-  }
-  let std_imports = case needs_float {
-    True -> list.append(std_imports, ["gleam/float"])
-    False -> std_imports
-  }
-  let std_imports = case needs_bool {
-    True -> list.append(std_imports, ["gleam/bool"])
-    False -> std_imports
-  }
-  let std_imports = case needs_option {
-    True -> list.append(std_imports, ["gleam/option.{None, Some}"])
-    False -> std_imports
-  }
-  // json is also needed when guard validation is enabled (for 422 error responses)
-  let needs_json_for_guards =
-    config.validate(context.config(ctx))
-    && list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      operation_needs_guard_validation(operation, ctx)
-    })
-  let std_imports = case needs_json || needs_json_for_guards {
-    True -> list.append(std_imports, ["gleam/json"])
-    False -> std_imports
-  }
-  let std_imports = case needs_string {
-    True -> list.append(std_imports, ["gleam/string"])
-    False -> std_imports
-  }
-  let std_imports = case has_deep_object_untyped_ap {
-    True -> list.append(std_imports, ["gleam/dynamic"])
-    False -> std_imports
-  }
-
-  // Issue #247: router imports the sealed delegator, not the user-owned
-  // handlers module. handlers_generated.gleam forwards every call to
-  // handlers.<op_name>, so the router stays in lock-step with the spec
-  // without ever touching user code.
-  // Issue #264: also import handlers itself so the route signature can
-  // reference `handlers.State` for the threaded application state.
-  let pkg_imports = [
-    config.package(context.config(ctx)) <> "/handlers",
-    config.package(context.config(ctx)) <> "/handlers_generated",
-  ]
-  // Issue #318: enum query / header / cookie parameters resolved through
-  // `$ref` cause the router body to emit `types.<EnumType><Variant>`
-  // references (see decode_helpers.enum_match_result_expr and
-  // enum_match_option_expr). The `types` import must be present in
-  // those cases too, not just for deep object / form / multipart.
-  let has_enum_ref_params =
-    decode_helpers.operations_have_enum_ref_params(operations, ctx)
-  let pkg_imports = case
-    has_deep_object
-    || has_form_urlencoded_body
-    || has_multipart_body
-    || has_enum_ref_params
-  {
-    True ->
-      list.append(pkg_imports, [config.package(context.config(ctx)) <> "/types"])
-    False -> pkg_imports
-  }
-  let pkg_imports = case needs_decode {
-    True ->
-      list.append(pkg_imports, [
-        config.package(context.config(ctx)) <> "/decode",
-      ])
-    False -> pkg_imports
-  }
-  let pkg_imports = case needs_encode {
-    True ->
-      list.append(pkg_imports, [
-        config.package(context.config(ctx)) <> "/encode",
-      ])
-    False -> pkg_imports
-  }
-  let pkg_imports = case has_params_ops {
-    True ->
-      list.append(pkg_imports, [
-        config.package(context.config(ctx)) <> "/request_types",
-        config.package(context.config(ctx)) <> "/response_types",
-      ])
-    False ->
-      list.append(pkg_imports, [
-        config.package(context.config(ctx)) <> "/response_types",
-      ])
-  }
-  // Import guards module when validation is enabled and any operation body has validators
-  let needs_guards =
-    config.validate(context.config(ctx))
-    && list.any(operations, fn(op) {
-      let #(_, operation, _, _) = op
-      operation_needs_guard_validation(operation, ctx)
-    })
-  let pkg_imports = case needs_guards {
-    True ->
-      list.append(pkg_imports, [
-        config.package(context.config(ctx)) <> "/guards",
-      ])
-    False -> pkg_imports
-  }
-
-  let all_imports = list.append(std_imports, pkg_imports)
+  let requirements = router_ir.analyze(ctx)
+  let all_imports = router_ir.imports(requirements, ctx)
 
   let sb =
     se.file_header(context.version)
@@ -701,7 +278,7 @@ String.",
     |> se.blank_line()
 
   // deep_object_present: only when optional deep object params without AP exist
-  let sb = case needs_deep_object_present {
+  let sb = case requirements.needs_deep_object_present {
     True ->
       sb
       |> se.line(
@@ -718,7 +295,7 @@ String.",
 
   // deep_object_present_any and deep_object_additional_properties:
   // only when deep object params with additional_properties exist
-  let sb = case has_deep_object_with_ap {
+  let sb = case requirements.has_deep_object_with_ap {
     True ->
       sb
       |> se.line(
@@ -761,7 +338,7 @@ String.",
 
   // coerce_dict: type-safe identity for converting Dict value types at compile time
   // Only needed when deepObject params with Untyped additional_properties exist
-  let sb = case has_deep_object_untyped_ap {
+  let sb = case requirements.has_deep_object_untyped_ap {
     True ->
       sb
       |> se.line("@external(erlang, \"gleam_stdlib\", \"identity\")")
@@ -772,7 +349,7 @@ String.",
     False -> sb
   }
 
-  let sb = case has_form_urlencoded_body {
+  let sb = case requirements.has_form_urlencoded_body {
     True ->
       sb
       |> se.line("fn form_url_decode(value: String) -> String {")
@@ -824,7 +401,7 @@ String.",
     False -> sb
   }
 
-  let sb = case has_multipart_body {
+  let sb = case requirements.has_multipart_body {
     True ->
       sb
       |> se.line(
@@ -921,7 +498,7 @@ String.",
     False -> sb
   }
 
-  let sb = case has_nested_form_urlencoded_body {
+  let sb = case requirements.has_nested_form_urlencoded_body {
     True ->
       sb
       |> se.line(
@@ -946,11 +523,11 @@ String.",
     |> se.doc_comment("Route an incoming request to the appropriate handler.")
     |> se.line(
       "pub fn route(app_state: handlers.State, method: String, path: List(String), "
-      <> route_arg_name("query", uses_query)
+      <> route_arg_name("query", requirements.uses_query)
       <> ": Dict(String, List(String)), "
-      <> route_arg_name("headers", uses_headers)
+      <> route_arg_name("headers", requirements.uses_headers)
       <> ": Dict(String, String), "
-      <> route_arg_name("body", uses_body)
+      <> route_arg_name("body", requirements.uses_body)
       <> ": String) -> ServerResponse {",
     )
     |> se.indent(1, "case method, path {")
@@ -979,7 +556,7 @@ String.",
     |> se.line("}")
     |> se.blank_line()
 
-  let sb = case needs_cookie_lookup {
+  let sb = case requirements.needs_cookie_lookup {
     True -> generate_cookie_lookup(sb)
     False -> sb
   }
@@ -1680,40 +1257,6 @@ fn close_lookup_case(sb: se.StringBuilder) -> se.StringBuilder {
   |> se.indent(3, "}")
 }
 
-/// Check if an operation's request body needs guard validation.
-/// True when the body is required, JSON-compatible, references a named schema,
-/// and that schema has constraint-based validators.
-///
-/// Issue #292: inline request body schemas with constraints are NOT covered
-/// here because guards.gleam only generates validators for named component
-/// schemas. Extending guard generation to anonymous inline schemas is
-/// tracked as a follow-up.
-fn operation_needs_guard_validation(
-  operation: spec.Operation(Resolved),
-  ctx: Context,
-) -> Bool {
-  case operation.request_body {
-    Some(Value(rb)) ->
-      rb.required
-      && {
-        let content_entries = dict.to_list(rb.content)
-        list.any(content_entries, fn(entry) {
-          content_type.is_json_compatible(entry.0)
-        })
-        && case content_entries {
-          [#(_, mt)] ->
-            case mt.schema {
-              Some(schema.Reference(name:, ..)) ->
-                guards.schema_has_validator(name, ctx)
-              _ -> False
-            }
-          _ -> False
-        }
-      }
-    _ -> False
-  }
-}
-
 // Parameter parsing, body decoding, and request construction helpers
 // have been extracted to server_request_decode.gleam
 
@@ -1902,64 +1445,6 @@ fn generate_response_conversion(
       sb |> se.indent(3, "}")
     }
   }
-}
-
-/// True if any response of any operation declares at least one header.
-fn operations_have_response_headers(
-  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
-) -> Bool {
-  list.any(operations, fn(op) {
-    let #(_, operation, _, _) = op
-    list.any(dict.to_list(operation.responses), fn(entry) {
-      let #(_, ref_or) = entry
-      case ref_or {
-        Value(response) -> !dict.is_empty(response.headers)
-        _ -> False
-      }
-    })
-  })
-}
-
-/// True if any response header field has the given Gleam type.
-/// Used to decide which primitive `gleam/<type>` import the generated
-/// router needs for header value stringification (issue #306).
-fn operations_have_response_header_of_type(
-  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
-  type_name: String,
-) -> Bool {
-  list.any(operations, fn(op) {
-    let #(_, operation, _, _) = op
-    list.any(dict.to_list(operation.responses), fn(entry) {
-      let #(_, ref_or) = entry
-      case ref_or {
-        Value(response) ->
-          list.any(sorted_header_specs(response.headers), fn(spec) {
-            spec.field_type == type_name
-          })
-        _ -> False
-      }
-    })
-  })
-}
-
-/// True if any response header is optional. Optional headers emit
-/// `case hdrs.<field> { Some(v) -> ... None -> [] }` and need `gleam/option`.
-fn operations_have_optional_response_header(
-  operations: List(#(String, spec.Operation(Resolved), String, spec.HttpMethod)),
-) -> Bool {
-  list.any(operations, fn(op) {
-    let #(_, operation, _, _) = op
-    list.any(dict.to_list(operation.responses), fn(entry) {
-      let #(_, ref_or) = entry
-      case ref_or {
-        Value(response) ->
-          list.any(sorted_header_specs(response.headers), fn(spec) {
-            !spec.required
-          })
-        _ -> False
-      }
-    })
-  })
 }
 
 /// Compact spec for a single declared response header, used to render
