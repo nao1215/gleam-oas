@@ -6,7 +6,6 @@ import gleam/string
 import oaspec/internal/codegen/context.{type Context}
 import oaspec/internal/codegen/ir_build
 import oaspec/internal/codegen/operation_ir
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type AdditionalProperties, type SchemaRef, Forbidden, Inline, ObjectSchema,
   Reference, Typed, Unspecified, Untyped,
@@ -66,7 +65,7 @@ pub fn body_field_kind(schema_ref: SchemaRef, ctx: Context) -> BodyFieldKind {
         _ -> BodyFieldUnknown
       }
     Reference(..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) -> body_field_kind_from_object(schema_obj, ctx)
         // nolint: thrown_away_error -- unresolved refs map to Unknown; the resolver reports the ref error separately
         Error(_) -> BodyFieldUnknown
@@ -308,7 +307,7 @@ pub fn schema_ref_string_enum(
 ) -> Option(#(String, List(String))) {
   case schema_ref {
     Reference(name: ref_name, ..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema.StringSchema(enum_values: values, ..)) ->
           case values {
             [_, ..] -> Some(#(naming.schema_to_type_name(ref_name), values))
@@ -519,7 +518,7 @@ fn deep_object_properties(
 ) -> List(DeepObjectProperty) {
   let details = case spec.parameter_schema(param) {
     Some(Reference(..) as schema_ref) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
         _ -> #(dict.new(), [])
       }
@@ -656,7 +655,7 @@ pub fn deep_object_has_additional_properties(
 ) -> Bool {
   case spec.parameter_schema(param) {
     Some(Reference(..) as schema_ref) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(ObjectSchema(additional_properties: schema.Typed(_), ..)) -> True
         Ok(ObjectSchema(additional_properties: schema.Untyped, ..)) -> True
         _ -> False
@@ -759,7 +758,7 @@ fn object_properties_from_schema_ref(
 ) -> List(DeepObjectProperty) {
   let details = case schema_ref {
     Reference(..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(ObjectSchema(properties:, required:, ..)) -> #(properties, required)
         _ -> #(dict.new(), [])
       }
@@ -814,7 +813,7 @@ fn schema_ref_resolves_to_object(schema_ref: SchemaRef, ctx: Context) -> Bool {
   case schema_ref {
     Inline(ObjectSchema(..)) -> True
     Reference(..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(ObjectSchema(..)) -> True
         _ -> False
       }
@@ -829,7 +828,7 @@ fn schema_ref_additional_properties(
   case schema_ref {
     Inline(ObjectSchema(additional_properties:, ..)) -> additional_properties
     Reference(..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(ObjectSchema(additional_properties:, ..)) -> additional_properties
         _ -> Forbidden
       }

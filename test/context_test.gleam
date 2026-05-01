@@ -3,6 +3,7 @@
 //// pass should consume — these tests pin down its shape and ensure it stays
 //// in sync with `operations.collect_operations` (issue #371).
 
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -10,6 +11,8 @@ import gleeunit
 import gleeunit/should
 import oaspec/internal/codegen/context
 import oaspec/internal/openapi/operations
+import oaspec/internal/openapi/resolver
+import oaspec/internal/openapi/schema
 import oaspec/internal/openapi/spec
 import test_helpers
 
@@ -18,6 +21,8 @@ pub fn main() {
 }
 
 const petstore = "test/fixtures/petstore.yaml"
+
+const readonly_writeonly = "test/fixtures/readonly_writeonly_properties.yaml"
 
 pub fn operations_matches_direct_collect_test() {
   let ctx = test_helpers.make_ctx(petstore)
@@ -88,4 +93,99 @@ pub fn operations_petstore_snapshot_test() {
     #("getPet", "get", "/pets/{petId}", 1, False, 0),
     #("deletePet", "delete", "/pets/{petId}", 1, False, 0),
   ])
+}
+
+pub fn analyzed_schemas_snapshot_test() {
+  let ctx = test_helpers.make_ctx(readonly_writeonly)
+  let snapshot =
+    context.analyzed_schemas(ctx)
+    |> list.map(fn(entry) {
+      #(entry.name, entry.ref, case entry.resolved {
+        Ok(schema.ObjectSchema(..)) -> "object"
+        Ok(schema.AllOfSchema(..)) -> "allOf"
+        Ok(schema.OneOfSchema(..)) -> "oneOf"
+        Ok(schema.AnyOfSchema(..)) -> "anyOf"
+        Ok(schema.ArraySchema(..)) -> "array"
+        Ok(schema.StringSchema(..)) -> "string"
+        Ok(schema.IntegerSchema(..)) -> "integer"
+        Ok(schema.NumberSchema(..)) -> "number"
+        Ok(schema.BooleanSchema(..)) -> "boolean"
+        Error(resolver.UnresolvedRef(..)) -> "unresolved"
+        Error(resolver.CircularRef(..)) -> "circular"
+      })
+    })
+
+  snapshot
+  |> should.equal([
+    #("AccountBase", "#/components/schemas/AccountBase", "object"),
+    #("AccountRead", "#/components/schemas/AccountRead", "allOf"),
+    #("AccountReadPart1", "#/components/schemas/AccountReadPart1", "object"),
+    #("AccountWrite", "#/components/schemas/AccountWrite", "allOf"),
+    #("AccountWritePart1", "#/components/schemas/AccountWritePart1", "object"),
+  ])
+}
+
+pub fn schema_cache_matches_direct_resolver_test() {
+  let ctx = test_helpers.make_ctx(readonly_writeonly)
+  let account_read_ref =
+    schema.make_reference("#/components/schemas/AccountRead")
+  context.resolve_schema_ref(account_read_ref, ctx)
+  |> should.equal(resolver.resolve_schema_ref(
+    account_read_ref,
+    context.spec(ctx),
+  ))
+}
+
+pub fn schema_metadata_exposes_nested_property_flags_test() {
+  let ctx = test_helpers.make_ctx(readonly_writeonly)
+  let account_read_ref =
+    schema.make_reference("#/components/schemas/AccountRead")
+  let account_write_ref =
+    schema.make_reference("#/components/schemas/AccountWrite")
+  let assert Some(id_ref) = find_property_ref(account_read_ref, "id", ctx)
+  let assert Some(password_ref) =
+    find_property_ref(account_write_ref, "password", ctx)
+  let assert Some(id_metadata) = context.schema_metadata(id_ref, ctx)
+  let assert Some(password_metadata) =
+    context.schema_metadata(password_ref, ctx)
+
+  id_metadata.read_only
+  |> should.be_true()
+  password_metadata.write_only
+  |> should.be_true()
+}
+
+fn find_property_ref(
+  schema_ref: schema.SchemaRef,
+  prop_name: String,
+  ctx: context.Context,
+) -> option.Option(schema.SchemaRef) {
+  case context.resolve_schema_ref(schema_ref, ctx) {
+    Ok(schema_obj) -> find_property_ref_in_object(schema_obj, prop_name, ctx)
+    // nolint: thrown_away_error -- test helper treats unresolved refs as absence while walking for a known property
+    Error(_) -> None
+  }
+}
+
+fn find_property_ref_in_object(
+  schema_obj: schema.SchemaObject,
+  prop_name: String,
+  ctx: context.Context,
+) -> option.Option(schema.SchemaRef) {
+  case schema_obj {
+    schema.ObjectSchema(properties:, ..) ->
+      case dict.get(properties, prop_name) {
+        Ok(prop_ref) -> Some(prop_ref)
+        // nolint: thrown_away_error -- missing property means keep searching other allOf branches
+        Error(_) -> None
+      }
+    schema.AllOfSchema(schemas:, ..) ->
+      list.fold(schemas, None, fn(found, part_ref) {
+        case found {
+          Some(_) -> found
+          None -> find_property_ref(part_ref, prop_name, ctx)
+        }
+      })
+    _ -> None
+  }
 }

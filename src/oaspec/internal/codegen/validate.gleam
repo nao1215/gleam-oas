@@ -5,7 +5,6 @@ import gleam/regexp
 import gleam/string
 import oaspec/config
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
@@ -658,7 +657,7 @@ fn resolve_schema_object(
   case schema_ref {
     Some(Inline(schema_obj)) -> Some(schema_obj)
     Some(schema_ref) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) -> Some(schema_obj)
         // nolint: thrown_away_error -- unresolved refs surface as absent; the ref error is reported elsewhere in the validator
         Error(_) -> None
@@ -1191,7 +1190,7 @@ fn validate_schema_ref_recursive(
           },
         ]
         True ->
-          case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+          case context.resolve_schema_ref(schema_ref, ctx) {
             Ok(_) -> []
             // nolint: thrown_away_error -- resolver error is replaced with a user-facing diagnostic that conveys the same failure
             Error(_) -> [

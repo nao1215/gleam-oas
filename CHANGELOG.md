@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: add shared schema queries to `Context` and route codegen /
+  validation through them.** `Context` now precomputes an inspectable
+  `analyzed_schemas` view plus a cached component-schema resolver, exposed
+  through `context.resolve_schema_ref/2` and `context.schema_metadata/2`.
+  The repeated ad hoc `$ref` resolution logic in `schema_dispatch`,
+  `schema_utils`, `client_request`, `server_request_decode`, `guards`,
+  `validate`, and related helpers now goes through that shared query layer
+  instead of each module resolving component refs independently. Adds
+  context-level tests for analyzed schema snapshots and nested property
+  metadata flags, completing the deferred schema-query follow-up for #371.
+
 ## [0.40.0] - 2026-05-01
 
 ### Changed

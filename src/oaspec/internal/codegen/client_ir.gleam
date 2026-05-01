@@ -5,7 +5,6 @@ import oaspec/config
 import oaspec/internal/codegen/context.{type Context}
 import oaspec/internal/codegen/guards
 import oaspec/internal/codegen/import_analysis
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{Inline, Reference}
 import oaspec/internal/openapi/spec.{ParameterSchema, Value}
 import oaspec/internal/util/content_type as ct_util
@@ -110,7 +109,7 @@ pub fn analyze(ctx: Context) -> ClientRequirements {
       case p.payload {
         ParameterSchema(Inline(schema.ArraySchema(..))) -> True
         ParameterSchema(Reference(..) as sr) ->
-          case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+          case context.resolve_schema_ref(sr, ctx) {
             Ok(schema.ArraySchema(..)) -> True
             _ -> False
           }
@@ -191,7 +190,7 @@ pub fn analyze(ctx: Context) -> ClientRequirements {
           ..,
         ))) -> True
         ParameterSchema(Reference(..) as sr) ->
-          case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+          case context.resolve_schema_ref(sr, ctx) {
             Ok(schema.IntegerSchema(..)) -> True
             Ok(schema.ArraySchema(items: Inline(schema.IntegerSchema(..)), ..)) ->
               True

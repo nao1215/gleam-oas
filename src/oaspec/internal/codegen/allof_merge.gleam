@@ -2,10 +2,9 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type AdditionalProperties, type SchemaRef, Forbidden, Inline, ObjectSchema,
-  Reference, Typed, Unspecified, Untyped,
+  Typed, Unspecified, Untyped,
 }
 
 /// Result of merging allOf sub-schemas.
@@ -32,10 +31,7 @@ pub fn merge_allof_schemas(
       additional_properties: Unspecified,
     ),
     fn(acc, s_ref, idx) {
-      let resolved = case s_ref {
-        Inline(obj) -> Ok(obj)
-        Reference(..) -> resolver.resolve_schema_ref(s_ref, context.spec(ctx))
-      }
+      let resolved = context.resolve_schema_ref(s_ref, ctx)
       case resolved {
         Ok(ObjectSchema(properties:, required:, additional_properties:, ..)) -> {
           let merged_ap = case

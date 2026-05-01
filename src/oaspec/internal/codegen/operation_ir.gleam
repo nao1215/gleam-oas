@@ -1,6 +1,5 @@
 import gleam/option.{type Option, None, Some}
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema
 import oaspec/internal/openapi/spec
 
@@ -39,7 +38,7 @@ pub fn is_deep_object_param(
       Some(spec.DeepObjectStyle),
       Some(schema.Reference(..) as schema_ref)
     ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema.ObjectSchema(..)) -> True
         _ -> False
       }

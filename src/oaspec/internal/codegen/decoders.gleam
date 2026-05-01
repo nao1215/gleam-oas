@@ -1330,14 +1330,9 @@ fn schema_ref_to_decoder(
 
 /// Check if a SchemaRef has nullable: true.
 fn schema_ref_is_nullable(ref: SchemaRef, ctx: Context) -> Bool {
-  case ref {
-    Inline(schema) -> schema.is_nullable(schema)
-    Reference(..) ->
-      case resolver.resolve_schema_ref(ref, context.spec(ctx)) {
-        Ok(resolved_schema) -> schema.is_nullable(resolved_schema)
-        // nolint: thrown_away_error -- unresolved refs are treated as non-nullable here; the spec validator reports the ref error separately
-        Error(_) -> False
-      }
+  case context.schema_metadata(ref, ctx) {
+    Some(metadata) -> metadata.nullable
+    None -> False
   }
 }
 
