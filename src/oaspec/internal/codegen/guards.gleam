@@ -5,7 +5,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
-import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 import oaspec/config
@@ -22,6 +21,27 @@ import oaspec/internal/openapi/schema.{
 }
 import oaspec/internal/util/naming
 import oaspec/internal/util/string_extra as se
+
+pub type GuardFunctionKind {
+  FieldValidator
+  DelegatingFieldValidator(canonical_name: String)
+  CompositeValidator
+}
+
+pub type GuardFunction {
+  GuardFunction(
+    name: String,
+    docs: List(String),
+    param_decl: String,
+    return_type: String,
+    body: String,
+    kind: GuardFunctionKind,
+  )
+}
+
+pub type GuardModule {
+  GuardModule(imports: List(String), functions: List(GuardFunction))
+}
 
 /// Check whether a named component schema has a composite validator.
 /// Used by server/client generators to decide whether to emit guard calls.
@@ -41,22 +61,22 @@ pub fn schema_has_validator(name: String, ctx: Context) -> Bool {
 
 /// Generate guard/validation functions from OpenAPI schemas that have constraints.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
-  let content = generate_guards(ctx)
-  case string.contains(content, "pub fn validate_") {
-    True -> [
+  let module = build_module(ctx)
+  case list.is_empty(module.functions) {
+    True -> []
+    False -> [
       GeneratedFile(
         path: "guards.gleam",
-        content: content,
+        content: render_module(module),
         target: context.SharedTarget,
         write_mode: context.Overwrite,
       ),
     ]
-    False -> []
   }
 }
 
-/// Generate validation guard functions for schemas with constraints.
-fn generate_guards(ctx: Context) -> String {
+/// Build the structured guard module before rendering.
+pub fn build_module(ctx: Context) -> GuardModule {
   let schemas = case context.spec(ctx).components {
     Some(components) ->
       list.sort(dict.to_list(components.schemas), fn(a, b) {
@@ -133,33 +153,325 @@ fn generate_guards(ctx: Context) -> String {
     False -> imports
   }
 
+  let field_validators =
+    list.flat_map(schemas, fn(entry) {
+      let #(name, schema_ref) = entry
+      collect_guard_functions_for_schema(name, schema_ref, ctx)
+    })
+    |> dedupe_guard_functions()
+
+  let composite_validators =
+    list.flat_map(schemas, fn(entry) {
+      let #(name, schema_ref) = entry
+      maybe_one(build_composite_guard_function(name, schema_ref, ctx))
+    })
+
+  GuardModule(
+    imports: imports,
+    functions: list.append(field_validators, composite_validators),
+  )
+}
+
+/// Render the structured guard module to Gleam source.
+fn render_module(module: GuardModule) -> String {
   let sb =
     se.file_header(context.version)
-    |> se.imports(imports)
+    |> se.imports(module.imports)
     |> emit_validation_failure_type()
 
+  list.fold(module.functions, sb, render_guard_function)
+  |> se.to_string()
+}
+
+fn render_guard_function(
+  sb: se.StringBuilder,
+  function: GuardFunction,
+) -> se.StringBuilder {
   let sb =
-    list.fold(schemas, sb, fn(sb, entry) {
-      let #(name, schema_ref) = entry
-      generate_guards_for_schema(sb, name, schema_ref, ctx)
+    list.fold(function.docs, sb, fn(sb, doc) { sb |> se.line("/// " <> doc) })
+  let sb =
+    sb
+    |> se.line(
+      "pub fn "
+      <> function.name
+      <> "("
+      <> function.param_decl
+      <> ") -> "
+      <> function.return_type
+      <> " {",
+    )
+  let sb =
+    function.body
+    |> string.split(on: "\n")
+    |> list.fold(sb, fn(sb, line) { sb |> se.line(line) })
+  sb
+  |> se.line("}")
+  |> se.blank_line()
+}
+
+fn dedupe_guard_functions(functions: List(GuardFunction)) -> List(GuardFunction) {
+  let canonical_by_key =
+    list.fold(functions, dict.new(), fn(acc, function) {
+      case function.kind {
+        FieldValidator ->
+          case dict.get(acc, dedupe_key(function)) {
+            Error(Nil) -> dict.insert(acc, dedupe_key(function), function.name)
+            Ok(existing) ->
+              case string.compare(function.name, existing) {
+                order.Lt ->
+                  dict.insert(acc, dedupe_key(function), function.name)
+                _ -> acc
+              }
+          }
+        _ -> acc
+      }
     })
 
-  // Generate composite validate_<type> functions that call all field validators
-  let sb =
-    list.fold(schemas, sb, fn(sb, entry) {
-      let #(name, schema_ref) = entry
-      generate_composite_validator(sb, name, schema_ref, ctx)
-    })
+  list.map(functions, fn(function) {
+    case function.kind {
+      FieldValidator ->
+        case dict.get(canonical_by_key, dedupe_key(function)) {
+          Ok(canonical_name) ->
+            case canonical_name == function.name {
+              True -> function
+              False -> emit_guard_delegator(function, canonical_name)
+            }
+          Error(Nil) -> function
+        }
+      _ -> function
+    }
+  })
+}
 
-  // #339: when the same field appears in multiple schemas via allOf
-  // flattening, the per-field validators have byte-identical bodies.
-  // Collapse the duplicates: keep one canonical definition and
-  // rewrite the rest as 1-line delegating stubs that forward to it.
-  // The composite validators (which call the per-field validators by
-  // name) keep working unchanged because the duplicate names still
-  // exist — they just delegate now.
-  se.to_string(sb)
-  |> dedupe_field_validator_definitions
+fn dedupe_key(function: GuardFunction) -> String {
+  function.param_decl <> "->" <> function.return_type <> "{\n" <> function.body
+}
+
+fn emit_guard_delegator(
+  function: GuardFunction,
+  canonical_name: String,
+) -> GuardFunction {
+  GuardFunction(
+    ..function,
+    body: "  " <> canonical_name <> "(value)",
+    kind: DelegatingFieldValidator(canonical_name),
+  )
+}
+
+fn collect_guard_functions_for_schema(
+  name: String,
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> List(GuardFunction) {
+  case schema_ref {
+    Inline(schema) ->
+      collect_guard_functions_for_schema_object(name, schema, ctx)
+    Reference(name:, ..) ->
+      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+        Ok(schema) ->
+          collect_guard_functions_for_schema_object(name, schema, ctx)
+        _ -> []
+      }
+  }
+}
+
+fn collect_guard_functions_for_schema_object(
+  name: String,
+  schema: SchemaObject,
+  ctx: Context,
+) -> List(GuardFunction) {
+  case schema {
+    ObjectSchema(properties:, min_properties:, max_properties:, ..) ->
+      list.append(
+        maybe_one(build_properties_count_guard_function(
+          name,
+          "",
+          min_properties,
+          max_properties,
+        )),
+        ir_build.sorted_entries(properties)
+          |> list.flat_map(fn(entry) {
+            let #(prop_name, prop_ref) = entry
+            collect_field_guard_functions(name, prop_name, prop_ref, ctx)
+          }),
+      )
+
+    AllOfSchema(schemas:, ..) ->
+      list.append(
+        [],
+        ir_build.sorted_entries(
+          allof_merge.merge_allof_schemas(schemas, ctx).properties,
+        )
+          |> list.flat_map(fn(entry) {
+            let #(prop_name, prop_ref) = entry
+            collect_field_guard_functions(name, prop_name, prop_ref, ctx)
+          }),
+      )
+
+    StringSchema(min_length:, max_length:, pattern:, ..) ->
+      list.flatten([
+        maybe_one(build_string_guard_function(name, "", min_length, max_length)),
+        maybe_one(build_string_pattern_guard_function(name, "", pattern)),
+      ])
+
+    IntegerSchema(
+      minimum:,
+      maximum:,
+      exclusive_minimum:,
+      exclusive_maximum:,
+      multiple_of:,
+      ..,
+    ) ->
+      list.flatten([
+        maybe_one(build_integer_guard_function(name, "", minimum, maximum)),
+        maybe_one(build_integer_exclusive_guard_function(
+          name,
+          "",
+          exclusive_minimum,
+          exclusive_maximum,
+        )),
+        maybe_one(build_integer_multiple_of_guard_function(
+          name,
+          "",
+          multiple_of,
+        )),
+      ])
+
+    NumberSchema(
+      minimum:,
+      maximum:,
+      exclusive_minimum:,
+      exclusive_maximum:,
+      multiple_of:,
+      ..,
+    ) ->
+      list.flatten([
+        maybe_one(build_float_guard_function(name, "", minimum, maximum)),
+        maybe_one(build_float_exclusive_guard_function(
+          name,
+          "",
+          exclusive_minimum,
+          exclusive_maximum,
+        )),
+        maybe_one(build_float_multiple_of_guard_function(name, "", multiple_of)),
+      ])
+
+    ArraySchema(min_items:, max_items:, unique_items:, ..) ->
+      list.flatten([
+        maybe_one(build_list_guard_function(name, "", min_items, max_items)),
+        maybe_one(build_unique_items_guard_function(name, "", unique_items)),
+      ])
+
+    _ -> []
+  }
+}
+
+fn collect_field_guard_functions(
+  schema_name: String,
+  prop_name: String,
+  prop_ref: SchemaRef,
+  ctx: Context,
+) -> List(GuardFunction) {
+  let resolved = case prop_ref {
+    Inline(schema) -> Ok(schema)
+    Reference(..) -> resolver.resolve_schema_ref(prop_ref, context.spec(ctx))
+  }
+  case resolved {
+    Ok(StringSchema(min_length:, max_length:, pattern:, ..)) ->
+      list.flatten([
+        maybe_one(build_string_guard_function(
+          schema_name,
+          prop_name,
+          min_length,
+          max_length,
+        )),
+        maybe_one(build_string_pattern_guard_function(
+          schema_name,
+          prop_name,
+          pattern,
+        )),
+      ])
+
+    Ok(IntegerSchema(
+      minimum:,
+      maximum:,
+      exclusive_minimum:,
+      exclusive_maximum:,
+      multiple_of:,
+      ..,
+    )) ->
+      list.flatten([
+        maybe_one(build_integer_guard_function(
+          schema_name,
+          prop_name,
+          minimum,
+          maximum,
+        )),
+        maybe_one(build_integer_exclusive_guard_function(
+          schema_name,
+          prop_name,
+          exclusive_minimum,
+          exclusive_maximum,
+        )),
+        maybe_one(build_integer_multiple_of_guard_function(
+          schema_name,
+          prop_name,
+          multiple_of,
+        )),
+      ])
+
+    Ok(NumberSchema(
+      minimum:,
+      maximum:,
+      exclusive_minimum:,
+      exclusive_maximum:,
+      multiple_of:,
+      ..,
+    )) ->
+      list.flatten([
+        maybe_one(build_float_guard_function(
+          schema_name,
+          prop_name,
+          minimum,
+          maximum,
+        )),
+        maybe_one(build_float_exclusive_guard_function(
+          schema_name,
+          prop_name,
+          exclusive_minimum,
+          exclusive_maximum,
+        )),
+        maybe_one(build_float_multiple_of_guard_function(
+          schema_name,
+          prop_name,
+          multiple_of,
+        )),
+      ])
+
+    Ok(ArraySchema(min_items:, max_items:, unique_items:, ..)) ->
+      list.flatten([
+        maybe_one(build_list_guard_function(
+          schema_name,
+          prop_name,
+          min_items,
+          max_items,
+        )),
+        maybe_one(build_unique_items_guard_function(
+          schema_name,
+          prop_name,
+          unique_items,
+        )),
+      ])
+
+    _ -> []
+  }
+}
+
+fn maybe_one(value: Option(a)) -> List(a) {
+  case value {
+    Some(v) -> [v]
+    None -> []
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,224 +486,6 @@ fn generate_guards(ctx: Context) -> String {
 /// the canonical one. The composite validators continue to call the
 /// per-field validators by the original names, so call-site code is
 /// unchanged.
-fn dedupe_field_validator_definitions(source: String) -> String {
-  // Split on the boundary between top-level pub functions. The first
-  // chunk is the file header (imports, type defs, helpers); each
-  // subsequent chunk is one `pub fn` definition (with the leading
-  // "pub fn " stripped by the split).
-  case string.split(source, on: "\npub fn ") {
-    [] -> source
-    [_only_header] -> source
-    [head, ..raw_chunks] -> {
-      // Parse each chunk into structured form. Chunks that don't
-      // match the expected per-field validator shape are passed
-      // through unchanged.
-      let parsed = list.map(raw_chunks, parse_function_chunk)
-      // Group eligible chunks by body and pick a canonical name per
-      // group (lex-first). Keys are body strings; values are the
-      // canonical function name.
-      let canonical_by_body = build_body_to_canonical_name_map(parsed)
-      // Rewrite each chunk: if the chunk is a duplicate (its name
-      // isn't the canonical for its body), emit a delegating stub.
-      let rewritten =
-        list.map(parsed, fn(p) {
-          rewrite_chunk_if_duplicate(p, canonical_by_body)
-        })
-      // Re-join with the original separator.
-      head <> string.concat(list.map(rewritten, fn(c) { "\npub fn " <> c }))
-    }
-  }
-}
-
-/// Lightweight parse of a single `pub fn` chunk. The chunk does NOT
-/// include the leading `pub fn `. `name` is everything up to the
-/// first `(`. `signature_and_body` keeps the full original text from
-/// after the name onward, used as-is when emission is unchanged.
-type ParsedChunk {
-  ParsedChunk(
-    /// Function name (e.g. `validate_inline_upload_title_length`).
-    name: String,
-    /// Parameter declaration block, e.g. `value: String`.
-    param_decl: String,
-    /// Return type, e.g. `Result(String, ValidationFailure)`.
-    return_type: String,
-    /// The function body, including surrounding whitespace —
-    /// everything between the first `{` (after the signature) and
-    /// the matching `}` of the function definition. Used as the
-    /// dedup key.
-    body: String,
-    /// Trailing text after the closing `}` (typically `\n` and any
-    /// blank-line separator before the next function). Preserved so
-    /// reconstruction keeps the original formatting.
-    trailing: String,
-    /// The full original chunk text. Used verbatim when the chunk
-    /// is the canonical / unique definition.
-    original: String,
-  )
-}
-
-fn parse_function_chunk(chunk: String) -> ParsedChunk {
-  // Try to extract `name(params) -> return_type {body}trailing`.
-  // When parsing fails (chunk doesn't match the expected per-field
-  // validator shape), fall back to a passthrough record with empty
-  // structured fields and the original text intact.
-  let fallback =
-    ParsedChunk(
-      name: "",
-      param_decl: "",
-      return_type: "",
-      body: "",
-      trailing: "",
-      original: chunk,
-    )
-  parse_function_chunk_strict(chunk)
-  |> result.unwrap(fallback)
-}
-
-fn parse_function_chunk_strict(chunk: String) -> Result(ParsedChunk, Nil) {
-  use #(name, after_open_paren) <- result.try(string.split_once(chunk, on: "("))
-  use #(param_decl, after_arrow) <- result.try(string.split_once(
-    after_open_paren,
-    on: ") -> ",
-  ))
-  use #(return_type, after_open_brace) <- result.try(string.split_once(
-    after_arrow,
-    on: " {\n",
-  ))
-  use #(body, trailing) <- result.try(rsplit_once_on_close_brace(
-    after_open_brace,
-  ))
-  Ok(ParsedChunk(
-    name: name,
-    param_decl: param_decl,
-    return_type: return_type,
-    body: body,
-    trailing: trailing,
-    original: chunk,
-  ))
-}
-
-/// Split a string at its LAST occurrence of `\n}\n`. Used to find
-/// the closing `}` of the function (the trailing `\n` after `}`
-/// always exists in the generator's output). Returns the portion
-/// before `\n}` (the body, excluding the closing brace itself) and
-/// the portion after `}\n` (the trailing formatting before the
-/// next function — typically a blank line plus the next function's
-/// doc-comment block).
-fn rsplit_once_on_close_brace(s: String) -> Result(#(String, String), Nil) {
-  let needle = "\n}\n"
-  case string.split(s, on: needle) {
-    [_only] -> Error(Nil)
-    parts -> {
-      // All but the last chunk belong to the body (including any
-      // intermediate `\n}\n` that legitimately appear inside nested
-      // case expressions — though in practice generated function
-      // bodies never contain bare `\n}\n` because case branches
-      // indent further).
-      case list.reverse(parts) {
-        [] -> Error(Nil)
-        [last_part, ..rev_rest] -> {
-          let body =
-            list.reverse(rev_rest)
-            |> string.join(needle)
-          // `last_part` is what came AFTER the final `\n}\n` —
-          // i.e. the inter-function whitespace + the next
-          // function's doc-comment lines (if any). Return body
-          // (without the closing brace) and last_part (the
-          // trailing block, which the caller is responsible for
-          // re-emitting verbatim after its own closing brace).
-          Ok(#(body, last_part))
-        }
-      }
-    }
-  }
-}
-
-/// Group eligible chunks (parsed successfully and whose name starts
-/// with the `validate_` per-field-validator prefix) by their body
-/// content. For each body that has multiple defining chunks, pick
-/// the lex-first name as canonical. Returns a Dict keyed by body.
-fn build_body_to_canonical_name_map(
-  parsed: List(ParsedChunk),
-) -> dict.Dict(String, String) {
-  list.fold(parsed, dict.new(), fn(acc, chunk) {
-    case is_dedupable(chunk) {
-      False -> acc
-      True ->
-        case dict.get(acc, chunk.body) {
-          Error(Nil) -> dict.insert(acc, chunk.body, chunk.name)
-          Ok(existing) ->
-            case string.compare(chunk.name, existing) {
-              order.Lt -> dict.insert(acc, chunk.body, chunk.name)
-              _ -> acc
-            }
-        }
-    }
-  })
-}
-
-/// A chunk is dedup-eligible if it's a per-field validator (its name
-/// starts with `validate_` and ends with one of the recognised
-/// constraint suffixes used by `generate_*_guard`). The composite
-/// `validate_<type>` functions are NOT dedup-eligible because their
-/// names are the public stable surface that downstream code calls.
-fn is_dedupable(chunk: ParsedChunk) -> Bool {
-  use <- bool.guard(
-    when: !string.starts_with(chunk.name, "validate_"),
-    return: False,
-  )
-  list.any(per_field_validator_suffixes(), fn(suffix) {
-    string.ends_with(chunk.name, suffix)
-  })
-}
-
-fn per_field_validator_suffixes() -> List(String) {
-  [
-    "_length", "_pattern", "_range", "_exclusive", "_multiple_of", "_count",
-    "_unique",
-  ]
-}
-
-/// If `chunk` is a duplicate of an earlier definition for the same
-/// body, emit a one-line delegator that forwards to the canonical
-/// name. Otherwise emit the chunk verbatim.
-fn rewrite_chunk_if_duplicate(
-  chunk: ParsedChunk,
-  canonical_by_body: dict.Dict(String, String),
-) -> String {
-  case dict.get(canonical_by_body, chunk.body) {
-    // Body has no canonical entry (chunk wasn't dedup-eligible) →
-    // pass through unchanged.
-    Error(Nil) -> chunk.original
-    Ok(canonical_name) ->
-      case canonical_name == chunk.name {
-        // This chunk IS the canonical → keep its full body.
-        True -> chunk.original
-        // This chunk is a duplicate → emit a delegating stub.
-        False -> emit_delegator(chunk, canonical_name)
-      }
-  }
-}
-
-fn emit_delegator(chunk: ParsedChunk, canonical_name: String) -> String {
-  // Per-field validators always take a single parameter named
-  // `value`, so the delegator just passes it through. The closing
-  // `}\n` here matches the `\n}\n` that `parse_function_chunk`
-  // stripped while extracting the body. The chunk's `trailing`
-  // (everything after the original `\n}\n` — typically a blank
-  // line plus the next function's doc-comment) is preserved
-  // verbatim so subsequent functions don't lose their docs.
-  chunk.name
-  <> "("
-  <> chunk.param_decl
-  <> ") -> "
-  <> chunk.return_type
-  <> " {\n  "
-  <> canonical_name
-  <> "(value)\n}\n"
-  <> chunk.trailing
-}
-
 /// Track which constraint types exist in the schema set.
 type ConstraintTypes {
   ConstraintTypes(
@@ -503,889 +597,6 @@ fn collect_schema_constraint_types_inner(
   }
 }
 
-/// Generate guard functions for a single schema's constrained fields.
-fn generate_guards_for_schema(
-  sb: se.StringBuilder,
-  name: String,
-  schema_ref: SchemaRef,
-  ctx: Context,
-) -> se.StringBuilder {
-  case schema_ref {
-    Inline(schema) -> generate_guards_for_schema_object(sb, name, schema, ctx)
-    Reference(name:, ..) -> {
-      let resolved_name = name
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
-        Ok(schema) ->
-          generate_guards_for_schema_object(sb, resolved_name, schema, ctx)
-        _ -> sb
-      }
-    }
-  }
-}
-
-/// Generate guard functions for fields within a schema object.
-fn generate_guards_for_schema_object(
-  sb: se.StringBuilder,
-  name: String,
-  schema: SchemaObject,
-  ctx: Context,
-) -> se.StringBuilder {
-  case schema {
-    ObjectSchema(properties:, min_properties:, max_properties:, ..) -> {
-      let sb =
-        generate_properties_count_guard(
-          sb,
-          name,
-          "",
-          min_properties,
-          max_properties,
-        )
-      let props = ir_build.sorted_entries(properties)
-      list.fold(props, sb, fn(sb, entry) {
-        let #(prop_name, prop_ref) = entry
-        generate_field_guard(sb, name, prop_name, prop_ref, ctx)
-      })
-    }
-    AllOfSchema(schemas:, ..) -> {
-      let props =
-        ir_build.sorted_entries(
-          allof_merge.merge_allof_schemas(schemas, ctx).properties,
-        )
-      list.fold(props, sb, fn(sb, entry) {
-        let #(prop_name, prop_ref) = entry
-        generate_field_guard(sb, name, prop_name, prop_ref, ctx)
-      })
-    }
-    // Top-level string/integer constraints (type aliases with constraints)
-    StringSchema(min_length:, max_length:, pattern:, ..) -> {
-      let sb = generate_string_guard(sb, name, "", min_length, max_length)
-      generate_string_pattern_guard(sb, name, "", pattern)
-    }
-    IntegerSchema(
-      minimum:,
-      maximum:,
-      exclusive_minimum:,
-      exclusive_maximum:,
-      multiple_of:,
-      ..,
-    ) -> {
-      let sb = generate_integer_guard(sb, name, "", minimum, maximum)
-      let sb =
-        generate_integer_exclusive_guard(
-          sb,
-          name,
-          "",
-          exclusive_minimum,
-          exclusive_maximum,
-        )
-      generate_integer_multiple_of_guard(sb, name, "", multiple_of)
-    }
-    NumberSchema(
-      minimum:,
-      maximum:,
-      exclusive_minimum:,
-      exclusive_maximum:,
-      multiple_of:,
-      ..,
-    ) -> {
-      let sb = generate_float_guard(sb, name, "", minimum, maximum)
-      let sb =
-        generate_float_exclusive_guard(
-          sb,
-          name,
-          "",
-          exclusive_minimum,
-          exclusive_maximum,
-        )
-      generate_float_multiple_of_guard(sb, name, "", multiple_of)
-    }
-    ArraySchema(min_items:, max_items:, unique_items:, ..) -> {
-      let sb = generate_list_guard(sb, name, "", min_items, max_items)
-      generate_unique_items_guard(sb, name, "", unique_items)
-    }
-    _ -> sb
-  }
-}
-
-/// Generate a guard for a specific field based on its schema type and constraints.
-fn generate_field_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  prop_ref: SchemaRef,
-  ctx: Context,
-) -> se.StringBuilder {
-  let resolved = case prop_ref {
-    Inline(schema) -> Ok(schema)
-    Reference(..) -> resolver.resolve_schema_ref(prop_ref, context.spec(ctx))
-  }
-  case resolved {
-    Ok(StringSchema(min_length:, max_length:, pattern:, ..)) -> {
-      let sb =
-        generate_string_guard(
-          sb,
-          schema_name,
-          prop_name,
-          min_length,
-          max_length,
-        )
-      generate_string_pattern_guard(sb, schema_name, prop_name, pattern)
-    }
-    Ok(IntegerSchema(
-      minimum:,
-      maximum:,
-      exclusive_minimum:,
-      exclusive_maximum:,
-      multiple_of:,
-      ..,
-    )) -> {
-      let sb =
-        generate_integer_guard(sb, schema_name, prop_name, minimum, maximum)
-      let sb =
-        generate_integer_exclusive_guard(
-          sb,
-          schema_name,
-          prop_name,
-          exclusive_minimum,
-          exclusive_maximum,
-        )
-      generate_integer_multiple_of_guard(
-        sb,
-        schema_name,
-        prop_name,
-        multiple_of,
-      )
-    }
-    Ok(NumberSchema(
-      minimum:,
-      maximum:,
-      exclusive_minimum:,
-      exclusive_maximum:,
-      multiple_of:,
-      ..,
-    )) -> {
-      let sb =
-        generate_float_guard(sb, schema_name, prop_name, minimum, maximum)
-      let sb =
-        generate_float_exclusive_guard(
-          sb,
-          schema_name,
-          prop_name,
-          exclusive_minimum,
-          exclusive_maximum,
-        )
-      generate_float_multiple_of_guard(sb, schema_name, prop_name, multiple_of)
-    }
-    Ok(ArraySchema(min_items:, max_items:, unique_items:, ..)) -> {
-      let sb =
-        generate_list_guard(sb, schema_name, prop_name, min_items, max_items)
-      generate_unique_items_guard(sb, schema_name, prop_name, unique_items)
-    }
-    _ -> sb
-  }
-}
-
-/// Generate a string pattern validation guard.
-fn generate_string_pattern_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  pattern: Option(String),
-) -> se.StringBuilder {
-  case pattern {
-    None -> sb
-    Some(pattern) -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "pattern")
-      let pattern_literal = gleam_string_literal(pattern)
-      let invalid_pattern_prefix =
-        gleam_string_literal("invalid pattern: " <> pattern <> ": ")
-      let mismatch_failure =
-        validation_failure_literal(
-          prop_name,
-          "pattern",
-          "must match pattern: " <> pattern,
-        )
-      let invalid_pattern_failure =
-        validation_failure_dynamic(
-          prop_name,
-          "invalidPattern",
-          invalid_pattern_prefix <> " <> error",
-        )
-      sb
-      |> se.line(
-        "/// Validate string pattern for "
-        <> schema_name
-        <> field_label(prop_name)
-        <> ".",
-      )
-      |> se.line(
-        "pub fn "
-        <> fn_name
-        <> "(value: String) -> Result(String, ValidationFailure) {",
-      )
-      |> se.indent(1, "case regexp.from_string(" <> pattern_literal <> ") {")
-      |> se.indent(2, "Ok(re) -> case regexp.check(re, value) {")
-      |> se.indent(3, "True -> Ok(value)")
-      |> se.indent(3, "False -> " <> mismatch_failure)
-      |> se.indent(2, "}")
-      |> se.indent(
-        2,
-        "Error(regexp.CompileError(error:, ..)) -> " <> invalid_pattern_failure,
-      )
-      |> se.indent(1, "}")
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Word used in minLength/maxLength error messages.
-/// Singular when the bound is exactly one; plural otherwise.
-fn character_word(n: Int) -> String {
-  case n {
-    1 -> "character"
-    _ -> "characters"
-  }
-}
-
-/// Generate a string length validation guard.
-fn generate_string_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  min_length: Option(Int),
-  max_length: Option(Int),
-) -> se.StringBuilder {
-  case min_length, max_length {
-    None, None -> sb
-    _, _ -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "length")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "minLength",
-          "must be at least "
-            <> int.to_string(min)
-            <> " "
-            <> character_word(min),
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "maxLength",
-          "must be at most " <> int.to_string(max) <> " " <> character_word(max),
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate string length for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: String) -> Result(String, ValidationFailure) {",
-        )
-      let sb = sb |> se.indent(1, "let len = string.length(value)")
-      let sb = case min_length, max_length {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case len < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False ->")
-          |> se.indent(3, "case len > " <> int.to_string(max) <> " {")
-          |> se.indent(4, "True -> " <> max_failure(max))
-          |> se.indent(4, "False -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case len < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case len > " <> int.to_string(max) <> " {")
-          |> se.indent(2, "True -> " <> max_failure(max))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate an integer range validation guard.
-fn generate_integer_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  minimum: Option(Int),
-  maximum: Option(Int),
-) -> se.StringBuilder {
-  case minimum, maximum {
-    None, None -> sb
-    _, _ -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "range")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "minimum",
-          "must be at least " <> int.to_string(min),
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "maximum",
-          "must be at most " <> int.to_string(max),
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate integer range for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: Int) -> Result(Int, ValidationFailure) {",
-        )
-      let sb = case minimum, maximum {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case value < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False ->")
-          |> se.indent(3, "case value > " <> int.to_string(max) <> " {")
-          |> se.indent(4, "True -> " <> max_failure(max))
-          |> se.indent(4, "False -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case value < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case value > " <> int.to_string(max) <> " {")
-          |> se.indent(2, "True -> " <> max_failure(max))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate a float range validation guard.
-fn generate_float_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  minimum: Option(Float),
-  maximum: Option(Float),
-) -> se.StringBuilder {
-  case minimum, maximum {
-    None, None -> sb
-    _, _ -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "range")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "minimum",
-          "must be at least " <> float.to_string(min),
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "maximum",
-          "must be at most " <> float.to_string(max),
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate float range for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: Float) -> Result(Float, ValidationFailure) {",
-        )
-      let sb = case minimum, maximum {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case value <. " <> float.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False ->")
-          |> se.indent(3, "case value >. " <> float.to_string(max) <> " {")
-          |> se.indent(4, "True -> " <> max_failure(max))
-          |> se.indent(4, "False -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case value <. " <> float.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case value >. " <> float.to_string(max) <> " {")
-          |> se.indent(2, "True -> " <> max_failure(max))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate an integer exclusive range validation guard.
-fn generate_integer_exclusive_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  exclusive_minimum: Option(Int),
-  exclusive_maximum: Option(Int),
-) -> se.StringBuilder {
-  case exclusive_minimum, exclusive_maximum {
-    None, None -> sb
-    _, _ -> {
-      let fn_name =
-        guard_function_name(schema_name, prop_name, "exclusive_range")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "exclusiveMinimum",
-          "must be greater than " <> int.to_string(min),
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "exclusiveMaximum",
-          "must be less than " <> int.to_string(max),
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate integer exclusive range for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: Int) -> Result(Int, ValidationFailure) {",
-        )
-      let sb = case exclusive_minimum, exclusive_maximum {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case value > " <> int.to_string(min) <> " {")
-          |> se.indent(2, "False -> " <> min_failure(min))
-          |> se.indent(2, "True ->")
-          |> se.indent(3, "case value < " <> int.to_string(max) <> " {")
-          |> se.indent(4, "False -> " <> max_failure(max))
-          |> se.indent(4, "True -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case value > " <> int.to_string(min) <> " {")
-          |> se.indent(2, "False -> " <> min_failure(min))
-          |> se.indent(2, "True -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case value < " <> int.to_string(max) <> " {")
-          |> se.indent(2, "False -> " <> max_failure(max))
-          |> se.indent(2, "True -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate an integer multipleOf validation guard.
-fn generate_integer_multiple_of_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  multiple_of: Option(Int),
-) -> se.StringBuilder {
-  case multiple_of {
-    None -> sb
-    Some(m) -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "multiple_of")
-      let failure =
-        validation_failure_literal(
-          prop_name,
-          "multipleOf",
-          "must be a multiple of " <> int.to_string(m),
-        )
-      sb
-      |> se.line(
-        "/// Validate integer multipleOf for "
-        <> schema_name
-        <> field_label(prop_name)
-        <> ".",
-      )
-      |> se.line(
-        "pub fn "
-        <> fn_name
-        <> "(value: Int) -> Result(Int, ValidationFailure) {",
-      )
-      |> se.indent(1, "case value % " <> int.to_string(m) <> " == 0 {")
-      |> se.indent(2, "False -> " <> failure)
-      |> se.indent(2, "True -> Ok(value)")
-      |> se.indent(1, "}")
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate a float exclusive range validation guard.
-fn generate_float_exclusive_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  exclusive_minimum: Option(Float),
-  exclusive_maximum: Option(Float),
-) -> se.StringBuilder {
-  case exclusive_minimum, exclusive_maximum {
-    None, None -> sb
-    _, _ -> {
-      let fn_name =
-        guard_function_name(schema_name, prop_name, "exclusive_range")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "exclusiveMinimum",
-          "must be greater than " <> float.to_string(min),
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "exclusiveMaximum",
-          "must be less than " <> float.to_string(max),
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate float exclusive range for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: Float) -> Result(Float, ValidationFailure) {",
-        )
-      let sb = case exclusive_minimum, exclusive_maximum {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case value >. " <> float.to_string(min) <> " {")
-          |> se.indent(2, "False -> " <> min_failure(min))
-          |> se.indent(2, "True ->")
-          |> se.indent(3, "case value <. " <> float.to_string(max) <> " {")
-          |> se.indent(4, "False -> " <> max_failure(max))
-          |> se.indent(4, "True -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case value >. " <> float.to_string(min) <> " {")
-          |> se.indent(2, "False -> " <> min_failure(min))
-          |> se.indent(2, "True -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case value <. " <> float.to_string(max) <> " {")
-          |> se.indent(2, "False -> " <> max_failure(max))
-          |> se.indent(2, "True -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate a float multipleOf validation guard.
-fn generate_float_multiple_of_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  multiple_of: Option(Float),
-) -> se.StringBuilder {
-  case multiple_of {
-    None -> sb
-    Some(m) -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "multiple_of")
-      let failure =
-        validation_failure_literal(
-          prop_name,
-          "multipleOf",
-          "must be a multiple of " <> float.to_string(m),
-        )
-      sb
-      |> se.line(
-        "/// Validate float multipleOf for "
-        <> schema_name
-        <> field_label(prop_name)
-        <> ".",
-      )
-      |> se.line(
-        "pub fn "
-        <> fn_name
-        <> "(value: Float) -> Result(Float, ValidationFailure) {",
-      )
-      |> se.indent(
-        1,
-        "let remainder = value -. float.truncate(value /. "
-          <> float.to_string(m)
-          <> " |> int.to_float) *. "
-          <> float.to_string(m),
-      )
-      |> se.indent(1, "case remainder == 0.0 || remainder == -0.0 {")
-      |> se.indent(2, "False -> " <> failure)
-      |> se.indent(2, "True -> Ok(value)")
-      |> se.indent(1, "}")
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate a list length validation guard.
-fn generate_list_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  min_items: Option(Int),
-  max_items: Option(Int),
-) -> se.StringBuilder {
-  case min_items, max_items {
-    None, None -> sb
-    _, _ -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "length")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "minItems",
-          "must have at least " <> int.to_string(min) <> " items",
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "maxItems",
-          "must have at most " <> int.to_string(max) <> " items",
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate list length for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-      let sb =
-        sb
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: List(a)) -> Result(List(a), ValidationFailure) {",
-        )
-      let sb =
-        sb
-        |> se.indent(1, "let len = list.length(value)")
-      let sb = case min_items, max_items {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case len < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False ->")
-          |> se.indent(3, "case len > " <> int.to_string(max) <> " {")
-          |> se.indent(4, "True -> " <> max_failure(max))
-          |> se.indent(4, "False -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case len < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case len > " <> int.to_string(max) <> " {")
-          |> se.indent(2, "True -> " <> max_failure(max))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
-/// Generate a uniqueItems validation guard.
-fn generate_unique_items_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  unique_items: Bool,
-) -> se.StringBuilder {
-  use <- bool.guard(!unique_items, sb)
-  let fn_name = guard_function_name(schema_name, prop_name, "unique")
-  let failure =
-    validation_failure_literal(prop_name, "uniqueItems", "items must be unique")
-  sb
-  |> se.line(
-    "/// Validate unique items for "
-    <> schema_name
-    <> field_label(prop_name)
-    <> ".",
-  )
-  |> se.line(
-    "pub fn "
-    <> fn_name
-    <> "(value: List(a)) -> Result(List(a), ValidationFailure) {",
-  )
-  |> se.indent(
-    1,
-    "case list.length(value) == list.length(list.unique(value)) {",
-  )
-  |> se.indent(2, "True -> Ok(value)")
-  |> se.indent(2, "False -> " <> failure)
-  |> se.indent(1, "}")
-  |> se.line("}")
-  |> se.blank_line()
-}
-
-/// Generate a minProperties/maxProperties validation guard for objects.
-fn generate_properties_count_guard(
-  sb: se.StringBuilder,
-  schema_name: String,
-  prop_name: String,
-  min_properties: Option(Int),
-  max_properties: Option(Int),
-) -> se.StringBuilder {
-  case min_properties, max_properties {
-    None, None -> sb
-    _, _ -> {
-      let fn_name = guard_function_name(schema_name, prop_name, "properties")
-      let min_failure = fn(min) {
-        validation_failure_literal(
-          prop_name,
-          "minProperties",
-          "must have at least " <> int.to_string(min) <> " properties",
-        )
-      }
-      let max_failure = fn(max) {
-        validation_failure_literal(
-          prop_name,
-          "maxProperties",
-          "must have at most " <> int.to_string(max) <> " properties",
-        )
-      }
-      let sb =
-        sb
-        |> se.line(
-          "/// Validate property count for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        )
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: Dict(k, v)) -> Result(Dict(k, v), ValidationFailure) {",
-        )
-        |> se.indent(1, "let count = dict.size(value)")
-      let sb = case min_properties, max_properties {
-        Some(min), Some(max) ->
-          sb
-          |> se.indent(1, "case count < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False ->")
-          |> se.indent(3, "case count > " <> int.to_string(max) <> " {")
-          |> se.indent(4, "True -> " <> max_failure(max))
-          |> se.indent(4, "False -> Ok(value)")
-          |> se.indent(3, "}")
-          |> se.indent(1, "}")
-        Some(min), None ->
-          sb
-          |> se.indent(1, "case count < " <> int.to_string(min) <> " {")
-          |> se.indent(2, "True -> " <> min_failure(min))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, Some(max) ->
-          sb
-          |> se.indent(1, "case count > " <> int.to_string(max) <> " {")
-          |> se.indent(2, "True -> " <> max_failure(max))
-          |> se.indent(2, "False -> Ok(value)")
-          |> se.indent(1, "}")
-        None, None -> sb
-      }
-      sb
-      |> se.line("}")
-      |> se.blank_line()
-    }
-  }
-}
-
 /// Build the guard function name from schema name, property name, and constraint type.
 fn guard_function_name(
   schema_name: String,
@@ -1491,69 +702,710 @@ fn validation_failure_dynamic(
   <> "))"
 }
 
-/// Generate a composite validate function for a schema that calls all
-/// individual field validators. This enables auto-validation by calling
-/// a single function rather than individual field guards.
-fn generate_composite_validator(
-  sb: se.StringBuilder,
+fn build_composite_guard_function(
   name: String,
   schema_ref: SchemaRef,
   ctx: Context,
-) -> se.StringBuilder {
+) -> Option(GuardFunction) {
   let guard_calls = collect_guard_calls(name, schema_ref, ctx)
   case list.is_empty(guard_calls) {
-    True -> sb
+    True -> None
     False -> {
       let fn_name = "validate_" <> naming.to_snake_case(name)
       let type_name = naming.schema_to_type_name(name)
       let gleam_type = composite_validator_type(name, schema_ref, ctx)
-      let sb =
-        sb
-        |> se.doc_comment("Validate all constraints for " <> type_name <> ".")
-        |> se.doc_comment(
-          "Auto-calls all field validators and collects failures.",
-        )
-        |> se.line(
-          "pub fn "
-          <> fn_name
-          <> "(value: "
-          <> gleam_type
-          <> ") -> Result("
-          <> gleam_type
-          <> ", List(ValidationFailure)) {",
-        )
-        |> se.indent(1, "let errors = []")
-      let sb =
-        list.fold(guard_calls, sb, fn(sb, call) {
+      let call_lines =
+        list.flat_map(guard_calls, fn(call) {
           let #(guard_fn, accessor, is_required) = call
           case is_required {
-            True ->
-              sb
-              |> se.indent(
-                1,
-                "let errors = case " <> guard_fn <> "(" <> accessor <> ") {",
-              )
-              |> se.indent(2, "Ok(_) -> errors")
-              |> se.indent(2, "Error(failure) -> [failure, ..errors]")
-              |> se.indent(1, "}")
-            False ->
-              sb
-              |> se.indent(1, "let errors = case " <> accessor <> " {")
-              |> se.indent(2, "option.Some(v) -> case " <> guard_fn <> "(v) {")
-              |> se.indent(3, "Ok(_) -> errors")
-              |> se.indent(3, "Error(failure) -> [failure, ..errors]")
-              |> se.indent(2, "}")
-              |> se.indent(2, "option.None -> errors")
-              |> se.indent(1, "}")
+            True -> [
+              "  let errors = case " <> guard_fn <> "(" <> accessor <> ") {",
+              "    Ok(_) -> errors",
+              "    Error(failure) -> [failure, ..errors]",
+              "  }",
+            ]
+            False -> [
+              "  let errors = case " <> accessor <> " {",
+              "    option.Some(v) -> case " <> guard_fn <> "(v) {",
+              "      Ok(_) -> errors",
+              "      Error(failure) -> [failure, ..errors]",
+              "    }",
+              "    option.None -> errors",
+              "  }",
+            ]
           }
         })
-      sb
-      |> se.indent(1, "case errors {")
-      |> se.indent(2, "[] -> Ok(value)")
-      |> se.indent(2, "_ -> Error(errors)")
-      |> se.indent(1, "}")
-      |> se.line("}")
-      |> se.blank_line()
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate all constraints for " <> type_name <> ".",
+          "Auto-calls all field validators and collects failures.",
+        ],
+        param_decl: "value: " <> gleam_type,
+        return_type: "Result(" <> gleam_type <> ", List(ValidationFailure))",
+        body: string.join(
+          list.flatten([
+            ["  let errors = []"],
+            call_lines,
+            [
+              "  case errors {",
+              "    [] -> Ok(value)",
+              "    _ -> Error(errors)",
+              "  }",
+            ],
+          ]),
+          "\n",
+        ),
+        kind: CompositeValidator,
+      ))
+    }
+  }
+}
+
+fn build_string_pattern_guard_function(
+  schema_name: String,
+  prop_name: String,
+  pattern: Option(String),
+) -> Option(GuardFunction) {
+  case pattern {
+    None -> None
+    Some(pattern) -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "pattern")
+      let pattern_literal = gleam_string_literal(pattern)
+      let invalid_pattern_prefix =
+        gleam_string_literal("invalid pattern: " <> pattern <> ": ")
+      let mismatch_failure =
+        validation_failure_literal(
+          prop_name,
+          "pattern",
+          "must match pattern: " <> pattern,
+        )
+      let invalid_pattern_failure =
+        validation_failure_dynamic(
+          prop_name,
+          "invalidPattern",
+          invalid_pattern_prefix <> " <> error",
+        )
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate string pattern for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: String",
+        return_type: "Result(String, ValidationFailure)",
+        body: string.join(
+          [
+            "  case regexp.from_string(" <> pattern_literal <> ") {",
+            "    Ok(re) -> case regexp.check(re, value) {",
+            "      True -> Ok(value)",
+            "      False -> " <> mismatch_failure,
+            "    }",
+            "    Error(regexp.CompileError(error:, ..)) -> "
+              <> invalid_pattern_failure,
+            "  }",
+          ],
+          "\n",
+        ),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn character_word(n: Int) -> String {
+  case n {
+    1 -> "character"
+    _ -> "characters"
+  }
+}
+
+fn build_string_guard_function(
+  schema_name: String,
+  prop_name: String,
+  min_length: Option(Int),
+  max_length: Option(Int),
+) -> Option(GuardFunction) {
+  case min_length, max_length {
+    None, None -> None
+    _, _ -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "length")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "minLength",
+          "must be at least "
+            <> int.to_string(min)
+            <> " "
+            <> character_word(min),
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "maxLength",
+          "must be at most " <> int.to_string(max) <> " " <> character_word(max),
+        )
+      }
+      let lines = case min_length, max_length {
+        Some(min), Some(max) -> [
+          "  let len = string.length(value)",
+          "  case len < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False ->",
+          "      case len > " <> int.to_string(max) <> " {",
+          "        True -> " <> max_failure(max),
+          "        False -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  let len = string.length(value)",
+          "  case len < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  let len = string.length(value)",
+          "  case len > " <> int.to_string(max) <> " {",
+          "    True -> " <> max_failure(max),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate string length for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: String",
+        return_type: "Result(String, ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_integer_guard_function(
+  schema_name: String,
+  prop_name: String,
+  minimum: Option(Int),
+  maximum: Option(Int),
+) -> Option(GuardFunction) {
+  case minimum, maximum {
+    None, None -> None
+    _, _ -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "range")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "minimum",
+          "must be at least " <> int.to_string(min),
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "maximum",
+          "must be at most " <> int.to_string(max),
+        )
+      }
+      let lines = case minimum, maximum {
+        Some(min), Some(max) -> [
+          "  case value < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False ->",
+          "      case value > " <> int.to_string(max) <> " {",
+          "        True -> " <> max_failure(max),
+          "        False -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  case value < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  case value > " <> int.to_string(max) <> " {",
+          "    True -> " <> max_failure(max),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate integer range for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Int",
+        return_type: "Result(Int, ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_float_guard_function(
+  schema_name: String,
+  prop_name: String,
+  minimum: Option(Float),
+  maximum: Option(Float),
+) -> Option(GuardFunction) {
+  case minimum, maximum {
+    None, None -> None
+    _, _ -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "range")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "minimum",
+          "must be at least " <> float.to_string(min),
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "maximum",
+          "must be at most " <> float.to_string(max),
+        )
+      }
+      let lines = case minimum, maximum {
+        Some(min), Some(max) -> [
+          "  case value <. " <> float.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False ->",
+          "      case value >. " <> float.to_string(max) <> " {",
+          "        True -> " <> max_failure(max),
+          "        False -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  case value <. " <> float.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  case value >. " <> float.to_string(max) <> " {",
+          "    True -> " <> max_failure(max),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate float range for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Float",
+        return_type: "Result(Float, ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_integer_exclusive_guard_function(
+  schema_name: String,
+  prop_name: String,
+  exclusive_minimum: Option(Int),
+  exclusive_maximum: Option(Int),
+) -> Option(GuardFunction) {
+  case exclusive_minimum, exclusive_maximum {
+    None, None -> None
+    _, _ -> {
+      let fn_name =
+        guard_function_name(schema_name, prop_name, "exclusive_range")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "exclusiveMinimum",
+          "must be greater than " <> int.to_string(min),
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "exclusiveMaximum",
+          "must be less than " <> int.to_string(max),
+        )
+      }
+      let lines = case exclusive_minimum, exclusive_maximum {
+        Some(min), Some(max) -> [
+          "  case value > " <> int.to_string(min) <> " {",
+          "    False -> " <> min_failure(min),
+          "    True ->",
+          "      case value < " <> int.to_string(max) <> " {",
+          "        False -> " <> max_failure(max),
+          "        True -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  case value > " <> int.to_string(min) <> " {",
+          "    False -> " <> min_failure(min),
+          "    True -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  case value < " <> int.to_string(max) <> " {",
+          "    False -> " <> max_failure(max),
+          "    True -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate integer exclusive range for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Int",
+        return_type: "Result(Int, ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_integer_multiple_of_guard_function(
+  schema_name: String,
+  prop_name: String,
+  multiple_of: Option(Int),
+) -> Option(GuardFunction) {
+  case multiple_of {
+    None -> None
+    Some(m) ->
+      Some(GuardFunction(
+        name: guard_function_name(schema_name, prop_name, "multiple_of"),
+        docs: [
+          "Validate integer multipleOf for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Int",
+        return_type: "Result(Int, ValidationFailure)",
+        body: string.join(
+          [
+            "  case value % " <> int.to_string(m) <> " == 0 {",
+            "    False -> "
+              <> validation_failure_literal(
+              prop_name,
+              "multipleOf",
+              "must be a multiple of " <> int.to_string(m),
+            ),
+            "    True -> Ok(value)",
+            "  }",
+          ],
+          "\n",
+        ),
+        kind: FieldValidator,
+      ))
+  }
+}
+
+fn build_float_exclusive_guard_function(
+  schema_name: String,
+  prop_name: String,
+  exclusive_minimum: Option(Float),
+  exclusive_maximum: Option(Float),
+) -> Option(GuardFunction) {
+  case exclusive_minimum, exclusive_maximum {
+    None, None -> None
+    _, _ -> {
+      let fn_name =
+        guard_function_name(schema_name, prop_name, "exclusive_range")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "exclusiveMinimum",
+          "must be greater than " <> float.to_string(min),
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "exclusiveMaximum",
+          "must be less than " <> float.to_string(max),
+        )
+      }
+      let lines = case exclusive_minimum, exclusive_maximum {
+        Some(min), Some(max) -> [
+          "  case value >. " <> float.to_string(min) <> " {",
+          "    False -> " <> min_failure(min),
+          "    True ->",
+          "      case value <. " <> float.to_string(max) <> " {",
+          "        False -> " <> max_failure(max),
+          "        True -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  case value >. " <> float.to_string(min) <> " {",
+          "    False -> " <> min_failure(min),
+          "    True -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  case value <. " <> float.to_string(max) <> " {",
+          "    False -> " <> max_failure(max),
+          "    True -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate float exclusive range for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Float",
+        return_type: "Result(Float, ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_float_multiple_of_guard_function(
+  schema_name: String,
+  prop_name: String,
+  multiple_of: Option(Float),
+) -> Option(GuardFunction) {
+  case multiple_of {
+    None -> None
+    Some(m) ->
+      Some(GuardFunction(
+        name: guard_function_name(schema_name, prop_name, "multiple_of"),
+        docs: [
+          "Validate float multipleOf for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Float",
+        return_type: "Result(Float, ValidationFailure)",
+        body: string.join(
+          [
+            "  let remainder = value -. float.truncate(value /. "
+              <> float.to_string(m)
+              <> " |> int.to_float) *. "
+              <> float.to_string(m),
+            "  case remainder == 0.0 || remainder == -0.0 {",
+            "    False -> "
+              <> validation_failure_literal(
+              prop_name,
+              "multipleOf",
+              "must be a multiple of " <> float.to_string(m),
+            ),
+            "    True -> Ok(value)",
+            "  }",
+          ],
+          "\n",
+        ),
+        kind: FieldValidator,
+      ))
+  }
+}
+
+fn build_list_guard_function(
+  schema_name: String,
+  prop_name: String,
+  min_items: Option(Int),
+  max_items: Option(Int),
+) -> Option(GuardFunction) {
+  case min_items, max_items {
+    None, None -> None
+    _, _ -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "length")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "minItems",
+          "must have at least " <> int.to_string(min) <> " items",
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "maxItems",
+          "must have at most " <> int.to_string(max) <> " items",
+        )
+      }
+      let lines = case min_items, max_items {
+        Some(min), Some(max) -> [
+          "  let len = list.length(value)",
+          "  case len < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False ->",
+          "      case len > " <> int.to_string(max) <> " {",
+          "        True -> " <> max_failure(max),
+          "        False -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  let len = list.length(value)",
+          "  case len < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  let len = list.length(value)",
+          "  case len > " <> int.to_string(max) <> " {",
+          "    True -> " <> max_failure(max),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate list length for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: List(a)",
+        return_type: "Result(List(a), ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
+    }
+  }
+}
+
+fn build_unique_items_guard_function(
+  schema_name: String,
+  prop_name: String,
+  unique_items: Bool,
+) -> Option(GuardFunction) {
+  use <- bool.guard(when: !unique_items, return: None)
+  Some(GuardFunction(
+    name: guard_function_name(schema_name, prop_name, "unique"),
+    docs: [
+      "Validate unique items for "
+      <> schema_name
+      <> field_label(prop_name)
+      <> ".",
+    ],
+    param_decl: "value: List(a)",
+    return_type: "Result(List(a), ValidationFailure)",
+    body: string.join(
+      [
+        "  case list.length(value) == list.length(list.unique(value)) {",
+        "    True -> Ok(value)",
+        "    False -> "
+          <> validation_failure_literal(
+          prop_name,
+          "uniqueItems",
+          "items must be unique",
+        ),
+        "  }",
+      ],
+      "\n",
+    ),
+    kind: FieldValidator,
+  ))
+}
+
+fn build_properties_count_guard_function(
+  schema_name: String,
+  prop_name: String,
+  min_properties: Option(Int),
+  max_properties: Option(Int),
+) -> Option(GuardFunction) {
+  case min_properties, max_properties {
+    None, None -> None
+    _, _ -> {
+      let fn_name = guard_function_name(schema_name, prop_name, "properties")
+      let min_failure = fn(min) {
+        validation_failure_literal(
+          prop_name,
+          "minProperties",
+          "must have at least " <> int.to_string(min) <> " properties",
+        )
+      }
+      let max_failure = fn(max) {
+        validation_failure_literal(
+          prop_name,
+          "maxProperties",
+          "must have at most " <> int.to_string(max) <> " properties",
+        )
+      }
+      let lines = case min_properties, max_properties {
+        Some(min), Some(max) -> [
+          "  let count = dict.size(value)",
+          "  case count < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False ->",
+          "      case count > " <> int.to_string(max) <> " {",
+          "        True -> " <> max_failure(max),
+          "        False -> Ok(value)",
+          "      }",
+          "  }",
+        ]
+        Some(min), None -> [
+          "  let count = dict.size(value)",
+          "  case count < " <> int.to_string(min) <> " {",
+          "    True -> " <> min_failure(min),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, Some(max) -> [
+          "  let count = dict.size(value)",
+          "  case count > " <> int.to_string(max) <> " {",
+          "    True -> " <> max_failure(max),
+          "    False -> Ok(value)",
+          "  }",
+        ]
+        None, None -> []
+      }
+      Some(GuardFunction(
+        name: fn_name,
+        docs: [
+          "Validate property count for "
+          <> schema_name
+          <> field_label(prop_name)
+          <> ".",
+        ],
+        param_decl: "value: Dict(k, v)",
+        return_type: "Result(Dict(k, v), ValidationFailure)",
+        body: string.join(lines, "\n"),
+        kind: FieldValidator,
+      ))
     }
   }
 }
