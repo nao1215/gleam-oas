@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/dict
 import gleam/float
 import gleam/int
@@ -1311,36 +1312,33 @@ fn build_unique_items_guard_function(
   prop_name: String,
   unique_items: Bool,
 ) -> Option(GuardFunction) {
-  case unique_items {
-    False -> None
-    True ->
-      Some(GuardFunction(
-        name: guard_function_name(schema_name, prop_name, "unique"),
-        docs: [
-          "Validate unique items for "
-          <> schema_name
-          <> field_label(prop_name)
-          <> ".",
-        ],
-        param_decl: "value: List(a)",
-        return_type: "Result(List(a), ValidationFailure)",
-        body: string.join(
-          [
-            "  case list.length(value) == list.length(list.unique(value)) {",
-            "    True -> Ok(value)",
-            "    False -> "
-              <> validation_failure_literal(
-              prop_name,
-              "uniqueItems",
-              "items must be unique",
-            ),
-            "  }",
-          ],
-          "\n",
+  use <- bool.guard(when: !unique_items, return: None)
+  Some(GuardFunction(
+    name: guard_function_name(schema_name, prop_name, "unique"),
+    docs: [
+      "Validate unique items for "
+      <> schema_name
+      <> field_label(prop_name)
+      <> ".",
+    ],
+    param_decl: "value: List(a)",
+    return_type: "Result(List(a), ValidationFailure)",
+    body: string.join(
+      [
+        "  case list.length(value) == list.length(list.unique(value)) {",
+        "    True -> Ok(value)",
+        "    False -> "
+          <> validation_failure_literal(
+          prop_name,
+          "uniqueItems",
+          "items must be unique",
         ),
-        kind: FieldValidator,
-      ))
-  }
+        "  }",
+      ],
+      "\n",
+    ),
+    kind: FieldValidator,
+  ))
 }
 
 fn build_properties_count_guard_function(

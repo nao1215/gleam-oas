@@ -286,7 +286,7 @@ pub fn analyze(ctx: Context) -> ClientRequirements {
 }
 
 /// Optional `gleam/option` import line for client signatures and ctors.
-pub fn option_import(requirements: ClientRequirements) -> Option(String) {
+fn option_import(requirements: ClientRequirements) -> Option(String) {
   case
     requirements.needs_option_type,
     requirements.needs_some_ctor,
