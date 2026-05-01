@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Internal: precompute the analyzed-operations list once per generation
+  context.** `Context` now holds the result of
+  `operations.collect_operations` (with merged path-level params, effective
+  security, effective servers, and synthesized operationIds) and exposes it
+  through a new `context.operations/1` accessor. Every codegen and
+  validation pass — `client`, `decoders`, `encoders`, `ir_build`, `server`,
+  `types`, `validate`, and `capability_check` — now reads this shared list
+  instead of rebuilding it at unrelated call sites. Step 1 toward #371; the
+  schema-query consolidation called out in that issue is left for a
+  follow-up PR.
 - **Internal: split the external `$ref` loader into an IO shell and a pure
   rewrite planner.** The new `oaspec/internal/openapi/external_loader_planner`
   module now owns ref-string parsing, schema/parameter/requestBody/response/

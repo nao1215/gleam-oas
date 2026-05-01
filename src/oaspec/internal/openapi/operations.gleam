@@ -2,19 +2,23 @@ import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import oaspec/internal/codegen/context.{type Context}
 import oaspec/internal/openapi/spec.{
-  type HttpMethod, type Operation, type Resolved,
+  type HttpMethod, type OpenApiSpec, type Operation, type Resolved,
 }
 
 /// Collect all operations from the spec with their IDs, paths, and methods.
 /// Handles path-level parameter inheritance, security inheritance, and
 /// operationId generation from method + path when not specified.
+///
+/// Pure: depends only on the resolved spec, not on the codegen Context.
+/// The Context now precomputes this list once at construction time and
+/// every codegen pass reads it through `context.operations/1` instead of
+/// re-running this traversal (issue #371).
 pub fn collect_operations(
-  ctx: Context,
+  resolved_spec: OpenApiSpec(Resolved),
 ) -> List(#(String, Operation(Resolved), String, HttpMethod)) {
   let paths =
-    list.sort(dict.to_list(context.spec(ctx).paths), fn(a, b) {
+    list.sort(dict.to_list(resolved_spec.paths), fn(a, b) {
       string.compare(a.0, b.0)
     })
   list.flat_map(paths, fn(entry) {
@@ -55,7 +59,7 @@ pub fn collect_operations(
             // Some([...]) → use operation-level.
             let effective_security = case operation.security {
               Some(sec) -> sec
-              None -> context.spec(ctx).security
+              None -> resolved_spec.security
             }
             // Inherit path-level servers when operation doesn't define its own.
             // OpenAPI precedence: operation.servers > path_item.servers > spec.servers

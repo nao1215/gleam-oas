@@ -18,7 +18,6 @@ import oaspec/internal/codegen/ir.{
 import oaspec/internal/codegen/schema_dispatch
 import oaspec/internal/codegen/schema_utils
 import oaspec/internal/openapi/dedup
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   BooleanSchema, Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema,
@@ -72,7 +71,7 @@ pub fn build_types_module(ctx: Context) -> Module {
 /// body produce no declaration — matching the former string-builder
 /// behavior that simply skipped them.
 pub fn build_request_types_module(ctx: Context) -> Module {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let imports = compute_request_type_imports(operations, ctx)
   let declarations =
     list.filter_map(operations, fn(op) {
@@ -208,7 +207,7 @@ fn request_body_type(
 /// become `VariantWithType("String")`; JSON (and other structured) bodies
 /// become `VariantWithType(<qualified schema type>)`.
 pub fn build_response_types_module(ctx: Context) -> Module {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let header_records = build_response_header_records(operations)
   let needs_option_for_headers = response_headers_need_option(header_records)
   let imports = case
@@ -871,7 +870,7 @@ fn schema_type_decls(
 // ---------------------------------------------------------------------------
 
 fn anonymous_type_decls(ctx: Context) -> List(Declaration) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   list.flat_map(operations, fn(op) {
     let #(op_id, operation, _path, _method): #(
       String,

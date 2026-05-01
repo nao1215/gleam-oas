@@ -12,7 +12,6 @@ import oaspec/internal/codegen/guards
 import oaspec/internal/codegen/import_analysis
 import oaspec/internal/codegen/server_request_decode as decode_helpers
 import oaspec/internal/openapi/dedup
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/schema.{Inline, Reference}
 import oaspec/internal/openapi/spec.{type Resolved, Value}
 import oaspec/internal/util/content_type
@@ -33,7 +32,7 @@ import oaspec/internal/util/string_extra as se
 ///   is always overwritten so the wiring stays in lock-step with the
 ///   spec.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let handlers_content = generate_handlers(ctx, operations)
   let handlers_generated_content = generate_handlers_generated(ctx, operations)
   let router_content = generate_router(ctx, operations)

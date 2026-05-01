@@ -23,7 +23,6 @@ import oaspec/internal/codegen/schema_dispatch
 import oaspec/internal/codegen/schema_utils
 import oaspec/internal/codegen/types as type_gen
 import oaspec/internal/openapi/dedup
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/schema.{
   type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema, BooleanSchema,
   Forbidden, Inline, IntegerSchema, NumberSchema, ObjectSchema, OneOfSchema,
@@ -35,7 +34,7 @@ import oaspec/internal/util/string_extra as se
 
 /// Generate the `encode.gleam` module for the resolved spec.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let content = generate_encoders(ctx, operations)
   [
     GeneratedFile(

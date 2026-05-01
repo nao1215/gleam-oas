@@ -5,7 +5,6 @@ import gleam/regexp
 import gleam/string
 import oaspec/config
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -27,7 +26,7 @@ import oaspec/openapi/diagnostic.{
 /// silently renaming duplicates would mutate the generated public API
 /// surface without telling the user, which is worse than failing the spec.
 pub fn validate(ctx: Context) -> List(Diagnostic) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let op_errors = validate_operations(ctx, operations)
   let opid_errors = validate_unique_operation_ids(operations)
   let schema_errors = validate_component_schemas(ctx)

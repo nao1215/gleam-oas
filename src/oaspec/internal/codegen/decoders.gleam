@@ -13,7 +13,6 @@ import oaspec/internal/codegen/schema_dispatch
 import oaspec/internal/codegen/schema_utils
 import oaspec/internal/codegen/types as type_gen
 import oaspec/internal/openapi/dedup
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
@@ -30,7 +29,7 @@ import oaspec/internal/util/string_extra as se
 /// Encoder generation lives in `src/oaspec/internal/codegen/encoders.gleam`; see
 /// `generate.gleam::generate_shared` for how the two halves are combined.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let decode_content = generate_decoders(ctx, operations)
 
   [
