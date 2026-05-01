@@ -4,11 +4,13 @@
 //// in sync with `operations.collect_operations` (issue #371).
 
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit
 import gleeunit/should
 import oaspec/internal/codegen/context
 import oaspec/internal/openapi/operations
+import oaspec/internal/openapi/spec
 import test_helpers
 
 pub fn main() {
@@ -59,4 +61,31 @@ pub fn operations_paths_are_sorted_test() {
   paths
   |> list.sort(string.compare)
   |> should.equal(paths)
+}
+
+pub fn operations_petstore_snapshot_test() {
+  let ctx = test_helpers.make_ctx(petstore)
+  let snapshot =
+    context.operations(ctx)
+    |> list.map(fn(op) {
+      #(
+        op.0,
+        spec.method_to_lower(op.3),
+        op.2,
+        list.length(op.1.parameters),
+        case op.1.request_body {
+          Some(_) -> True
+          None -> False
+        },
+        list.length(op.1.servers),
+      )
+    })
+
+  snapshot
+  |> should.equal([
+    #("listPets", "get", "/pets", 2, False, 0),
+    #("createPet", "post", "/pets", 0, True, 0),
+    #("getPet", "get", "/pets/{petId}", 1, False, 0),
+    #("deletePet", "delete", "/pets/{petId}", 1, False, 0),
+  ])
 }
