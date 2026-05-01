@@ -1,5 +1,13 @@
+import gleam/dict
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/string
 import oaspec/config.{type Config}
 import oaspec/internal/openapi/operations
+import oaspec/internal/openapi/resolver
+import oaspec/internal/openapi/schema.{
+  type SchemaMetadata, type SchemaObject, type SchemaRef, Inline, Reference,
+}
 import oaspec/internal/openapi/spec.{
   type HttpMethod, type OpenApiSpec, type Operation, type Resolved,
 }
@@ -13,6 +21,16 @@ pub const version = "0.40.0"
 pub type AnalyzedOperation =
   #(String, Operation(Resolved), String, HttpMethod)
 
+/// One analyzed component schema: the component name, its canonical local
+/// `$ref`, and the pre-resolved schema object (or the resolution error).
+pub type AnalyzedSchema {
+  AnalyzedSchema(
+    name: String,
+    ref: String,
+    resolved: Result(SchemaObject, resolver.ResolveError),
+  )
+}
+
 /// Context for code generation, carrying all needed state.
 /// Only accepts a resolved spec — codegen must not operate on unresolved ASTs.
 ///
@@ -25,16 +43,27 @@ pub opaque type Context {
     spec: OpenApiSpec(Resolved),
     config: Config,
     operations: List(AnalyzedOperation),
+    schema_cache: dict.Dict(String, Result(SchemaObject, resolver.ResolveError)),
+    analyzed_schemas: List(AnalyzedSchema),
   )
 }
 
 /// Create a new generation context from a resolved spec. The list of
 /// analyzed operations (with merged path-level params, effective security,
-/// effective servers, and synthesized operationIds) is computed once here
-/// so every codegen pass can read it via `operations/1` instead of
-/// rebuilding the same list at unrelated call sites (issue #371).
+/// effective servers, and synthesized operationIds) plus the component
+/// schema-resolution cache are computed once here so every codegen pass can
+/// read them via `operations/1` / `resolve_schema_ref/2` instead of
+/// rebuilding the same analysis at unrelated call sites (issue #371).
 pub fn new(spec: OpenApiSpec(Resolved), config: Config) -> Context {
-  Context(spec:, config:, operations: operations.collect_operations(spec))
+  let analyzed_schemas = collect_analyzed_schemas(spec)
+  let schema_cache = build_schema_cache(analyzed_schemas)
+  Context(
+    spec:,
+    config:,
+    operations: operations.collect_operations(spec),
+    schema_cache:,
+    analyzed_schemas:,
+  )
 }
 
 /// The resolved OpenAPI spec this context wraps.
@@ -52,6 +81,74 @@ pub fn config(ctx: Context) -> Config {
 /// `operations.collect_operations` directly.
 pub fn operations(ctx: Context) -> List(AnalyzedOperation) {
   ctx.operations
+}
+
+/// The analyzed component schemas, sorted by schema name. This is a
+/// debug-friendly inspectable view over the schema-resolution cache.
+pub fn analyzed_schemas(ctx: Context) -> List(AnalyzedSchema) {
+  ctx.analyzed_schemas
+}
+
+/// Resolve a schema ref through the shared analyzed cache.
+///
+/// Inline schemas are returned directly. Canonical component refs are served
+/// from the cache; anything else falls back to the resolver to preserve the
+/// original error shape for unexpected refs.
+pub fn resolve_schema_ref(
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> Result(SchemaObject, resolver.ResolveError) {
+  case schema_ref {
+    Inline(schema_obj) -> Ok(schema_obj)
+    Reference(ref:, ..) ->
+      case dict.get(ctx.schema_cache, ref) {
+        Ok(resolved) -> resolved
+        // nolint: thrown_away_error -- cache miss falls back to the resolver so non-canonical refs still get the right error/result
+        Error(_) -> resolver.resolve_schema_ref(schema_ref, ctx.spec)
+      }
+  }
+}
+
+/// Read metadata for any schema ref through the shared analyzed query layer.
+pub fn schema_metadata(
+  schema_ref: SchemaRef,
+  ctx: Context,
+) -> Option(SchemaMetadata) {
+  case resolve_schema_ref(schema_ref, ctx) {
+    Ok(schema_obj) -> Some(schema.get_metadata(schema_obj))
+    // nolint: thrown_away_error -- unresolved refs have no metadata; callers treat this as absence and the validator reports the underlying ref error separately
+    Error(_) -> None
+  }
+}
+
+fn collect_analyzed_schemas(spec: OpenApiSpec(Resolved)) -> List(AnalyzedSchema) {
+  case spec.components {
+    Some(components) ->
+      dict.to_list(components.schemas)
+      |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
+      |> list.map(fn(entry) {
+        let #(name, _schema_ref) = entry
+        let ref = component_schema_ref(name)
+        AnalyzedSchema(
+          name: name,
+          ref: ref,
+          resolved: resolver.resolve_schema_ref(Reference(ref:, name:), spec),
+        )
+      })
+    None -> []
+  }
+}
+
+fn build_schema_cache(
+  analyzed_schemas: List(AnalyzedSchema),
+) -> dict.Dict(String, Result(SchemaObject, resolver.ResolveError)) {
+  list.fold(analyzed_schemas, dict.new(), fn(acc, entry) {
+    dict.insert(acc, entry.ref, entry.resolved)
+  })
+}
+
+fn component_schema_ref(name: String) -> String {
+  "#/components/schemas/" <> name
 }
 
 /// Target for a generated file, indicating where it should be written.

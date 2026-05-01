@@ -14,7 +14,6 @@ import oaspec/internal/codegen/context.{
 }
 import oaspec/internal/codegen/ir_build
 import oaspec/internal/codegen/types as type_gen
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, ArraySchema, Inline,
   IntegerSchema, NumberSchema, ObjectSchema, Reference, StringSchema,
@@ -122,11 +121,7 @@ pub fn build_module(ctx: Context) -> GuardModule {
       case list.is_empty(guard_calls) {
         True -> False
         False -> {
-          let resolved = case schema_ref {
-            Inline(s) -> Ok(s)
-            Reference(..) ->
-              resolver.resolve_schema_ref(schema_ref, context.spec(ctx))
-          }
+          let resolved = context.resolve_schema_ref(schema_ref, ctx)
           case resolved {
             Ok(ObjectSchema(..)) | Ok(AllOfSchema(..)) -> True
             _ -> False
@@ -267,7 +262,7 @@ fn collect_guard_functions_for_schema(
     Inline(schema) ->
       collect_guard_functions_for_schema_object(name, schema, ctx)
     Reference(name:, ..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema) ->
           collect_guard_functions_for_schema_object(name, schema, ctx)
         _ -> []
@@ -372,10 +367,7 @@ fn collect_field_guard_functions(
   prop_ref: SchemaRef,
   ctx: Context,
 ) -> List(GuardFunction) {
-  let resolved = case prop_ref {
-    Inline(schema) -> Ok(schema)
-    Reference(..) -> resolver.resolve_schema_ref(prop_ref, context.spec(ctx))
-  }
+  let resolved = context.resolve_schema_ref(prop_ref, ctx)
   case resolved {
     Ok(StringSchema(min_length:, max_length:, pattern:, ..)) ->
       list.flatten([
@@ -545,10 +537,7 @@ fn collect_schema_constraint_types_inner(
   ctx: Context,
   seen: Set(String),
 ) -> ConstraintTypes {
-  let schema = case schema_ref {
-    Inline(s) -> Ok(s)
-    Reference(..) -> resolver.resolve_schema_ref(schema_ref, context.spec(ctx))
-  }
+  let schema = context.resolve_schema_ref(schema_ref, ctx)
   case schema {
     Ok(StringSchema(min_length:, max_length:, pattern:, ..)) -> {
       let acc = case min_length, max_length {
@@ -1416,10 +1405,7 @@ fn composite_validator_type(
   schema_ref: SchemaRef,
   ctx: Context,
 ) -> String {
-  let schema = case schema_ref {
-    Inline(s) -> Ok(s)
-    Reference(..) -> resolver.resolve_schema_ref(schema_ref, context.spec(ctx))
-  }
+  let schema = context.resolve_schema_ref(schema_ref, ctx)
   case schema {
     Ok(ObjectSchema(..)) | Ok(AllOfSchema(..)) ->
       "types." <> naming.schema_to_type_name(name)
@@ -1441,10 +1427,7 @@ fn collect_guard_calls(
   schema_ref: SchemaRef,
   ctx: Context,
 ) -> List(GuardCall) {
-  let schema = case schema_ref {
-    Inline(s) -> Ok(s)
-    Reference(..) -> resolver.resolve_schema_ref(schema_ref, context.spec(ctx))
-  }
+  let schema = context.resolve_schema_ref(schema_ref, ctx)
   case schema {
     Ok(ObjectSchema(
       properties:,
@@ -1577,10 +1560,7 @@ fn collect_field_guard_calls(
   is_required: Bool,
   ctx: Context,
 ) -> List(GuardCall) {
-  let resolved = case prop_ref {
-    Inline(schema) -> Ok(schema)
-    Reference(..) -> resolver.resolve_schema_ref(prop_ref, context.spec(ctx))
-  }
+  let resolved = context.resolve_schema_ref(prop_ref, ctx)
   let accessor = "value." <> naming.to_snake_case(prop_name)
   case resolved {
     Ok(StringSchema(min_length:, max_length:, pattern:, ..)) -> {

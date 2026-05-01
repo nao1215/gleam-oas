@@ -5,7 +5,6 @@ import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, Forbidden, Inline,
   ObjectSchema, OneOfSchema, Reference, StringSchema, Typed, Untyped,
@@ -22,7 +21,7 @@ pub fn schema_has_additional_properties(
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_additional_properties(s, ctx) })
     Reference(..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) ->
           schema_has_additional_properties(Inline(schema_obj), ctx)
         // nolint: thrown_away_error -- unresolved refs are treated as not having additionalProperties; the resolver reports the ref error separately
@@ -46,7 +45,7 @@ pub fn schema_has_forbidden_additional_properties(
         schema_has_forbidden_additional_properties(s, ctx)
       })
     Reference(..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) ->
           schema_has_forbidden_additional_properties(Inline(schema_obj), ctx)
         // nolint: thrown_away_error -- unresolved refs are treated as not having forbidden additionalProperties; the resolver reports the ref error separately
@@ -78,7 +77,7 @@ pub fn schema_has_non_discriminator_oneof(
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_non_discriminator_oneof(s, ctx) })
     Reference(..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) ->
           schema_has_non_discriminator_oneof(Inline(schema_obj), ctx)
         // nolint: thrown_away_error -- unresolved refs are treated as not having strict-oneOf needs; the resolver reports the ref error separately
@@ -100,7 +99,7 @@ pub fn schema_has_untyped_additional_properties(
         schema_has_untyped_additional_properties(s, ctx)
       })
     Reference(..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) ->
           schema_has_untyped_additional_properties(Inline(schema_obj), ctx)
         // nolint: thrown_away_error -- unresolved refs are treated as not having untyped additionalProperties; the resolver reports the ref error separately
@@ -124,7 +123,7 @@ pub fn schema_has_optional_fields(schema_ref: SchemaRef, ctx: Context) -> Bool {
     Inline(AllOfSchema(schemas:, ..)) ->
       list.any(schemas, fn(s) { schema_has_optional_fields(s, ctx) })
     Reference(..) ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema_obj) -> schema_has_optional_fields(Inline(schema_obj), ctx)
         // nolint: thrown_away_error -- unresolved refs are treated as not having optional fields; the resolver reports the ref error separately
         Error(_) -> False
@@ -159,40 +158,25 @@ pub fn constant_property_value(
 
 /// Check if a SchemaRef is nullable, resolving $ref if needed.
 pub fn schema_ref_is_nullable(ref: SchemaRef, ctx: Context) -> Bool {
-  case ref {
-    Inline(inline_schema) -> schema.is_nullable(inline_schema)
-    Reference(..) ->
-      case resolver.resolve_schema_ref(ref, context.spec(ctx)) {
-        Ok(resolved) -> schema.is_nullable(resolved)
-        // nolint: thrown_away_error -- unresolved refs are treated as non-nullable; the resolver reports the ref error separately
-        Error(_) -> False
-      }
+  case context.schema_metadata(ref, ctx) {
+    Some(metadata) -> metadata.nullable
+    None -> False
   }
 }
 
 /// Check if a SchemaRef has readOnly metadata, resolving $ref if needed.
 pub fn schema_ref_is_read_only(ref: SchemaRef, ctx: Context) -> Bool {
-  case ref {
-    Inline(inline_schema) -> schema.get_metadata(inline_schema).read_only
-    Reference(..) ->
-      case resolver.resolve_schema_ref(ref, context.spec(ctx)) {
-        Ok(resolved) -> schema.get_metadata(resolved).read_only
-        // nolint: thrown_away_error -- unresolved refs are treated as not read-only; the resolver reports the ref error separately
-        Error(_) -> False
-      }
+  case context.schema_metadata(ref, ctx) {
+    Some(metadata) -> metadata.read_only
+    None -> False
   }
 }
 
 /// Check if a SchemaRef has writeOnly metadata, resolving $ref if needed.
 pub fn schema_ref_is_write_only(ref: SchemaRef, ctx: Context) -> Bool {
-  case ref {
-    Inline(inline_schema) -> schema.get_metadata(inline_schema).write_only
-    Reference(..) ->
-      case resolver.resolve_schema_ref(ref, context.spec(ctx)) {
-        Ok(resolved) -> schema.get_metadata(resolved).write_only
-        // nolint: thrown_away_error -- unresolved refs are treated as not write-only; the resolver reports the ref error separately
-        Error(_) -> False
-      }
+  case context.schema_metadata(ref, ctx) {
+    Some(metadata) -> metadata.write_only
+    None -> False
   }
 }
 

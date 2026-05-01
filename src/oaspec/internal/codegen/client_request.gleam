@@ -7,7 +7,6 @@ import oaspec/internal/codegen/ir_build
 import oaspec/internal/codegen/operation_ir
 import oaspec/internal/codegen/schema_dispatch
 import oaspec/internal/openapi/dedup
-import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{Inline, Reference}
 import oaspec/internal/openapi/spec.{type Resolved, ParameterSchema, Value}
 import oaspec/internal/util/naming
@@ -147,10 +146,7 @@ pub fn build_param_list(
 /// Convert a parameter to its Gleam type string.
 fn param_to_type(param: spec.Parameter(Resolved), ctx: Context) -> String {
   let base =
-    schema_dispatch.resolve_param_type(
-      spec.parameter_schema(param),
-      context.spec(ctx),
-    )
+    schema_dispatch.resolve_param_type(spec.parameter_schema(param), ctx)
   case param.required {
     True -> base
     False -> "Option(" <> base <> ")"
@@ -165,7 +161,7 @@ pub fn param_to_string_expr(
 ) -> String {
   case param.payload {
     ParameterSchema(Inline(schema.ArraySchema(items:, ..))) -> {
-      let item_to_str = schema_dispatch.to_string_fn(items, context.spec(ctx))
+      let item_to_str = schema_dispatch.to_string_fn(items, ctx)
       "string.join(list.map("
       <> param_name
       <> ", "
@@ -175,10 +171,9 @@ pub fn param_to_string_expr(
     ParameterSchema(Inline(s)) -> schema_dispatch.to_string_expr(s, param_name)
     ParameterSchema(Reference(..) as schema_ref) -> {
       // Resolve the $ref to determine the actual schema type
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema.ArraySchema(items:, ..)) -> {
-          let item_to_str =
-            schema_dispatch.to_string_fn(items, context.spec(ctx))
+          let item_to_str = schema_dispatch.to_string_fn(items, ctx)
           "string.join(list.map("
           <> param_name
           <> ", "
@@ -186,11 +181,7 @@ pub fn param_to_string_expr(
           <> "), \",\")"
         }
         _ ->
-          schema_dispatch.schema_ref_to_string_expr(
-            schema_ref,
-            param_name,
-            context.spec(ctx),
-          )
+          schema_dispatch.schema_ref_to_string_expr(schema_ref, param_name, ctx)
       }
     }
     _ -> param_name
@@ -204,23 +195,17 @@ pub fn to_str_for_optional_value(
 ) -> String {
   case param.payload {
     ParameterSchema(Inline(schema.ArraySchema(items:, ..))) -> {
-      let item_to_str = schema_dispatch.to_string_fn(items, context.spec(ctx))
+      let item_to_str = schema_dispatch.to_string_fn(items, ctx)
       "string.join(list.map(v, " <> item_to_str <> "), \",\")"
     }
     ParameterSchema(Inline(s)) -> schema_dispatch.to_string_expr(s, "v")
     ParameterSchema(Reference(..) as schema_ref) -> {
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema.ArraySchema(items:, ..)) -> {
-          let item_to_str =
-            schema_dispatch.to_string_fn(items, context.spec(ctx))
+          let item_to_str = schema_dispatch.to_string_fn(items, ctx)
           "string.join(list.map(v, " <> item_to_str <> "), \",\")"
         }
-        _ ->
-          schema_dispatch.schema_ref_to_string_expr(
-            schema_ref,
-            "v",
-            context.spec(ctx),
-          )
+        _ -> schema_dispatch.schema_ref_to_string_expr(schema_ref, "v", ctx)
       }
     }
     _ -> "v"
@@ -298,7 +283,7 @@ pub fn generate_multipart_body(
           required,
         )
         Some(Reference(..) as schema_ref) ->
-          case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+          case context.resolve_schema_ref(schema_ref, ctx) {
             Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
               #(ir_build.sorted_entries(properties), required)
             }
@@ -395,7 +380,7 @@ pub fn multipart_field_is_binary(
   case field_schema {
     Inline(schema.StringSchema(format: Some("binary"), ..)) -> True
     Reference(..) as schema_ref ->
-      case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+      case context.resolve_schema_ref(schema_ref, ctx) {
         Ok(schema.StringSchema(format: Some("binary"), ..)) -> True
         _ -> False
       }
@@ -407,7 +392,7 @@ fn multipart_field_to_string_fn(
   field_schema: schema.SchemaRef,
   ctx: Context,
 ) -> String {
-  let result = schema_dispatch.to_string_fn(field_schema, context.spec(ctx))
+  let result = schema_dispatch.to_string_fn(field_schema, ctx)
   // Return "" for identity functions since callers use "" to mean "no conversion"
   case result {
     "fn(x) { x }" -> ""
@@ -423,11 +408,7 @@ fn form_array_item_to_string(
 ) -> String {
   case field_schema {
     Inline(schema.ArraySchema(items:, ..)) ->
-      schema_dispatch.schema_ref_to_string_expr(
-        items,
-        "item",
-        context.spec(ctx),
-      )
+      schema_dispatch.schema_ref_to_string_expr(items, "item", ctx)
     _ -> "string.inspect(item)"
   }
 }
@@ -442,11 +423,7 @@ fn generate_form_nested_object(
   is_required: Bool,
   ctx: Context,
 ) -> se.StringBuilder {
-  let resolved = case field_schema {
-    Inline(s) -> Ok(s)
-    Reference(..) ->
-      resolver.resolve_schema_ref(field_schema, context.spec(ctx))
-  }
+  let resolved = context.resolve_schema_ref(field_schema, ctx)
   let sub_props = case resolved {
     Ok(schema.ObjectSchema(properties:, required:, ..)) -> #(
       ir_build.sorted_entries(properties),
@@ -485,7 +462,7 @@ fn generate_form_nested_object(
       let is_sub_object = case sub_ref {
         Inline(schema.ObjectSchema(..)) -> True
         Reference(..) as sr ->
-          case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+          case context.resolve_schema_ref(sr, ctx) {
             Ok(schema.ObjectSchema(..)) -> True
             _ -> False
           }
@@ -581,11 +558,7 @@ fn generate_form_bracket_fields(
   parts_var: String,
   ctx: Context,
 ) -> se.StringBuilder {
-  let resolved = case field_schema {
-    Inline(s) -> Ok(s)
-    Reference(..) ->
-      resolver.resolve_schema_ref(field_schema, context.spec(ctx))
-  }
+  let resolved = context.resolve_schema_ref(field_schema, ctx)
   case resolved {
     Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
       let props = ir_build.sorted_entries(properties)
@@ -597,7 +570,7 @@ fn generate_form_bracket_fields(
         let is_obj = case prop_ref {
           Inline(schema.ObjectSchema(..)) -> True
           Reference(..) as sr ->
-            case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+            case context.resolve_schema_ref(sr, ctx) {
               Ok(schema.ObjectSchema(..)) -> True
               _ -> False
             }
@@ -689,7 +662,7 @@ pub fn generate_form_urlencoded_body(
           required,
         )
         Some(Reference(..) as schema_ref) ->
-          case resolver.resolve_schema_ref(schema_ref, context.spec(ctx)) {
+          case context.resolve_schema_ref(schema_ref, ctx) {
             Ok(schema.ObjectSchema(properties:, required:, ..)) -> {
               #(ir_build.sorted_entries(properties), required)
             }
@@ -709,7 +682,7 @@ pub fn generate_form_urlencoded_body(
       let is_array = case field_schema {
         Inline(schema.ArraySchema(..)) -> True
         Reference(..) as sr ->
-          case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+          case context.resolve_schema_ref(sr, ctx) {
             Ok(schema.ArraySchema(..)) -> True
             _ -> False
           }
@@ -718,7 +691,7 @@ pub fn generate_form_urlencoded_body(
       let is_object = case field_schema {
         Inline(schema.ObjectSchema(..)) -> True
         Reference(..) as sr ->
-          case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+          case context.resolve_schema_ref(sr, ctx) {
             Ok(schema.ObjectSchema(..)) -> True
             _ -> False
           }
@@ -841,7 +814,7 @@ pub fn is_exploded_array_param(
   let is_array = case param.payload {
     ParameterSchema(Inline(schema.ArraySchema(..))) -> True
     ParameterSchema(Reference(..) as sr) ->
-      case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+      case context.resolve_schema_ref(sr, ctx) {
         Ok(schema.ArraySchema(..)) -> True
         _ -> False
       }
@@ -863,7 +836,7 @@ pub fn is_delimited_array_param(
   let is_array = case param.payload {
     ParameterSchema(Inline(schema.ArraySchema(..))) -> True
     ParameterSchema(Reference(..) as sr) ->
-      case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+      case context.resolve_schema_ref(sr, ctx) {
         Ok(schema.ArraySchema(..)) -> True
         _ -> False
       }
@@ -893,7 +866,7 @@ pub fn generate_delimited_array_query_param(
     ParameterSchema(Inline(schema.ArraySchema(items:, ..))) ->
       array_item_to_string_fn(items, ctx)
     ParameterSchema(Reference(..) as sr) ->
-      case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+      case context.resolve_schema_ref(sr, ctx) {
         Ok(schema.ArraySchema(items:, ..)) ->
           array_item_to_string_fn(items, ctx)
         _ -> "fn(x) { x }"
@@ -949,7 +922,7 @@ pub fn generate_exploded_array_query_param(
     ParameterSchema(Inline(schema.ArraySchema(items:, ..))) ->
       array_item_to_string_fn(items, ctx)
     ParameterSchema(Reference(..) as sr) ->
-      case resolver.resolve_schema_ref(sr, context.spec(ctx)) {
+      case context.resolve_schema_ref(sr, ctx) {
         Ok(schema.ArraySchema(items:, ..)) ->
           array_item_to_string_fn(items, ctx)
         _ -> "fn(x) { x }"
@@ -993,5 +966,5 @@ pub fn is_deep_object_param(
 /// Return a function expression that converts an array item to String.
 /// Used in generated code: `list.map(param, <fn>)`.
 fn array_item_to_string_fn(items: schema.SchemaRef, ctx: Context) -> String {
-  schema_dispatch.to_string_fn(items, context.spec(ctx))
+  schema_dispatch.to_string_fn(items, ctx)
 }
