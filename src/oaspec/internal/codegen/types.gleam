@@ -6,13 +6,12 @@ import oaspec/internal/codegen/ir_build
 import oaspec/internal/codegen/ir_render
 import oaspec/internal/codegen/schema_dispatch
 import oaspec/internal/codegen/schema_utils
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/schema.{type SchemaObject, type SchemaRef}
 import oaspec/internal/openapi/spec.{type Resolved}
 
 /// Generate type definitions from OpenAPI schemas.
 pub fn generate(ctx: Context) -> List(GeneratedFile) {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
   let types_content = generate_types(ctx)
   let request_types_content = generate_request_types(ctx, operations)
   let response_types_content = generate_response_types(ctx, operations)

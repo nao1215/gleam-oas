@@ -6,7 +6,6 @@ import gleam/string
 import oaspec/config
 import oaspec/internal/capability
 import oaspec/internal/codegen/context.{type Context}
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/schema.{
   type SchemaObject, type SchemaRef, AllOfSchema, AnyOfSchema, ArraySchema,
   Inline, ObjectSchema, OneOfSchema, Reference, Typed,
@@ -232,7 +231,7 @@ pub fn check_preserved(ctx: Context) -> List(Diagnostic) {
       ),
     ]
   }
-  let ops = operations.collect_operations(ctx)
+  let ops = context.operations(ctx)
   let response_warnings =
     list.flat_map(ops, fn(op) {
       let #(op_id, operation, _path, _method) = op

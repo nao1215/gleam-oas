@@ -13,7 +13,6 @@ import oaspec/internal/codegen/context.{
 import oaspec/internal/codegen/guards
 import oaspec/internal/codegen/import_analysis
 import oaspec/internal/codegen/ir_build
-import oaspec/internal/openapi/operations
 import oaspec/internal/openapi/resolver
 import oaspec/internal/openapi/schema.{Inline, Reference}
 import oaspec/internal/openapi/spec.{type Resolved, ParameterSchema, Value}
@@ -38,7 +37,7 @@ pub fn generate(ctx: Context) -> List(GeneratedFile) {
 
 /// Generate the client module with functions for each operation.
 fn generate_client(ctx: Context) -> String {
-  let operations = operations.collect_operations(ctx)
+  let operations = context.operations(ctx)
 
   // Determine which imports are needed based on parameter types
   let all_params =
