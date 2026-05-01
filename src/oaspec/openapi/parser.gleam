@@ -7,6 +7,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import oaspec/internal/openapi/external_loader
+import oaspec/internal/openapi/external_loader_planner
 import oaspec/internal/openapi/location_index.{type LocationIndex}
 import oaspec/internal/openapi/parser_schema
 import oaspec/internal/openapi/parser_value
@@ -111,7 +112,7 @@ fn parse_file_internal(
     progress.timed(fn() {
       external_loader.resolve_external_component_refs(
         spec,
-        external_loader.base_dir_of(path),
+        external_loader_planner.base_dir_of(path),
         fn(sub_path) { parse_file_internal(sub_path, new_visited, reporter) },
       )
     })

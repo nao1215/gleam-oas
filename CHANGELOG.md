@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal: split the external `$ref` loader into an IO shell and a pure
+  rewrite planner.** The new `oaspec/internal/openapi/external_loader_planner`
+  module now owns ref-string parsing, schema/parameter/requestBody/response/
+  pathItem lookups inside parsed external documents, alias resolution, and
+  collision diagnostics. `external_loader` is now ~530 lines smaller and
+  delegates every pure decision to the planner, so each external-ref
+  diagnostic — local collision, cross-file collision, missing component,
+  alias chain, chained external ref — can be unit tested without staging
+  fixture files on disk. Closes #372.
+
 ## [0.38.0] - 2026-05-01
 
 ### Added
