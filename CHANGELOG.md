@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-05-01
+
+### Changed
+
+- **Internal: split the monolithic `oaspec_test` suite into stage-specific
+  entrypoint modules.** The legacy catch-all suite is now driven by a
+  minimal runner plus dedicated wrapper modules for the core, parse,
+  normalize, resolve, validate, codegen, server-codegen, guard-integration,
+  and OSS fixture stages. The original case bodies were preserved
+  verbatim in `test/oaspec_support.gleam` so behaviour is unchanged, but
+  failures now point at the offending pipeline stage instead of one giant
+  module. Also adds an analyzed-operations snapshot assertion in
+  `test/context_test.gleam` so regressions can fail at the shared
+  intermediate cache rather than only at end-to-end generation. Closes #374.
+- **Internal: move client, router, and guard generation onto structured
+  IR.** `client_ir` and `router_ir` now compute structured generation
+  requirements (option/result usage, transport flags, import sets) which
+  `client.gleam` and `server.gleam` consume in place of large local
+  boolean blocks. `guards.gleam` builds structured validator definitions,
+  dedupes field validators before rendering, and exposes
+  `build_module/1` so the generated validator surface can be asserted
+  semantically without reparsing source text. New unit tests cover the
+  structured requirements and dedupe behaviour directly. Closes #373.
+
 ## [0.39.0] - 2026-05-01
 
 ### Changed
