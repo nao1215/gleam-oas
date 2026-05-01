@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-05-01
+
 ### Changed
 
 - **Internal: precompute the analyzed-operations list once per generation
