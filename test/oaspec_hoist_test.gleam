@@ -1,0 +1,25 @@
+import oaspec_support as support
+
+pub fn hoist_and_dedup_test() {
+  let _ = support.dedup_resolves_property_name_collision_case()
+  let _ = support.hoist_inline_object_property_case()
+  let _ = support.hoist_inline_oneof_variants_case()
+  let _ = support.hoist_property_provenance_case()
+  let _ = support.hoist_oneof_variant_provenance_case()
+  let _ = support.hoisted_schema_summary_case()
+  let _ = support.hoist_inline_array_items_case()
+  let _ = support.hoist_preserves_refs_case()
+  let _ = support.hoist_preserves_primitives_case()
+  let _ = support.hoist_nested_inline_objects_case()
+  let _ = support.hoist_request_body_inline_object_case()
+  let _ = support.hoist_response_inline_object_case()
+  let _ = support.hoist_idempotent_case()
+  let _ = support.hoist_name_collision_case()
+  let _ = support.hoist_case_normalized_name_collision_case()
+  let _ = support.dedup_resolves_request_param_field_name_collision_case()
+  let _ = support.dedup_param_field_names_reserves_body_label_case()
+  let _ = support.dedup_param_field_names_skips_existing_suffix_case()
+  let _ = support.allof_merge_preserves_additional_properties_case()
+  let _ = support.dedup_preserves_json_wire_name_for_properties_case()
+  let _ = support.dedup_preserves_json_wire_name_for_enums_case()
+}
