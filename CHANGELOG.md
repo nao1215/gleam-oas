@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-05-02
+
+### Added
+
+- first-party JavaScript fetch adapter and an explicit async client transport contract. Document and cover the new JS execution path with a runnable example and CI updates. Closes #347.
+
 ### Changed
 
 - **Internal: add shared schema queries to `Context` and route codegen /
