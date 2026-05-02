@@ -185,6 +185,13 @@ oaspec generate --config=oaspec.yaml
 
 You can also run `gleam run -- generate --config=oaspec.yaml`.
 
+Important: all path-valued config fields (`input`, `output.dir`,
+`output.server`, `output.client`) are resolved relative to the current
+working directory when `oaspec` runs, not relative to the config file
+location. If `oaspec.yaml` lives in a subdirectory, either invoke
+`oaspec` from that directory or write paths relative to the directory
+you run the command from.
+
 ### Runnable examples
 
 Working examples live under [`examples/`](./examples):
