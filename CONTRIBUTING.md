@@ -65,7 +65,7 @@ This project follows these standards:
 4. **Separate concerns** -- types, decoding, transport, and business logic in separate modules
 5. **Add doc comments to all public functions and types**
 6. **No runtime reflection** -- compile-time safety is prioritized
-7. **Respect the core / shell boundary** -- modules listed as "Pure" in [`ARCHITECTURE.md`](./ARCHITECTURE.md) must not gain `simplifile`, `yay`, `glint`, `argv`, or `@external(erlang, ...)` dependencies. If new IO is required, add it in the shell layer and pass the result into the core as a value.
+7. **Keep target-neutral modules target-neutral** -- public runtime modules such as [`src/oaspec/transport.gleam`](./src/oaspec/transport.gleam), [`src/oaspec/mock.gleam`](./src/oaspec/mock.gleam), and the pure codegen / utility modules under `src/oaspec/internal/` should not gain `simplifile`, `yay`, `glint`, `argv`, or BEAM-only `@external(erlang, ...)` dependencies. If new IO is required, add it at the CLI / parser / writer boundary and pass the result inward as a value.
 
 ### Writing Tests
 
