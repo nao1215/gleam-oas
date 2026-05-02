@@ -76,10 +76,19 @@ sync-check:
 adapter-httpc:
   cd adapters/httpc && gleam build --warnings-as-errors
 
+# Build and test the JavaScript fetch adapter (sibling package).
+adapter-fetch:
+  cd adapters/fetch && gleam deps download && gleam build --warnings-as-errors
+
 # Regenerate and run the petstore client example.
 example-petstore:
   gleam run -- generate --config=examples/petstore_client/oaspec.yaml
   cd examples/petstore_client && gleam deps download && gleam build --warnings-as-errors && gleam run
+
+# Regenerate and run the petstore client example on the JavaScript target.
+example-petstore-fetch:
+  gleam run -- generate --config=examples/petstore_client_fetch/oaspec.yaml
+  cd examples/petstore_client_fetch && gleam deps download && gleam build --warnings-as-errors && gleam run
 
 # Run the server_adapter example. `handlers.gleam` is hand-written and
 # committed, so we do NOT regenerate here (generation would overwrite it).

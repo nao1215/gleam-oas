@@ -71,6 +71,15 @@ jobs:
         run: |
           cd adapters/httpc && gleam deps download && gleam build --warnings-as-errors
 
+      - name: Adapter — oaspec_fetch
+        run: |
+          cd adapters/fetch && gleam deps download && gleam build --warnings-as-errors
+
+      - name: Example — petstore client fetch (target=javascript)
+        run: |
+          gleam run -- generate --config=examples/petstore_client_fetch/oaspec.yaml
+          cd examples/petstore_client_fetch && gleam deps download && gleam build --warnings-as-errors && gleam run
+
       - name: Example — js_smoke (target=javascript)
         run: |
           cd examples/js_smoke && gleam deps download && gleam run

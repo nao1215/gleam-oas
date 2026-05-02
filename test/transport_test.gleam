@@ -44,6 +44,23 @@ fn echo_to_response() -> fn(Request) -> Result(Response, TransportError) {
   }
 }
 
+fn echo_to_async_response() -> fn(Request) ->
+  transport.Async(Result(Response, TransportError)) {
+  fn(req: Request) {
+    let base_url_header = case req.base_url {
+      Some(url) -> [#("x-base-url", url)]
+      None -> []
+    }
+    transport.resolve(
+      Ok(Response(
+        status: 200,
+        headers: list.append(req.headers, base_url_header),
+        body: TextBody(req.path),
+      )),
+    )
+  }
+}
+
 // echo_query_send encodes the request query as `k=v&k=v` in the body
 // so query-mutation tests can assert on the wire shape.
 fn echo_query_send() -> fn(Request) -> Result(Response, TransportError) {
@@ -100,6 +117,17 @@ pub fn with_base_url_sets_when_missing_test() {
   resp.headers
   |> list.key_find("x-base-url")
   |> should.equal(Ok("https://api.test"))
+}
+
+pub fn with_base_url_async_send_test() {
+  let send =
+    transport.with_base_url(echo_to_async_response(), "https://async.test")
+  transport.run(send(empty_request()), fn(result) {
+    let assert Ok(resp) = result
+    resp.headers
+    |> list.key_find("x-base-url")
+    |> should.equal(Ok("https://async.test"))
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +348,28 @@ pub fn with_security_query_appends_to_existing_test() {
 }
 
 // ---------------------------------------------------------------------------
+// async helpers
+// ---------------------------------------------------------------------------
+
+pub fn async_from_callback_and_map_test() {
+  transport.from_callback(fn(done) { done(1) })
+  |> transport.map(fn(value) { value + 1 })
+  |> transport.run(fn(result) { result |> should.equal(2) })
+}
+
+pub fn async_await_test() {
+  transport.resolve(1)
+  |> transport.await(fn(value) { transport.resolve(value + 1) })
+  |> transport.run(fn(result) { result |> should.equal(2) })
+}
+
+pub fn async_map_try_test() {
+  transport.resolve(Ok(1))
+  |> transport.map_try(fn(value) { Ok(value + 1) })
+  |> transport.run(fn(result) { result |> should.equal(Ok(2)) })
+}
+
+// ---------------------------------------------------------------------------
 // mock module
 // ---------------------------------------------------------------------------
 
@@ -328,6 +378,24 @@ pub fn mock_text_test() {
   let assert Ok(resp) = send(empty_request())
   resp.status |> should.equal(200)
   resp.body |> should.equal(TextBody("hello"))
+}
+
+pub fn mock_text_async_test() {
+  let send = mock.text_async(200, "hello")
+  transport.run(send(empty_request()), fn(result) {
+    let assert Ok(resp) = result
+    resp.status |> should.equal(200)
+    resp.body |> should.equal(TextBody("hello"))
+  })
+}
+
+pub fn mock_bytes_async_test() {
+  let send = mock.bytes_async(201, <<1, 2, 3>>)
+  transport.run(send(empty_request()), fn(result) {
+    let assert Ok(resp) = result
+    resp.status |> should.equal(201)
+    resp.body |> should.equal(BytesBody(<<1, 2, 3>>))
+  })
 }
 
 pub fn mock_bytes_test() {
@@ -344,16 +412,39 @@ pub fn mock_empty_test() {
   resp.body |> should.equal(EmptyBody)
 }
 
+pub fn mock_empty_async_test() {
+  let send = mock.empty_async(204)
+  transport.run(send(empty_request()), fn(result) {
+    let assert Ok(resp) = result
+    resp.status |> should.equal(204)
+    resp.body |> should.equal(EmptyBody)
+  })
+}
+
 pub fn mock_timeout_test() {
   let send = mock.timeout()
   let assert Error(e) = send(empty_request())
   e |> should.equal(transport.Timeout)
 }
 
+pub fn mock_timeout_async_test() {
+  let send = mock.timeout_async()
+  transport.run(send(empty_request()), fn(result) {
+    result |> should.equal(Error(transport.Timeout))
+  })
+}
+
 pub fn mock_fail_test() {
   let send = mock.fail(transport.ConnectionFailed("boom"))
   let assert Error(e) = send(empty_request())
   e |> should.equal(transport.ConnectionFailed("boom"))
+}
+
+pub fn mock_fail_async_test() {
+  let send = mock.fail_async(transport.ConnectionFailed("boom"))
+  transport.run(send(empty_request()), fn(result) {
+    result |> should.equal(Error(transport.ConnectionFailed("boom")))
+  })
 }
 
 pub fn mock_from_inspects_request_test() {
@@ -370,4 +461,30 @@ pub fn mock_from_inspects_request_test() {
   resp.headers
   |> list.key_find("x-method")
   |> should.equal(Ok("GET"))
+}
+
+pub fn mock_from_async_inspects_request_test() {
+  let send =
+    mock.from_async(fn(req) {
+      transport.resolve(
+        Ok(Response(
+          status: 200,
+          headers: [#("x-method", method_to_string(req.method))],
+          body: TextBody(req.path),
+        )),
+      )
+    })
+  transport.run(send(empty_request()), fn(result) {
+    let assert Ok(resp) = result
+    resp.body |> should.equal(TextBody("/pets"))
+    resp.headers
+    |> list.key_find("x-method")
+    |> should.equal(Ok("GET"))
+  })
+}
+
+pub fn async_try_await_short_circuits_error_test() {
+  transport.resolve(Error("boom"))
+  |> transport.try_await(fn(_value) { transport.resolve(Ok("should not run")) })
+  |> transport.run(fn(result) { result |> should.equal(Error("boom")) })
 }

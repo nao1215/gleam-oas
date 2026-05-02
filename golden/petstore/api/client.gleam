@@ -42,6 +42,19 @@ fn text_body(body: transport.Body) -> Result(String, ClientError) {
   }
 }
 
+fn await_response(
+  response_async: transport.Async(
+    Result(transport.Response, transport.TransportError),
+  ),
+  decode: fn(transport.Response) -> Result(a, ClientError),
+) -> transport.Async(Result(a, ClientError)) {
+  response_async
+  |> transport.map(fn(resp_result) {
+    resp_result |> result.map_error(TransportError)
+  })
+  |> transport.map_try(decode)
+}
+
 /// List all pets
 /// Returns all pets from the system
 pub fn list_pets(
@@ -55,6 +68,18 @@ pub fn list_pets(
     |> result.map_error(TransportError),
   )
   decode_list_pets_response(resp)
+}
+
+/// Async transport variant of list_pets. Resolves to the typed response or a client error.
+pub fn list_pets_async(
+  async_send async_send: transport.AsyncSend,
+  limit limit: Option(Int),
+  offset offset: Option(Int),
+) -> transport.Async(Result(response_types.ListPetsResponse, ClientError)) {
+  case build_list_pets_request(limit: limit, offset: offset) {
+    Ok(req) -> await_response(async_send(req), decode_list_pets_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for list_pets without sending it. Useful for testing and for adding custom transport middleware.
@@ -119,6 +144,14 @@ pub fn list_pets_with_request(
   list_pets(send, request.limit, request.offset)
 }
 
+/// Async request-object wrapper. Delegates to list_pets_async with fields unpacked from the request record.
+pub fn list_pets_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.ListPetsRequest,
+) -> transport.Async(Result(response_types.ListPetsResponse, ClientError)) {
+  list_pets_async(async_send, request.limit, request.offset)
+}
+
 /// Create a pet
 /// Creates a new pet in the store
 pub fn create_pet(
@@ -131,6 +164,17 @@ pub fn create_pet(
     |> result.map_error(TransportError),
   )
   decode_create_pet_response(resp)
+}
+
+/// Async transport variant of create_pet. Resolves to the typed response or a client error.
+pub fn create_pet_async(
+  async_send async_send: transport.AsyncSend,
+  body body: types.CreatePetRequest,
+) -> transport.Async(Result(response_types.CreatePetResponse, ClientError)) {
+  case build_create_pet_request(body: body) {
+    Ok(req) -> await_response(async_send(req), decode_create_pet_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for create_pet without sending it. Useful for testing and for adding custom transport middleware.
@@ -192,6 +236,14 @@ pub fn create_pet_with_request(
   create_pet(send, request.body)
 }
 
+/// Async request-object wrapper. Delegates to create_pet_async with fields unpacked from the request record.
+pub fn create_pet_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.CreatePetRequest,
+) -> transport.Async(Result(response_types.CreatePetResponse, ClientError)) {
+  create_pet_async(async_send, request.body)
+}
+
 /// Get a pet by ID
 /// Returns a single pet by its ID
 pub fn get_pet(
@@ -204,6 +256,17 @@ pub fn get_pet(
     |> result.map_error(TransportError),
   )
   decode_get_pet_response(resp)
+}
+
+/// Async transport variant of get_pet. Resolves to the typed response or a client error.
+pub fn get_pet_async(
+  async_send async_send: transport.AsyncSend,
+  pet_id pet_id: Int,
+) -> transport.Async(Result(response_types.GetPetResponse, ClientError)) {
+  case build_get_pet_request(pet_id: pet_id) {
+    Ok(req) -> await_response(async_send(req), decode_get_pet_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for get_pet without sending it. Useful for testing and for adding custom transport middleware.
@@ -261,6 +324,14 @@ pub fn get_pet_with_request(
   get_pet(send, request.pet_id)
 }
 
+/// Async request-object wrapper. Delegates to get_pet_async with fields unpacked from the request record.
+pub fn get_pet_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.GetPetRequest,
+) -> transport.Async(Result(response_types.GetPetResponse, ClientError)) {
+  get_pet_async(async_send, request.pet_id)
+}
+
 /// Delete a pet
 /// Deletes a pet by its ID
 pub fn delete_pet(
@@ -273,6 +344,17 @@ pub fn delete_pet(
     |> result.map_error(TransportError),
   )
   decode_delete_pet_response(resp)
+}
+
+/// Async transport variant of delete_pet. Resolves to the typed response or a client error.
+pub fn delete_pet_async(
+  async_send async_send: transport.AsyncSend,
+  pet_id pet_id: Int,
+) -> transport.Async(Result(response_types.DeletePetResponse, ClientError)) {
+  case build_delete_pet_request(pet_id: pet_id) {
+    Ok(req) -> await_response(async_send(req), decode_delete_pet_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for delete_pet without sending it. Useful for testing and for adding custom transport middleware.
@@ -321,4 +403,12 @@ pub fn delete_pet_with_request(
   request request: request_types.DeletePetRequest,
 ) -> Result(response_types.DeletePetResponse, ClientError) {
   delete_pet(send, request.pet_id)
+}
+
+/// Async request-object wrapper. Delegates to delete_pet_async with fields unpacked from the request record.
+pub fn delete_pet_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.DeletePetRequest,
+) -> transport.Async(Result(response_types.DeletePetResponse, ClientError)) {
+  delete_pet_async(async_send, request.pet_id)
 }

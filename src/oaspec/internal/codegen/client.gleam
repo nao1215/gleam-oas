@@ -79,6 +79,10 @@ fn generate_client(ctx: Context) -> String {
     True -> generate_bytes_body_helper(sb)
     False -> sb
   }
+  let sb = case operations {
+    [] -> sb
+    _ -> generate_async_response_helper(sb)
+  }
 
   // Operation functions
   let sb =
@@ -185,6 +189,26 @@ fn generate_bytes_body_helper(sb: se.StringBuilder) -> se.StringBuilder {
   |> se.blank_line()
 }
 
+/// Emit the async helper that maps an async transport result into the
+/// generated response type.
+fn generate_async_response_helper(sb: se.StringBuilder) -> se.StringBuilder {
+  sb
+  |> se.line("fn await_response(")
+  |> se.indent(
+    1,
+    "response_async: transport.Async(Result(transport.Response, transport.TransportError)),",
+  )
+  |> se.indent(1, "decode: fn(transport.Response) -> Result(a, ClientError),")
+  |> se.line(") -> transport.Async(Result(a, ClientError)) {")
+  |> se.indent(1, "response_async")
+  |> se.indent(1, "|> transport.map(fn(resp_result) {")
+  |> se.indent(2, "resp_result |> result.map_error(TransportError)")
+  |> se.indent(1, "})")
+  |> se.indent(1, "|> transport.map_try(decode)")
+  |> se.line("}")
+  |> se.blank_line()
+}
+
 fn emit_simple_query_param(
   sb: se.StringBuilder,
   p: spec.Parameter(Resolved),
@@ -227,8 +251,8 @@ fn http_method_to_transport(method: spec.HttpMethod) -> String {
   }
 }
 
-/// Generate the three-function unit (op + build_*_request + decode_*_response)
-/// for a single operation, plus the request-record wrapper.
+/// Generate the client functions for a single operation: sync and async call
+/// helpers, request builder, response decoder, and request-record wrappers.
 fn generate_client_function(
   sb: se.StringBuilder,
   op_id: String,
@@ -331,6 +355,32 @@ fn generate_client_function(
     |> se.indent(2, "|> result.map_error(TransportError),")
     |> se.indent(1, ")")
     |> se.indent(1, decode_fn <> "(resp)")
+    |> se.line("}")
+    |> se.blank_line()
+
+  let sb =
+    sb
+    |> se.doc_comment(
+      "Async transport variant of "
+      <> fn_name
+      <> ". Resolves to the typed response or a client error.",
+    )
+    |> se.line(
+      "pub fn "
+      <> fn_name
+      <> "_async(async_send async_send: transport.AsyncSend"
+      <> params_signature
+      <> ") -> transport.Async(Result(response_types."
+      <> response_type
+      <> ", ClientError)) {",
+    )
+    |> se.indent(1, "case " <> build_fn <> call_args <> " {")
+    |> se.indent(
+      2,
+      "Ok(req) -> await_response(async_send(req), " <> decode_fn <> ")",
+    )
+    |> se.indent(2, "Error(error) -> transport.resolve(Error(error))")
+    |> se.indent(1, "}")
     |> se.line("}")
     |> se.blank_line()
 
@@ -460,7 +510,7 @@ fn generate_client_function(
     |> se.blank_line()
 
   // ------------------------------------------------------------
-  // 4. <op>_with_request wrapper
+  // 4. <op>_with_request wrapper(s)
   // ------------------------------------------------------------
 
   case
@@ -494,6 +544,26 @@ fn generate_client_function(
         <> ", ClientError) {",
       )
       |> se.indent(1, fn_name <> "(send" <> rebind_request_fields(extra) <> ")")
+      |> se.line("}")
+      |> se.blank_line()
+      |> se.doc_comment(
+        "Async request-object wrapper. Delegates to "
+        <> fn_name
+        <> "_async with fields unpacked from the request record.",
+      )
+      |> se.line(
+        "pub fn "
+        <> fn_name
+        <> "_with_request_async(async_send async_send: transport.AsyncSend, request request: request_types."
+        <> request_type
+        <> ") -> transport.Async(Result(response_types."
+        <> response_type
+        <> ", ClientError)) {",
+      )
+      |> se.indent(
+        1,
+        fn_name <> "_async(async_send" <> rebind_request_fields(extra) <> ")",
+      )
       |> se.line("}")
       |> se.blank_line()
     }

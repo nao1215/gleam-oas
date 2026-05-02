@@ -1,0 +1,13 @@
+name = "petstore_client_fetch_example"
+version = "0.1.0"
+target = "javascript"
+description = "Runnable example: using oaspec-generated Petstore client with the fetch adapter"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+oaspec = { path = "../.." }
+oaspec_fetch = { path = "../../adapters/fetch" }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"

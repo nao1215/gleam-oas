@@ -3,6 +3,7 @@
 /build
 adapters/*/build/
 adapters/*/manifest.toml
+examples/*/build/
 erl_crash.dump
 CLAUDE.md
 .codex
