@@ -2,8 +2,8 @@
 ////
 //// Generated client code depends on this module instead of any concrete
 //// HTTP runtime. Adapters (e.g. `oaspec/httpc`, `oaspec/fetch`) bridge
-//// `Send` to a real runtime; tests can plug in arbitrary fake `Send`
-//// values via `oaspec/mock`.
+//// `Send` / `AsyncSend` to a real runtime; tests can plug in arbitrary
+//// fake transport values via `oaspec/mock`.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -77,6 +77,67 @@ pub type TransportError {
 pub type Send =
   fn(Request) -> Result(Response, TransportError)
 
+pub type AsyncSend =
+  fn(Request) -> Async(Result(Response, TransportError))
+
+/// Cross-target async value used by generated async clients and adapters.
+/// JavaScript adapters can back this with promises; other runtimes can bridge
+/// from callbacks or scheduling primitives.
+pub opaque type Async(value) {
+  Async(register: fn(fn(value) -> Nil) -> Nil)
+}
+
+pub fn from_callback(
+  register register: fn(fn(value) -> Nil) -> Nil,
+) -> Async(value) {
+  Async(register)
+}
+
+pub fn resolve(value value: a) -> Async(a) {
+  Async(fn(done) { done(value) })
+}
+
+pub fn run(async async: Async(a), done done: fn(a) -> Nil) -> Nil {
+  let Async(register) = async
+  register(done)
+}
+
+pub fn map(async async: Async(a), with with_: fn(a) -> b) -> Async(b) {
+  Async(fn(done) { run(async: async, done: fn(value) { done(with_(value)) }) })
+}
+
+pub fn await(async async: Async(a), next next: fn(a) -> Async(b)) -> Async(b) {
+  Async(fn(done) {
+    run(async: async, done: fn(value) { run(async: next(value), done: done) })
+  })
+}
+
+pub fn map_try(
+  async async: Async(Result(a, error)),
+  with with_: fn(a) -> Result(b, error),
+) -> Async(Result(b, error)) {
+  async
+  |> map(fn(result) {
+    case result {
+      Ok(value) -> with_(value)
+      Error(error) -> Error(error)
+    }
+  })
+}
+
+pub fn try_await(
+  async async: Async(Result(a, error)),
+  next next: fn(a) -> Async(Result(b, error)),
+) -> Async(Result(b, error)) {
+  async
+  |> await(fn(result) {
+    case result {
+      Ok(value) -> next(value)
+      Error(error) -> resolve(value: Error(error))
+    }
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Credentials store
 // ---------------------------------------------------------------------------
@@ -142,18 +203,23 @@ fn add_credential(creds: Credentials, entry: CredentialEntry) -> Credentials {
 
 // Override the request's base URL. Always wins over any `base_url` set
 // by the request builder, so callers can target staging / proxy hosts
-// without regenerating clients.
-pub fn with_base_url(send send: Send, base_url base_url: String) -> Send {
+// without regenerating clients. Works with both `transport.Send` and
+// `transport.AsyncSend`.
+pub fn with_base_url(
+  send send: fn(Request) -> a,
+  base_url base_url: String,
+) -> fn(Request) -> a {
   fn(req: Request) { send(Request(..req, base_url: Some(base_url))) }
 }
 
 // Inject a single header when the request does not already declare it.
-// Explicit request headers win — middleware never clobbers them.
+// Explicit request headers win — middleware never clobbers them, and the
+// helper works with both sync and async send functions.
 pub fn with_default_header(
-  send send: Send,
+  send send: fn(Request) -> a,
   name name: String,
   value value: String,
-) -> Send {
+) -> fn(Request) -> a {
   fn(req: Request) {
     case has_header(req.headers, name) {
       True -> send(req)
@@ -165,12 +231,13 @@ pub fn with_default_header(
   }
 }
 
-// Inject a list of default headers. Iteration order is preserved so
-// callers get deterministic ordering on the wire.
+// Inject a list of default headers. Iteration order is preserved so callers
+// get deterministic ordering on the wire, and the helper works with both sync
+// and async send functions.
 pub fn with_default_headers(
-  send send: Send,
+  send send: fn(Request) -> a,
   headers headers: List(#(String, String)),
-) -> Send {
+) -> fn(Request) -> a {
   fn(req: Request) {
     let merged =
       list.fold(headers, req.headers, fn(acc, kv) {
@@ -190,8 +257,11 @@ pub fn with_default_headers(
 // outbound request (header / query / cookie as required by the
 // scheme). If no alternative is satisfiable, the request is forwarded
 // unchanged — server-side rejection then surfaces as
-// `UnexpectedStatus`.
-pub fn with_security(send send: Send, credentials creds: Credentials) -> Send {
+// `UnexpectedStatus`. Works with both sync and async send functions.
+pub fn with_security(
+  send send: fn(Request) -> a,
+  credentials creds: Credentials,
+) -> fn(Request) -> a {
   fn(req: Request) {
     let prepared = case pick_alternative(req.security, creds) {
       Some(alt) -> apply_alternative(req: req, alt: alt, creds: creds)

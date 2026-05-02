@@ -53,6 +53,9 @@ examples/petstore_client/
 
 ## Related examples
 
+- [`examples/petstore_client_fetch`](../petstore_client_fetch/) — the same
+  Petstore client flow on the JavaScript target using the first-party
+  fetch adapter.
 - [`examples/server_adapter`](../server_adapter/) — a framework-free runnable
   example that bridges the generated `router.route/5` to a canned
   request/response pair. Run it with `just example-server-adapter`.

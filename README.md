@@ -11,7 +11,7 @@ Generate usable Gleam code from OpenAPI 3.x specifications.
 - Generate client and server-side modules from a single spec
 - Produce readable Gleam types, encoders, decoders, request types, and response types
 - Handle real-world OpenAPI patterns: unions, nullable fields, `additionalProperties`, form bodies, multipart, and security
-- Backed by 317 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 240 test fixtures (including 98 OSS-derived edge-case specs)
+- Backed by 328 unit tests, ShellSpec CLI tests, 40 integration compile tests, and 240 test fixtures (including 98 OSS-derived edge-case specs)
 
 ## Why oaspec?
 
@@ -190,13 +190,15 @@ You can also run `gleam run -- generate --config=oaspec.yaml`.
 Working examples live under [`examples/`](./examples):
 
 - [`examples/petstore_client`](./examples/petstore_client) — minimal client usage against a canned HTTP transport. Run it from the repo root with `just example-petstore`.
+- [`examples/petstore_client_fetch`](./examples/petstore_client_fetch) — JavaScript-target client usage through the first-party fetch adapter. Run it from the repo root with `just example-petstore-fetch`.
 - [`examples/server_adapter`](./examples/server_adapter) — wires the generated `router.route/5` to a framework-free adapter. Run it from the repo root with `just example-server-adapter`.
 
 ### Client transport
 
 Generated clients depend on a tiny pure runtime (`oaspec/transport`)
-instead of any specific HTTP library. Operations take a `transport.Send`
-function value, so the same generated code runs against real HTTP, fakes,
+instead of any specific HTTP library. Operations expose both synchronous
+`transport.Send` entry points and asynchronous `transport.AsyncSend`
+variants, so the same generated code runs against real HTTP, fakes,
 or any future runtime:
 
 ```gleam
@@ -215,8 +217,28 @@ let send =
 let result = client.list_pets(send, limit: Some(10), offset: None)
 ```
 
+On the JavaScript target, use the async variant with the first-party
+fetch adapter:
+
+```gleam
+import api/client
+import oaspec/fetch
+import oaspec/transport
+
+let send =
+  fetch.send
+  |> transport.with_base_url(client.default_base_url())
+
+client.list_pets_async(send, limit: Some(10), offset: None)
+|> transport.run(fn(result) {
+  let _ = result
+  Nil
+})
+```
+
 Each operation also exposes `build_<op>_request` and
-`decode_<op>_response` helpers so callers can drive the request and
+`decode_<op>_response` helpers, plus request-object wrappers for both
+sync and async call paths, so callers can drive the request and
 response halves independently — useful for retry middleware, logging,
 or testing decoding in isolation.
 
@@ -232,19 +254,20 @@ let assert Ok(_) = client.list_pets(send, limit: None, offset: None)
 The pure runtime supplies middleware for base URL override, default
 headers, and OpenAPI security (`with_security` walks the request's
 declared OR-of-AND alternatives and applies the first one whose
-required schemes have credentials).
+required schemes have credentials). The same `with_*` middleware works
+for both `transport.Send` and `transport.AsyncSend`.
 
-Adapters that bridge `transport.Send` to a real runtime live as
+Adapters that bridge `transport.Send` / `transport.AsyncSend` to a real
+runtime live as
 sibling Gleam packages under [`adapters/`](./adapters), so the root
 `oaspec` package never depends on `gleam_httpc` or any specific
 HTTP runtime:
 
 - `oaspec_httpc` (`adapters/httpc/`) — BEAM adapter backed by
   `gleam_httpc`.
-
-A JavaScript fetch adapter is tracked as a follow-up — JS `fetch` is
-Promise-based, which doesn't compose with the synchronous
-`transport.Send` shape without a separate async variant.
+- `oaspec_fetch` (`adapters/fetch/`) — JavaScript adapter backed by
+  `gleam_fetch`, with helpers to bridge `transport.Async` and native
+  JavaScript promises.
 
 ## Configuration
 

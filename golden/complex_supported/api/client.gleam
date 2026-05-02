@@ -40,6 +40,19 @@ fn text_body(body: transport.Body) -> Result(String, ClientError) {
   }
 }
 
+fn await_response(
+  response_async: transport.Async(
+    Result(transport.Response, transport.TransportError),
+  ),
+  decode: fn(transport.Response) -> Result(a, ClientError),
+) -> transport.Async(Result(a, ClientError)) {
+  response_async
+  |> transport.map(fn(resp_result) {
+    resp_result |> result.map_error(TransportError)
+  })
+  |> transport.map_try(decode)
+}
+
 /// Demonstrate required query / header / cookie params
 pub fn get_required_params(
   send send: transport.Send,
@@ -59,6 +72,30 @@ pub fn get_required_params(
     |> result.map_error(TransportError),
   )
   decode_get_required_params_response(resp)
+}
+
+/// Async transport variant of get_required_params. Resolves to the typed response or a client error.
+pub fn get_required_params_async(
+  async_send async_send: transport.AsyncSend,
+  tenant tenant: String,
+  page page: Int,
+  x_trace_id x_trace_id: String,
+  session session: String,
+) -> transport.Async(
+  Result(response_types.GetRequiredParamsResponse, ClientError),
+) {
+  case
+    build_get_required_params_request(
+      tenant: tenant,
+      page: page,
+      x_trace_id: x_trace_id,
+      session: session,
+    )
+  {
+    Ok(req) ->
+      await_response(async_send(req), decode_get_required_params_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for get_required_params without sending it. Useful for testing and for adding custom transport middleware.
@@ -125,6 +162,22 @@ pub fn get_required_params_with_request(
   )
 }
 
+/// Async request-object wrapper. Delegates to get_required_params_async with fields unpacked from the request record.
+pub fn get_required_params_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.GetRequiredParamsRequest,
+) -> transport.Async(
+  Result(response_types.GetRequiredParamsResponse, ClientError),
+) {
+  get_required_params_async(
+    async_send,
+    request.tenant,
+    request.page,
+    request.x_trace_id,
+    request.session,
+  )
+}
+
 /// Complex search
 pub fn post_search(
   send send: transport.Send,
@@ -136,6 +189,17 @@ pub fn post_search(
     |> result.map_error(TransportError),
   )
   decode_post_search_response(resp)
+}
+
+/// Async transport variant of post_search. Resolves to the typed response or a client error.
+pub fn post_search_async(
+  async_send async_send: transport.AsyncSend,
+  body body: Option(types.PostSearchRequest),
+) -> transport.Async(Result(response_types.PostSearchResponse, ClientError)) {
+  case build_post_search_request(body: body) {
+    Ok(req) -> await_response(async_send(req), decode_post_search_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for post_search without sending it. Useful for testing and for adding custom transport middleware.
@@ -196,6 +260,14 @@ pub fn post_search_with_request(
   post_search(send, request.body)
 }
 
+/// Async request-object wrapper. Delegates to post_search_async with fields unpacked from the request record.
+pub fn post_search_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.PostSearchRequest,
+) -> transport.Async(Result(response_types.PostSearchResponse, ClientError)) {
+  post_search_async(async_send, request.body)
+}
+
 /// Get user with polymorphic response
 pub fn get_user(
   send send: transport.Send,
@@ -207,6 +279,17 @@ pub fn get_user(
     |> result.map_error(TransportError),
   )
   decode_get_user_response(resp)
+}
+
+/// Async transport variant of get_user. Resolves to the typed response or a client error.
+pub fn get_user_async(
+  async_send async_send: transport.AsyncSend,
+  user_id user_id: String,
+) -> transport.Async(Result(response_types.GetUserResponse, ClientError)) {
+  case build_get_user_request(user_id: user_id) {
+    Ok(req) -> await_response(async_send(req), decode_get_user_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for get_user without sending it. Useful for testing and for adding custom transport middleware.
@@ -269,6 +352,14 @@ pub fn get_user_with_request(
   get_user(send, request.user_id)
 }
 
+/// Async request-object wrapper. Delegates to get_user_async with fields unpacked from the request record.
+pub fn get_user_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.GetUserRequest,
+) -> transport.Async(Result(response_types.GetUserResponse, ClientError)) {
+  get_user_async(async_send, request.user_id)
+}
+
 /// Receive webhook
 pub fn post_webhook(
   send send: transport.Send,
@@ -280,6 +371,17 @@ pub fn post_webhook(
     |> result.map_error(TransportError),
   )
   decode_post_webhook_response(resp)
+}
+
+/// Async transport variant of post_webhook. Resolves to the typed response or a client error.
+pub fn post_webhook_async(
+  async_send async_send: transport.AsyncSend,
+  body body: Option(types.WebhookEvent),
+) -> transport.Async(Result(response_types.PostWebhookResponse, ClientError)) {
+  case build_post_webhook_request(body: body) {
+    Ok(req) -> await_response(async_send(req), decode_post_webhook_response)
+    Error(error) -> transport.resolve(Error(error))
+  }
 }
 
 /// Build the transport request for post_webhook without sending it. Useful for testing and for adding custom transport middleware.
@@ -331,4 +433,12 @@ pub fn post_webhook_with_request(
   request request: request_types.PostWebhookRequest,
 ) -> Result(response_types.PostWebhookResponse, ClientError) {
   post_webhook(send, request.body)
+}
+
+/// Async request-object wrapper. Delegates to post_webhook_async with fields unpacked from the request record.
+pub fn post_webhook_with_request_async(
+  async_send async_send: transport.AsyncSend,
+  request request: request_types.PostWebhookRequest,
+) -> transport.Async(Result(response_types.PostWebhookResponse, ClientError)) {
+  post_webhook_async(async_send, request.body)
 }

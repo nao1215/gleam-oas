@@ -12,8 +12,8 @@ Today the released artifact is an Erlang escript and the package is pinned to
 `target = "erlang"` in `gleam.toml`, but understanding what is structurally
 pure versus what is coupled to BEAM makes future work tractable: a
 JavaScript-target build of the analysis core, alternative front-ends (editor
-integrations, browser-based spec tooling), and the JavaScript fetch transport
-adapter tracked in #347.
+integrations, browser-based spec tooling), and target-specific transport
+adapters such as the JavaScript fetch package under `adapters/fetch/`.
 
 This document is **descriptive**, not prescriptive. It captures the current
 state. It does not commit the project to any particular split.
@@ -115,7 +115,7 @@ Transport adapters live as sibling Gleam packages under `adapters/`:
 
 - `adapters/httpc/` — BEAM HTTP adapter wrapping `gleam_httpc`. Imports
   Erlang's `httpc`, BEAM-only.
-- A JavaScript `fetch` adapter is tracked in #347.
+- `adapters/fetch/` — JavaScript HTTP adapter wrapping `gleam_fetch`.
 
 Adapters depend on `oaspec/transport.gleam` (pure) but the runtime they
 bridge to is target-specific. The root `oaspec` package never depends on a
@@ -183,16 +183,14 @@ not deleting them.
 
 ## Future direction
 
-This document only captures today's boundaries. The follow-up work is
-tracked under #344 and #347 and is, briefly:
+This document only captures today's boundaries. The remaining follow-up work
+is tracked under #344 and is, briefly:
 
 - Replace the `yay`-typed boundary inside the analysis core with a
   target-neutral spec value type, so the pure subgraph above is genuinely
   cross-target. (Largest piece of #344.)
 - Add a CI job that compiles the pure core with `target = "javascript"` to
   catch regressions. (Last bullet of #344.)
-- Build out a JavaScript transport adapter and the async transport contract
-  it requires. (#347.)
 
 Pull requests touching the modules listed under "Pure" in this document
 should aim to keep them pure: avoid adding `simplifile`, `yay`, `glint`,
